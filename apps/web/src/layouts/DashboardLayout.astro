@@ -1,0 +1,38 @@
+---
+import "../styles/global.css";
+import Sidebar from "../components/astro/Sidebar.astro";
+import Header from "../components/astro/Header.astro";
+import Toast from "../components/svelte/Toast.svelte";
+import CommandPalette from "../components/svelte/CommandPalette.svelte";
+
+interface Props {
+  title?: string;
+}
+
+const { title = "Dashboard" } = Astro.props;
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="icon" href="/favicon.ico" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="generator" content={Astro.generator} />
+    <title>{title} · Odysight CRM</title>
+  </head>
+  <body class="bg-slate-50 text-slate-900 antialiased">
+    <Sidebar />
+
+    <div class="flex min-h-screen flex-col lg:pl-64">
+      <Header title={title} />
+      <main class="flex-1 p-4 sm:p-6">
+        <slot />
+      </main>
+    </div>
+
+    <Toast client:load />
+    <CommandPalette client:load />
+  </body>
+</html>

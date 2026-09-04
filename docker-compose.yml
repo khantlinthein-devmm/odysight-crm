@@ -1,0 +1,21 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    container_name: odysight-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: odysight_crm
+    ports:
+      - "5433:5432"
+    volumes:
+      - odysight_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U user -d odysight_crm"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  odysight_pgdata:

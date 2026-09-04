@@ -1,0 +1,12 @@
+---
+import DashboardLayout from "../../layouts/DashboardLayout.astro";
+import LeadDetails from "../../components/vue/leads/LeadDetails.vue";
+
+export const prerender = false;
+
+const { id } = Astro.params;
+---
+
+<DashboardLayout title={`Lead #${id}`}>
+  <LeadDetails client:load leadId={Number(id)} />
+</DashboardLayout>

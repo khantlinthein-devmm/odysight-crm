@@ -1,0 +1,143 @@
+---
+import AuthLayout from "../layouts/AuthLayout.astro";
+---
+
+<AuthLayout title="Sign in">
+  <div class="w-full max-w-md px-4">
+    <div class="mb-8 flex flex-col items-center gap-3">
+      <div
+        class="flex h-12 w-12 items-center justify-center rounded-xl bg-indigo-600"
+      >
+        <svg
+          class="h-6 w-6 text-white"
+          fill="none"
+          viewBox="0 0 24 24"
+          stroke="currentColor"
+          stroke-width="2"
+        >
+          <path
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            d="M13 10V3L4 14h7v7l9-11h-7z"></path>
+        </svg>
+      </div>
+      <div class="text-center">
+        <h1 class="text-2xl font-semibold text-slate-900">Odysight CRM</h1>
+        <p class="mt-1 text-sm text-slate-500">
+          Sign in to your account to continue
+        </p>
+      </div>
+    </div>
+
+    <form
+      id="login-form"
+      class="rounded-xl border border-slate-200 bg-white p-6 shadow-sm"
+    >
+      <div class="space-y-4">
+        <div>
+          <label
+            class="mb-1 block text-sm font-medium text-slate-700"
+            for="email">Email</label
+          >
+          <input
+            id="email"
+            name="email"
+            type="email"
+            required
+            autocomplete="email"
+            placeholder="you@company.com"
+            class="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 placeholder-slate-400 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+          />
+        </div>
+
+        <div>
+          <label
+            class="mb-1 block text-sm font-medium text-slate-700"
+            for="password">Password</label
+          >
+          <input
+            id="password"
+            name="password"
+            type="password"
+            required
+            autocomplete="current-password"
+            placeholder="••••••••"
+            class="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 placeholder-slate-400 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+          />
+        </div>
+
+        <div class="flex items-center justify-between">
+          <label class="flex items-center gap-2 text-sm text-slate-600">
+            <input
+              type="checkbox"
+              class="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+            />
+            Remember me
+          </label>
+          <a
+            href="#"
+            class="text-sm font-medium text-indigo-600 hover:text-indigo-700"
+            >Forgot password?</a
+          >
+        </div>
+
+        <p
+          id="login-error"
+          class="hidden rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700"
+        >
+        </p>
+
+        <button
+          id="login-submit"
+          type="submit"
+          class="w-full rounded-lg bg-indigo-600 py-2.5 text-sm font-semibold text-white hover:bg-indigo-700 disabled:opacity-50"
+        >
+          Sign in
+        </button>
+      </div>
+    </form>
+
+    <p class="mt-6 text-center text-xs text-slate-400">
+      Demo credentials: admin@example.com / admin123 · sales@example.com /
+      sales123
+    </p>
+  </div>
+
+  <script>
+    import { login } from "../lib/auth";
+
+    const form = document.getElementById(
+      "login-form",
+    ) as HTMLFormElement | null;
+    const errorEl = document.getElementById("login-error");
+    const submitBtn = document.getElementById(
+      "login-submit",
+    ) as HTMLButtonElement | null;
+
+    function showError(message: string) {
+      if (!errorEl) return;
+      errorEl.textContent = message;
+      errorEl.classList.remove("hidden");
+    }
+
+    form?.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      if (!errorEl || !submitBtn) return;
+
+      errorEl.classList.add("hidden");
+      submitBtn.disabled = true;
+      const data = new FormData(form);
+      const email = String(data.get("email") ?? "");
+      const password = String(data.get("password") ?? "");
+
+      try {
+        await login(email, password);
+        const params = new URLSearchParams(window.location.search);
+        window.location.href = params.get("next") ?? "/dashboard";
+      } catch (err) {
+        showError(err instanceof Error ? err.message : "Sign in failed");
+        submitBtn.disabled = false;
+      }
+    });
+  </script>
+</AuthLayout>

@@ -1,0 +1,8 @@
+---
+import DashboardLayout from "../../layouts/DashboardLayout.astro";
+import ApplicantTable from "../../components/vue/applicants/ApplicantTable.vue";
+---
+
+<DashboardLayout title="Applicants">
+  <ApplicantTable client:load />
+</DashboardLayout>
