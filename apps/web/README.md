@@ -1,4 +1,4 @@
-# Odysight CRM
+# Smile Clean CRM
 
 A modern CRM platform being migrated from **AdminJS + Node.js** to a modular architecture built with:
 
@@ -16,7 +16,7 @@ A modern CRM platform being migrated from **AdminJS + Node.js** to a modular arc
 
 # 1. Project Goal
 
-Odysight CRM is an existing CRM application currently based on:
+Smile Clean Thailand is a Bangkok cleaning services company (house/condo/deep cleaning, move in/out, after renovation, junk removal, office cleaning, aircon service). This repo is an end-to-end CRM for it, built with:
 
 ```text
 AdminJS
@@ -118,9 +118,10 @@ Use Vue for complex business interfaces such as:
 - Search
 - Pagination
 - Lead management
-- Applicant management
-- Visa case management
-- Document management
+- Customer management
+- Booking management
+- Cleaner management
+- Service record management
 - Payment management
 - Complex dialogs
 - Business workflows
@@ -136,20 +137,21 @@ src/components/vue/
 │   ├── LeadDetails.vue
 │   └── LeadFilters.vue
 │
-├── applicants/
-│   ├── ApplicantTable.vue
-│   ├── ApplicantForm.vue
-│   └── ApplicantDetails.vue
+├── customers/
+│   ├── CustomerTable.vue
+│   └── CustomerForm.vue
 │
-├── visa-cases/
-│   ├── VisaCaseTable.vue
-│   ├── VisaCaseForm.vue
-│   └── VisaCaseTimeline.vue
+├── bookings/
+│   ├── BookingTable.vue
+│   └── BookingForm.vue
 │
-├── documents/
-│   ├── DocumentTable.vue
-│   ├── DocumentUpload.vue
-│   └── DocumentViewer.vue
+├── cleaners/
+│   ├── CleanerTable.vue
+│   └── CleanerForm.vue
+│
+├── service-records/
+│   ├── ServiceRecordTable.vue
+│   └── ServiceRecordForm.vue
 │
 └── payments/
     ├── PaymentTable.vue
@@ -248,9 +250,10 @@ apps/api/
 │   ├── auth/
 │   ├── users/
 │   ├── leads/
-│   ├── applicants/
-│   ├── visa_cases/
-│   ├── documents/
+│   ├── customers/
+│   ├── cleaners/
+│   ├── bookings/
+│   ├── service_records/
 │   ├── payments/
 │   ├── activities/
 │   ├── notifications/
@@ -405,32 +408,42 @@ PATCH  /api/v1/leads/:id
 DELETE /api/v1/leads/:id
 ```
 
-## Applicants
+## Customers
 
 ```text
-GET    /api/v1/applicants
-GET    /api/v1/applicants/:id
-POST   /api/v1/applicants
-PATCH  /api/v1/applicants/:id
-DELETE /api/v1/applicants/:id
+GET    /api/v1/customers
+GET    /api/v1/customers/:id
+POST   /api/v1/customers
+PATCH  /api/v1/customers/:id
+DELETE /api/v1/customers/:id
 ```
 
-## Visa Cases
+## Cleaners
 
 ```text
-GET    /api/v1/visa-cases
-GET    /api/v1/visa-cases/:id
-POST   /api/v1/visa-cases
-PATCH  /api/v1/visa-cases/:id
+GET    /api/v1/cleaners
+GET    /api/v1/cleaners/:id
+POST   /api/v1/cleaners
+PATCH  /api/v1/cleaners/:id
+DELETE /api/v1/cleaners/:id
 ```
 
-## Documents
+## Bookings
 
 ```text
-GET    /api/v1/documents
-GET    /api/v1/documents/:id
-POST   /api/v1/documents
-DELETE /api/v1/documents/:id
+GET    /api/v1/bookings
+GET    /api/v1/bookings/:id
+POST   /api/v1/bookings
+PATCH  /api/v1/bookings/:id
+```
+
+## Service Records
+
+```text
+GET    /api/v1/service-records
+GET    /api/v1/service-records/:id
+POST   /api/v1/service-records
+PATCH  /api/v1/service-records/:id
 ```
 
 ## Payments
@@ -513,9 +526,10 @@ src/lib/
 ├── api.ts
 ├── auth.ts
 ├── leads.ts
-├── applicants.ts
-├── visa-cases.ts
-└── documents.ts
+├── customers.ts
+├── cleaners.ts
+├── bookings.ts
+└── service-records.ts
 ```
 
 Example:
@@ -548,9 +562,9 @@ Initial roles:
 SUPER_ADMIN
 ADMIN
 MANAGER
-SALES
-STAFF
+DISPATCH
 ACCOUNTANT
+CLEANER
 ```
 
 Permissions should be granular.
@@ -563,17 +577,22 @@ leads.create
 leads.update
 leads.delete
 
-applicants.read
-applicants.create
-applicants.update
+customers.read
+customers.create
+customers.update
+customers.delete
 
-visa_cases.read
-visa_cases.create
-visa_cases.update
+bookings.read
+bookings.create
+bookings.update
 
-documents.read
-documents.upload
-documents.delete
+cleaners.read
+cleaners.create
+cleaners.update
+
+service_records.read
+service_records.create
+service_records.update
 
 payments.read
 payments.create
@@ -628,9 +647,10 @@ apps/web/
 │   ├── components/
 │   │   ├── vue/
 │   │   │   ├── leads/
-│   │   │   ├── applicants/
-│   │   │   ├── visa-cases/
-│   │   │   ├── documents/
+│   │   │   ├── customers/
+│   │   │   ├── bookings/
+│   │   │   ├── cleaners/
+│   │   │   ├── service-records/
 │   │   │   └── payments/
 │   │   │
 │   │   └── svelte/
@@ -644,9 +664,10 @@ apps/web/
 │   │   ├── login.astro
 │   │   ├── dashboard.astro
 │   │   ├── leads/
-│   │   ├── applicants/
-│   │   ├── visa-cases/
-│   │   ├── documents/
+│   │   ├── customers/
+│   │   ├── bookings/
+│   │   ├── cleaners/
+│   │   ├── service-records/
 │   │   ├── payments/
 │   │   └── settings/
 │   │
@@ -678,9 +699,10 @@ Example:
 │               │                              │
 │ Dashboard     │                              │
 │ Leads         │        Page Content          │
-│ Applicants    │                              │
-│ Visa Cases    │                              │
-│ Documents     │                              │
+│ Customers     │                              │
+│ Bookings      │                              │
+│ Cleaners      │                              │
+│ Service Recs  │                              │
 │ Payments      │                              │
 │ Reports       │                              │
 │ Settings      │                              │
@@ -884,44 +906,55 @@ Keep the existing Node/AdminJS implementation available as fallback.
 
 ---
 
-## Phase 4 — Applicants
+## Phase 4 — Customers
 
 Migrate:
 
 ```text
-Applicants
-Applicant details
-Applicant documents
-Applicant status
+Customers
+Customer details
+Customer property
+Customer status
 ```
 
 ---
 
-## Phase 5 — Visa Cases
+## Phase 5 — Cleaners
 
 Migrate:
 
 ```text
-Visa Cases
-Visa status
-Case timeline
-Case assignments
-Case notes
+Cleaners
+Cleaner availability
+Cleaner assignments
+Cleaner notes
 ```
 
 ---
 
-## Phase 6 — Documents
+## Phase 6 — Bookings
 
 Implement:
 
 ```text
-Upload
-Download
-Preview
-Delete
-Document status
-Document metadata
+Booking schedule
+Service type
+Assignment
+Booking status
+Booking notes
+```
+
+---
+
+## Phase 7 — Service Records
+
+Implement:
+
+```text
+Service record
+Rating
+Completion status
+Completed at
 ```
 
 ---
@@ -1243,9 +1276,10 @@ The current architectural decision is:
 - [x] Header
 - [x] Authentication UI
 - [x] Leads UI
-- [x] Applicants UI
-- [x] Visa Cases UI
-- [x] Documents UI
+- [x] Customers UI
+- [x] Bookings UI
+- [x] Cleaners UI
+- [x] Service Records UI
 - [x] Payments UI
 
 ## Backend
@@ -1253,14 +1287,15 @@ The current architectural decision is:
 - [x] Go project initialized
 - [x] HTTP server
 - [x] PostgreSQL connection
-- [ ] Database migrations
+- [x] Database migrations
 - [x] Leads API
-- [ ] Applicants API
-- [ ] Visa Cases API
-- [ ] Documents API
-- [ ] Payments API
-- [ ] Authentication
-- [ ] RBAC
+- [x] Customers API
+- [x] Cleaners API
+- [x] Bookings API
+- [x] Service Records API
+- [x] Payments API
+- [x] Authentication
+- [x] RBAC
 
 ## Migration
 
@@ -1268,9 +1303,10 @@ The current architectural decision is:
 - [ ] Analyze existing Sequelize models
 - [ ] Map existing database schema
 - [ ] Migrate Leads
-- [ ] Migrate Applicants
-- [ ] Migrate Visa Cases
-- [ ] Migrate Documents
+- [ ] Migrate Customers
+- [ ] Migrate Cleaners
+- [ ] Migrate Bookings
+- [ ] Migrate Service Records
 - [ ] Migrate Payments
 - [ ] Verify data integrity
 - [ ] Remove AdminJS
@@ -1291,19 +1327,19 @@ OpenCode should work in this order:
        ↓
 4. Leads
        ↓
-5. Applicants
+5. Customers
        ↓
-6. Visa Cases
+6. Cleaners
        ↓
-7. Documents
+7. Bookings
        ↓
-8. Payments
+8. Service Records
        ↓
-9. Authentication
+9. Payments
        ↓
-10. RBAC
+10. Authentication
        ↓
-11. Notifications
+11. RBAC
        ↓
 12. Reports
        ↓
@@ -1338,7 +1374,7 @@ A migrated module is considered complete only when:
 The target architecture is:
 
 ```text
-                         ODYSIGHT CRM
+                         SMILE CLEAN CRM
                               │
              ┌────────────────┴────────────────┐
              │                                 │

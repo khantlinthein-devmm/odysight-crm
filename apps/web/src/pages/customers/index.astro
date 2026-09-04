@@ -1,0 +1,8 @@
+---
+import DashboardLayout from "../../layouts/DashboardLayout.astro";
+import CustomerTable from "../../components/vue/customers/CustomerTable.vue";
+---
+
+<DashboardLayout title="Customers">
+  <CustomerTable client:load />
+</DashboardLayout>

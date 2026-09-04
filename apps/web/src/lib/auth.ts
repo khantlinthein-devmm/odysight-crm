@@ -1,7 +1,12 @@
 import { USE_MOCKS, apiFetch, delay } from "./api";
 
 export type Role =
-  "SUPER_ADMIN" | "ADMIN" | "MANAGER" | "SALES" | "STAFF" | "ACCOUNTANT";
+  | "SUPER_ADMIN"
+  | "ADMIN"
+  | "MANAGER"
+  | "DISPATCH"
+  | "ACCOUNTANT"
+  | "CLEANER";
 
 export interface AuthUser {
   id: number;
@@ -29,12 +34,12 @@ const mockUsers: { password: string; user: AuthUser }[] = [
     },
   },
   {
-    password: "sales123",
+    password: "dispatch123",
     user: {
       id: 2,
-      name: "Sarah Sales",
-      email: "sales@example.com",
-      role: "SALES",
+      name: "Dana Dispatch",
+      email: "dispatch@example.com",
+      role: "DISPATCH",
     },
   },
 ];

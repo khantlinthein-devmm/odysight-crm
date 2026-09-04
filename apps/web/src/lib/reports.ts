@@ -10,35 +10,50 @@ export interface MonthlyRevenue {
   collected: number;
 }
 
+export interface BookingStatusCount {
+  status: string;
+  count: number;
+}
+
 export interface ReportSummary {
   totalLeads: number;
-  activeApplicants: number;
-  openVisaCases: number;
+  activeCustomers: number;
+  upcomingBookings: number;
   monthlyRevenue: number;
   leadsByStatus: LeadStatusCount[];
   revenueByMonth: MonthlyRevenue[];
+  bookingsByStatus: BookingStatusCount[];
 }
 
 const mockReport: ReportSummary = {
   totalLeads: 128,
-  activeApplicants: 86,
-  openVisaCases: 42,
-  monthlyRevenue: 24500,
+  activeCustomers: 86,
+  upcomingBookings: 42,
+  monthlyRevenue: 245000,
   leadsByStatus: [
     { status: "New", count: 32 },
     { status: "Contacted", count: 28 },
-    { status: "Qualified", count: 22 },
-    { status: "Proposal", count: 18 },
+    { status: "Quote Sent", count: 22 },
+    { status: "Booked", count: 18 },
     { status: "Won", count: 16 },
     { status: "Lost", count: 12 },
   ],
   revenueByMonth: [
-    { month: "Mar", collected: 14200 },
-    { month: "Apr", collected: 16800 },
-    { month: "May", collected: 15400 },
-    { month: "Jun", collected: 19700 },
-    { month: "Jul", collected: 21300 },
-    { month: "Aug", collected: 24500 },
+    { month: "Mar", collected: 142000 },
+    { month: "Apr", collected: 168000 },
+    { month: "May", collected: 154000 },
+    { month: "Jun", collected: 197000 },
+    { month: "Jul", collected: 213000 },
+    { month: "Aug", collected: 245000 },
+  ],
+  bookingsByStatus: [
+    { status: "Pending", count: 8 },
+    { status: "Confirmed", count: 15 },
+    { status: "In Progress", count: 5 },
+    { status: "Completed", count: 60 },
+    { status: "Cancelled", count: 6 },
+    { status: "No Show", count: 2 },
+    { status: "Rescheduled", count: 3 },
   ],
 };
 

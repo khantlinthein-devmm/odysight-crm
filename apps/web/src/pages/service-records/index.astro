@@ -1,0 +1,8 @@
+---
+import DashboardLayout from "../../layouts/DashboardLayout.astro";
+import ServiceRecordTable from "../../components/vue/service-records/ServiceRecordTable.vue";
+---
+
+<DashboardLayout title="Service Records">
+  <ServiceRecordTable client:load />
+</DashboardLayout>

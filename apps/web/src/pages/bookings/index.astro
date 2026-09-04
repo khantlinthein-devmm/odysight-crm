@@ -1,0 +1,8 @@
+---
+import DashboardLayout from "../../layouts/DashboardLayout.astro";
+import BookingTable from "../../components/vue/bookings/BookingTable.vue";
+---
+
+<DashboardLayout title="Bookings">
+  <BookingTable client:load />
+</DashboardLayout>

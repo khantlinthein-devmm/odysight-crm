@@ -7,15 +7,15 @@ type Status string
 const (
 	StatusNew       Status = "new"
 	StatusContacted Status = "contacted"
-	StatusQualified Status = "qualified"
-	StatusProposal  Status = "proposal"
+	StatusQuoteSent Status = "quote_sent"
+	StatusBooked    Status = "booked"
 	StatusWon       Status = "won"
 	StatusLost      Status = "lost"
 )
 
 func (s Status) Valid() bool {
 	switch s {
-	case StatusNew, StatusContacted, StatusQualified, StatusProposal, StatusWon, StatusLost:
+	case StatusNew, StatusContacted, StatusQuoteSent, StatusBooked, StatusWon, StatusLost:
 		return true
 	}
 	return false
@@ -24,16 +24,17 @@ func (s Status) Valid() bool {
 type Source string
 
 const (
-	SourceWebsite     Source = "website"
-	SourceReferral    Source = "referral"
-	SourceSocialMedia Source = "social_media"
-	SourceWalkIn      Source = "walk_in"
-	SourceCampaign    Source = "campaign"
+	SourceWebsite   Source = "website"
+	SourceReferral  Source = "referral"
+	SourceLine      Source = "line"
+	SourceFacebook  Source = "facebook"
+	SourceWalkIn    Source = "walk_in"
+	SourceCampaign  Source = "campaign"
 )
 
 func (s Source) Valid() bool {
 	switch s {
-	case SourceWebsite, SourceReferral, SourceSocialMedia, SourceWalkIn, SourceCampaign:
+	case SourceWebsite, SourceReferral, SourceLine, SourceFacebook, SourceWalkIn, SourceCampaign:
 		return true
 	}
 	return false

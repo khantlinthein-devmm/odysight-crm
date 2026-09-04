@@ -184,7 +184,7 @@ onMounted(fetchLead);
 
       <div class="border-t border-slate-200 px-6 py-4">
         <p class="text-xs text-slate-400">
-          Activities, notes and conversion to applicant will appear here in
+          Activities, notes and conversion to customer will appear here in
           later phases.
         </p>
       </div>

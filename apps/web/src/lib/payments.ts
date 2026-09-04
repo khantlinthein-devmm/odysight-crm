@@ -2,13 +2,22 @@ import { ApiError, USE_MOCKS, apiFetch, delay } from "./api";
 
 export type PaymentStatus = "pending" | "paid" | "failed" | "refunded";
 
+export type PaymentMethod =
+  | "cash"
+  | "bank_transfer"
+  | "promptpay"
+  | "credit_card"
+  | "line_pay"
+  | "online_wallet";
+
 export interface Payment {
   id: number;
   invoiceNumber: string;
-  payerName: string;
+  customerName: string;
+  bookingNumber: string;
   amount: number;
   currency: string;
-  method: string;
+  method: PaymentMethod;
   status: PaymentStatus;
   createdAt: string;
 }
@@ -26,50 +35,55 @@ const mockPayments: Payment[] = [
   {
     id: 401,
     invoiceNumber: "INV-2026-0401",
-    payerName: "John Doe",
+    customerName: "Somchai Prasert",
+    bookingNumber: "BK-2026-0201",
     amount: 1500,
-    currency: "USD",
-    method: "Credit Card",
+    currency: "THB",
+    method: "promptpay",
     status: "paid",
     createdAt: "2026-08-19T12:00:00Z",
   },
   {
     id: 402,
     invoiceNumber: "INV-2026-0402",
-    payerName: "Jane Smith",
+    customerName: "Jane Smith",
+    bookingNumber: "BK-2026-0202",
     amount: 2200,
-    currency: "USD",
-    method: "Bank Transfer",
+    currency: "THB",
+    method: "bank_transfer",
     status: "pending",
     createdAt: "2026-08-17T10:30:00Z",
   },
   {
     id: 403,
     invoiceNumber: "INV-2026-0403",
-    payerName: "Omar Farouk",
+    customerName: "Omar Farouk",
+    bookingNumber: "BK-2026-0203",
     amount: 800,
-    currency: "USD",
-    method: "Credit Card",
+    currency: "THB",
+    method: "cash",
     status: "failed",
     createdAt: "2026-08-14T09:15:00Z",
   },
   {
     id: 404,
     invoiceNumber: "INV-2026-0404",
-    payerName: "Maria Gomez",
+    customerName: "Maria Gomez",
+    bookingNumber: "BK-2026-0204",
     amount: 3100,
-    currency: "USD",
-    method: "Bank Transfer",
+    currency: "THB",
+    method: "credit_card",
     status: "paid",
     createdAt: "2026-08-11T15:45:00Z",
   },
   {
     id: 405,
     invoiceNumber: "INV-2026-0405",
-    payerName: "Wei Chen",
+    customerName: "Wei Chen",
+    bookingNumber: "BK-2026-0205",
     amount: 1200,
-    currency: "USD",
-    method: "Credit Card",
+    currency: "THB",
+    method: "line_pay",
     status: "refunded",
     createdAt: "2026-08-06T11:20:00Z",
   },

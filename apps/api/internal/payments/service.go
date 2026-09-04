@@ -33,11 +33,12 @@ func (s *Service) Create(ctx context.Context, req CreatePaymentRequest) (Payment
 	}
 
 	p := Payment{
-		PayerName: req.PayerName,
-		Amount:    req.Amount,
-		Currency:  req.Currency,
-		Method:    req.Method,
-		Status:    Status(req.Status),
+		CustomerName:  req.CustomerName,
+		BookingNumber: req.BookingNumber,
+		Amount:        req.Amount,
+		Currency:      req.Currency,
+		Method:        Method(req.Method),
+		Status:        Status(req.Status),
 	}
 
 	created, err := s.repo.Create(ctx, p)
@@ -60,7 +61,10 @@ func (s *Service) Update(ctx context.Context, id int64, req UpdatePaymentRequest
 		status := Status(*req.Status)
 		patch.Status = &status
 	}
-	patch.Method = req.Method
+	if req.Method != nil {
+		method := Method(*req.Method)
+		patch.Method = &method
+	}
 
 	updated, err := s.repo.Update(ctx, id, patch)
 	if err != nil {

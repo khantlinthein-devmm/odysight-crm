@@ -21,12 +21,12 @@ func (r *Repository) LoadSummary(ctx context.Context, now time.Time) (Summary, e
 	err := r.pool.QueryRow(ctx,
 		`SELECT
 			(SELECT COUNT(*) FROM leads),
-			(SELECT COUNT(*) FROM applicants WHERE status NOT IN ('approved', 'rejected')),
-			(SELECT COUNT(*) FROM visa_cases WHERE status NOT IN ('closed', 'approved', 'rejected')),
+			(SELECT COUNT(*) FROM customers WHERE status = 'active'),
+			(SELECT COUNT(*) FROM bookings WHERE status IN ('pending', 'confirmed', 'in_progress')),
 			(SELECT COALESCE(SUM(amount), 0) FROM payments
 			 WHERE status = 'paid'
 			   AND created_at >= date_trunc('month', $1::timestamptz))`,
-		now).Scan(&row.totalLeads, &row.activeApplicants, &row.openVisaCases, &row.monthlyRevenue)
+		now).Scan(&row.totalLeads, &row.activeCustomers, &row.upcomingBookings, &row.monthlyRevenue)
 	if err != nil {
 		return Summary{}, fmt.Errorf("load summary totals: %w", err)
 	}
@@ -36,12 +36,17 @@ func (r *Repository) LoadSummary(ctx context.Context, now time.Time) (Summary, e
 		return Summary{}, err
 	}
 
+	bookingCounts, err := r.loadBookingsByStatus(ctx)
+	if err != nil {
+		return Summary{}, err
+	}
+
 	revenue, err := r.loadRevenueByMonth(ctx, now)
 	if err != nil {
 		return Summary{}, err
 	}
 
-	return buildSummary(row, counts, revenue), nil
+	return buildSummary(row, counts, revenue, bookingCounts), nil
 }
 
 func (r *Repository) loadLeadsByStatus(ctx context.Context) (map[string]int64, error) {
@@ -58,6 +63,26 @@ func (r *Repository) loadLeadsByStatus(ctx context.Context) (map[string]int64, e
 		var count int64
 		if err := rows.Scan(&status, &count); err != nil {
 			return nil, fmt.Errorf("scan lead status count: %w", err)
+		}
+		counts[status] = count
+	}
+	return counts, rows.Err()
+}
+
+func (r *Repository) loadBookingsByStatus(ctx context.Context) (map[string]int64, error) {
+	rows, err := r.pool.Query(ctx,
+		`SELECT status, COUNT(*) FROM bookings GROUP BY status`)
+	if err != nil {
+		return nil, fmt.Errorf("query bookings by status: %w", err)
+	}
+	defer rows.Close()
+
+	counts := map[string]int64{}
+	for rows.Next() {
+		var status string
+		var count int64
+		if err := rows.Scan(&status, &count); err != nil {
+			return nil, fmt.Errorf("scan booking status count: %w", err)
 		}
 		counts[status] = count
 	}

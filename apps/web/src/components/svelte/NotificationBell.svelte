@@ -9,7 +9,7 @@
   let open = $state(false);
   let notifications = $state<Notification[]>([
     { id: 1, title: 'New lead assigned: John Doe', time: '5m ago', unread: true },
-    { id: 2, title: 'Visa case #1042 moved to review', time: '1h ago', unread: true },
+    { id: 2, title: 'Booking BK-2026-0002 moved to in progress', time: '1h ago', unread: true },
     { id: 3, title: 'Payment received from Jane Smith', time: '3h ago', unread: false },
   ]);
 

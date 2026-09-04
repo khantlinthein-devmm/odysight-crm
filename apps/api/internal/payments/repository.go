@@ -19,13 +19,13 @@ func NewRepository(pool *pgxpool.Pool) *Repository {
 	return &Repository{pool: pool}
 }
 
-const paymentColumns = `id, invoice_number, payer_name, amount, currency, method, status, created_at`
+const paymentColumns = `id, invoice_number, customer_name, booking_number, amount, currency, method, status, created_at`
 
 const invoiceNumberExpr = `'INV-' || to_char(created_at, 'YYYY') || '-' || lpad(id::text, 4, '0')`
 
 func scanPayment(row pgx.Row) (Payment, error) {
 	var p Payment
-	err := row.Scan(&p.ID, &p.InvoiceNumber, &p.PayerName, &p.Amount, &p.Currency, &p.Method, &p.Status, &p.CreatedAt)
+	err := row.Scan(&p.ID, &p.InvoiceNumber, &p.CustomerName, &p.BookingNumber, &p.Amount, &p.Currency, &p.Method, &p.Status, &p.CreatedAt)
 	return p, err
 }
 
@@ -63,10 +63,10 @@ func (r *Repository) GetByID(ctx context.Context, id int64) (Payment, error) {
 func (r *Repository) Create(ctx context.Context, p Payment) (Payment, error) {
 	var id int64
 	if err := r.pool.QueryRow(ctx,
-		`INSERT INTO payments (invoice_number, payer_name, amount, currency, method, status)
-		 VALUES ('', $1, $2, $3, $4, $5)
+		`INSERT INTO payments (invoice_number, customer_name, booking_number, amount, currency, method, status)
+		 VALUES ('', $1, $2, $3, $4, $5, $6)
 		 RETURNING id`,
-		p.PayerName, p.Amount, p.Currency, p.Method, p.Status).Scan(&id); err != nil {
+		p.CustomerName, p.BookingNumber, p.Amount, p.Currency, p.Method, p.Status).Scan(&id); err != nil {
 		return Payment{}, fmt.Errorf("create payment: %w", err)
 	}
 
@@ -84,7 +84,7 @@ func (r *Repository) Create(ctx context.Context, p Payment) (Payment, error) {
 // Patch carries only the fields that should change; nil means "leave as is".
 type Patch struct {
 	Status *Status
-	Method *string
+	Method *Method
 }
 
 func (r *Repository) Update(ctx context.Context, id int64, p Patch) (Payment, error) {

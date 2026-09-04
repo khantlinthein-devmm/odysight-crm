@@ -12,17 +12,20 @@ const titleId = useId();
 const { container } = useModalA11y(() => emit("cancel"));
 
 const paymentMethods = [
-  "Credit Card",
-  "Bank Transfer",
-  "Cash",
-  "Online Wallet",
+  { value: "cash", label: "Cash" },
+  { value: "bank_transfer", label: "Bank Transfer" },
+  { value: "promptpay", label: "PromptPay" },
+  { value: "credit_card", label: "Credit Card" },
+  { value: "line_pay", label: "LINE Pay" },
+  { value: "online_wallet", label: "Online Wallet" },
 ];
 
 const form = reactive<CreatePaymentInput>({
-  payerName: "",
+  customerName: "",
+  bookingNumber: "",
   amount: 0,
-  currency: "USD",
-  method: paymentMethods[0],
+  currency: "THB",
+  method: "promptpay",
   status: "pending",
 });
 
@@ -30,7 +33,8 @@ const submitted = ref(false);
 
 const errors = computed(() => {
   const e: Partial<Record<keyof CreatePaymentInput, string>> = {};
-  if (!form.payerName.trim()) e.payerName = "Payer name is required";
+  if (!form.customerName.trim())
+    e.customerName = "Customer name is required";
   if (!form.amount || form.amount <= 0)
     e.amount = "Amount must be greater than zero";
   return e;
@@ -79,20 +83,20 @@ function inputClassFor(field: keyof CreatePaymentInput) {
           <div class="sm:col-span-2">
             <label
               class="mb-1 block text-sm font-medium text-slate-700"
-              for="p-payer"
-              >Payer name</label
+              for="p-customer"
+              >Customer name</label
             >
             <input
-              id="p-payer"
-              v-model="form.payerName"
-              :class="inputClassFor('payerName')"
+              id="p-customer"
+              v-model="form.customerName"
+              :class="inputClassFor('customerName')"
               placeholder="John Doe"
             />
             <p
-              v-if="submitted && errors.payerName"
+              v-if="submitted && errors.customerName"
               class="mt-1 text-xs text-red-600"
             >
-              {{ errors.payerName }}
+              {{ errors.customerName }}
             </p>
           </div>
 
@@ -100,7 +104,7 @@ function inputClassFor(field: keyof CreatePaymentInput) {
             <label
               class="mb-1 block text-sm font-medium text-slate-700"
               for="p-amount"
-              >Amount</label
+              >Amount (THB)</label
             >
             <input
               id="p-amount"
@@ -122,14 +126,15 @@ function inputClassFor(field: keyof CreatePaymentInput) {
           <div>
             <label
               class="mb-1 block text-sm font-medium text-slate-700"
-              for="p-currency"
-              >Currency</label
+              for="p-booking"
+              >Booking #</label
             >
-            <select id="p-currency" v-model="form.currency" :class="inputClass">
-              <option>USD</option>
-              <option>EUR</option>
-              <option>GBP</option>
-            </select>
+            <input
+              id="p-booking"
+              v-model="form.bookingNumber"
+              :class="inputClass"
+              placeholder="BK-2026-0001"
+            />
           </div>
 
           <div>
@@ -139,8 +144,12 @@ function inputClassFor(field: keyof CreatePaymentInput) {
               >Method</label
             >
             <select id="p-method" v-model="form.method" :class="inputClass">
-              <option v-for="m in paymentMethods" :key="m" :value="m">
-                {{ m }}
+              <option
+                v-for="m in paymentMethods"
+                :key="m.value"
+                :value="m.value"
+              >
+                {{ m.label }}
               </option>
             </select>
           </div>

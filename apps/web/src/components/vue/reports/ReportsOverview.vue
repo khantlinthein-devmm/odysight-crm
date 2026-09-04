@@ -15,20 +15,20 @@ const kpis = computed(() => {
       href: "/leads",
     },
     {
-      label: "Active Applicants",
-      value: String(report.value.activeApplicants),
-      href: "/applicants",
+      label: "Active Customers",
+      value: String(report.value.activeCustomers),
+      href: "/customers",
     },
     {
-      label: "Open Visa Cases",
-      value: String(report.value.openVisaCases),
-      href: "/visa-cases",
+      label: "Upcoming Bookings",
+      value: String(report.value.upcomingBookings),
+      href: "/bookings",
     },
     {
       label: "Revenue (Month)",
       value: new Intl.NumberFormat(undefined, {
         style: "currency",
-        currency: "USD",
+        currency: "THB",
         maximumFractionDigits: 0,
       }).format(report.value.monthlyRevenue),
       href: "/payments",
@@ -42,6 +42,12 @@ const maxLeadCount = computed(() =>
     : 1,
 );
 
+const maxBookingCount = computed(() =>
+  report.value
+    ? Math.max(...report.value.bookingsByStatus.map((s) => s.count))
+    : 1,
+);
+
 const maxRevenue = computed(() =>
   report.value
     ? Math.max(...report.value.revenueByMonth.map((m) => m.collected))
@@ -51,14 +57,24 @@ const maxRevenue = computed(() =>
 const leadBarColors: Record<string, string> = {
   New: "bg-sky-500",
   Contacted: "bg-indigo-500",
-  Qualified: "bg-violet-500",
-  Proposal: "bg-amber-500",
+  "Quote Sent": "bg-violet-500",
+  Booked: "bg-amber-500",
   Won: "bg-emerald-500",
   Lost: "bg-slate-400",
 };
 
+const bookingBarColors: Record<string, string> = {
+  Pending: "bg-slate-400",
+  Confirmed: "bg-sky-500",
+  "In Progress": "bg-indigo-500",
+  Completed: "bg-emerald-500",
+  Cancelled: "bg-rose-500",
+  "No Show": "bg-red-400",
+  Rescheduled: "bg-amber-500",
+};
+
 function formatMoney(value: number): string {
-  return `$${(value / 1000).toFixed(1)}k`;
+  return `฿${(value / 1000).toFixed(0)}k`;
 }
 
 onMounted(async () => {
@@ -143,6 +159,36 @@ onMounted(async () => {
             ></div>
             <span class="text-xs text-slate-500">{{ month.month }}</span>
           </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="mt-4 rounded-xl border border-slate-200 bg-white p-6">
+      <h2 class="text-base font-semibold text-slate-900">
+        Bookings by Status
+      </h2>
+      <div class="mt-5 space-y-3">
+        <div
+          v-for="item in report.bookingsByStatus"
+          :key="item.status"
+          class="flex items-center gap-3"
+        >
+          <span class="w-28 shrink-0 text-sm text-slate-600">{{
+            item.status
+          }}</span>
+          <div class="h-6 flex-1 overflow-hidden rounded-md bg-slate-100">
+            <div
+              :class="[
+                'h-full rounded-md transition-all duration-500',
+                bookingBarColors[item.status] ?? 'bg-slate-400',
+              ]"
+              :style="{ width: `${(item.count / maxBookingCount) * 100}%` }"
+            ></div>
+          </div>
+          <span
+            class="w-8 shrink-0 text-right text-sm font-medium text-slate-900"
+            >{{ item.count }}</span
+          >
         </div>
       </div>
     </div>

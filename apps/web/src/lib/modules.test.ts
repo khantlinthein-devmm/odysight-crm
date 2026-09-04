@@ -1,76 +1,112 @@
 import { describe, expect, it } from "vitest";
 import {
-  createApplicant,
-  deleteApplicant,
-  getApplicant,
-  getApplicants,
-} from "./applicants";
+  createCustomer,
+  deleteCustomer,
+  getCustomer,
+  getCustomers,
+} from "./customers";
+import {
+  createBooking,
+  deleteBooking,
+  getBookings,
+  type CreateBookingInput,
+} from "./bookings";
+import {
+  createServiceRecord,
+  deleteServiceRecord,
+  getServiceRecords,
+} from "./service-records";
+import {
+  createCleaner,
+  deleteCleaner,
+  getCleaners,
+} from "./cleaners";
 import {
   createPayment,
   getPayments,
   updatePayment,
   type CreatePaymentInput,
 } from "./payments";
-import {
-  createVisaCase,
-  getVisaCases,
-  type CreateVisaCaseInput,
-} from "./visa-cases";
-import { uploadDocument, getDocuments, deleteDocument } from "./documents";
 
-describe("applicants mock API", () => {
-  it("lists and creates applicants", async () => {
-    const before = await getApplicants();
-    const created = await createApplicant({
+describe("customers mock API", () => {
+  it("lists and creates customers", async () => {
+    const before = await getCustomers();
+    const created = await createCustomer({
       firstName: "Test",
-      lastName: "Applicant",
-      email: "test.applicant@example.com",
-      phone: "",
-      nationality: "Brazil",
-      visaType: "Student Visa",
-      status: "screening",
+      lastName: "Customer",
+      email: "test.customer@example.com",
+      phone: "+66 91 000 0000",
+      address: "123 Test Street, Bangkok",
+      propertyType: "condo",
+      area: "Sukhumvit",
+      status: "active",
     });
-    const after = await getApplicants();
+    const after = await getCustomers();
 
     expect(created.id).toBeGreaterThan(0);
     expect(after.length).toBe(before.length + 1);
-    await expect(getApplicant(999999)).rejects.toThrow(/not found/i);
-    void (await deleteApplicant(created.id));
+    await expect(getCustomer(999999)).rejects.toThrow(/not found/i);
+    await deleteCustomer(created.id);
   });
 });
 
-describe("visa cases mock API", () => {
-  it("creates a case with generated case number", async () => {
-    const before = await getVisaCases();
-    const input: CreateVisaCaseInput = {
-      applicantName: "Test Applicant",
-      visaType: "Work Permit",
-      destination: "Germany",
-      assignedTo: "Someone",
-      status: "draft",
-    };
-    const created = await createVisaCase(input);
-    const after = await getVisaCases();
-
-    expect(created.caseNumber).toMatch(/^VC-/);
-    expect(after.length).toBe(before.length + 1);
-  });
-});
-
-describe("documents mock API", () => {
-  it("uploads and deletes documents", async () => {
-    const before = await getDocuments();
-    const doc = await uploadDocument({
-      name: "test.pdf",
-      type: "Passport",
-      applicantName: "Test Applicant",
+describe("bookings mock API", () => {
+  it("creates a booking with generated booking number", async () => {
+    const before = await getBookings();
+    const input: CreateBookingInput = {
+      customerName: "Test Customer",
+      serviceType: "condo_cleaning",
+      scheduledFor: "2026-09-10T09:00:00Z",
+      durationMinutes: 180,
+      address: "Sukhumvit 38, Bangkok",
+      assignedCleaner: "Nok Srisuwan",
       status: "pending",
+      notes: "",
+    };
+    const created = await createBooking(input);
+    const after = await getBookings();
+
+    expect(created.bookingNumber).toMatch(/^BK-/);
+    expect(after.length).toBe(before.length + 1);
+    await deleteBooking(created.id);
+  });
+});
+
+describe("service records mock API", () => {
+  it("creates and deletes service records", async () => {
+    const before = await getServiceRecords();
+    const created = await createServiceRecord({
+      bookingNumber: "BK-2026-0201",
+      cleanerName: "Nok Srisuwan",
+      serviceType: "Condo Cleaning",
+      rating: null,
+      status: "pending",
+      notes: "",
     });
 
-    expect(doc.fileSizeKb).toBeGreaterThan(0);
-    expect((await getDocuments()).length).toBe(before.length + 1);
-    await deleteDocument(doc.id);
-    expect((await getDocuments()).length).toBe(before.length);
+    expect(created.id).toBeGreaterThan(0);
+    expect((await getServiceRecords()).length).toBe(before.length + 1);
+    await deleteServiceRecord(created.id);
+    expect((await getServiceRecords()).length).toBe(before.length);
+  });
+});
+
+describe("cleaners mock API", () => {
+  it("lists, creates and deletes cleaners", async () => {
+    const before = await getCleaners();
+    const created = await createCleaner({
+      firstName: "Test",
+      lastName: "Cleaner",
+      phone: "+66 81 000 0000",
+      email: "test.cleaner@smileclean.com",
+      skills: "General Cleaning",
+      status: "available",
+    });
+
+    expect(created.id).toBeGreaterThan(0);
+    expect((await getCleaners()).length).toBe(before.length + 1);
+    await deleteCleaner(created.id);
+    expect((await getCleaners()).length).toBe(before.length);
   });
 });
 
@@ -78,10 +114,11 @@ describe("payments mock API", () => {
   it("creates a payment with generated invoice number", async () => {
     const before = await getPayments();
     const input: CreatePaymentInput = {
-      payerName: "Test Payer",
+      customerName: "Test Customer",
+      bookingNumber: "BK-2026-0201",
       amount: 100,
-      currency: "USD",
-      method: "Cash",
+      currency: "THB",
+      method: "promptpay",
       status: "pending",
     };
     const created = await createPayment(input);

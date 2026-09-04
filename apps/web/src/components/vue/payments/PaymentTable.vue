@@ -35,6 +35,15 @@ const pageSize = 5;
 const showForm = ref(false);
 const saving = ref(false);
 
+const methodLabels: Record<string, string> = {
+  cash: "Cash",
+  bank_transfer: "Bank Transfer",
+  promptpay: "PromptPay",
+  credit_card: "Credit Card",
+  line_pay: "LINE Pay",
+  online_wallet: "Online Wallet",
+};
+
 const filteredPayments = computed(() => {
   const query = search.value.trim().toLowerCase();
   return payments.value.filter((payment) => {
@@ -42,7 +51,7 @@ const filteredPayments = computed(() => {
       !statusFilter.value || payment.status === statusFilter.value;
     const matchesQuery =
       !query ||
-      payment.payerName.toLowerCase().includes(query) ||
+      payment.customerName.toLowerCase().includes(query) ||
       payment.invoiceNumber.toLowerCase().includes(query);
     return matchesStatus && matchesQuery;
   });
@@ -136,7 +145,7 @@ onMounted(fetchPayments);
       <span class="text-sm text-slate-500">
         Collected:
         <strong class="font-semibold text-emerald-600">{{
-          formatMoney(totalRevenue, "USD")
+          formatMoney(totalRevenue, "THB")
         }}</strong>
       </span>
 
@@ -145,7 +154,7 @@ onMounted(fetchPayments);
           v-model="search"
           @input="page = 1"
           type="search"
-          placeholder="Search invoice or payer..."
+          placeholder="Search invoice or customer..."
           class="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 sm:w-56"
         />
         <select
@@ -194,7 +203,8 @@ onMounted(fetchPayments);
             class="border-b border-slate-200 text-xs uppercase tracking-wide text-slate-500"
           >
             <th class="px-6 py-3 font-medium">Invoice #</th>
-            <th class="px-6 py-3 font-medium">Payer</th>
+            <th class="px-6 py-3 font-medium">Customer</th>
+            <th class="px-6 py-3 font-medium">Booking #</th>
             <th class="px-6 py-3 font-medium">Amount</th>
             <th class="px-6 py-3 font-medium">Method</th>
             <th class="px-6 py-3 font-medium">Status</th>
@@ -212,12 +222,17 @@ onMounted(fetchPayments);
               {{ payment.invoiceNumber }}
             </td>
             <td class="px-6 py-4 font-medium text-slate-900">
-              {{ payment.payerName }}
+              {{ payment.customerName }}
+            </td>
+            <td class="px-6 py-4 font-mono text-xs text-slate-500">
+              {{ payment.bookingNumber || "—" }}
             </td>
             <td class="px-6 py-4 font-semibold text-slate-900">
               {{ formatMoney(payment.amount, payment.currency) }}
             </td>
-            <td class="px-6 py-4 text-slate-600">{{ payment.method }}</td>
+            <td class="px-6 py-4 text-slate-600">
+              {{ methodLabels[payment.method] ?? payment.method }}
+            </td>
             <td class="px-6 py-4">
               <span
                 :class="[

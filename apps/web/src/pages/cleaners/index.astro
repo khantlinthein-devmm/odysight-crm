@@ -1,0 +1,8 @@
+---
+import DashboardLayout from "../../layouts/DashboardLayout.astro";
+import CleanerTable from "../../components/vue/cleaners/CleanerTable.vue";
+---
+
+<DashboardLayout title="Cleaners">
+  <CleanerTable client:load />
+</DashboardLayout>

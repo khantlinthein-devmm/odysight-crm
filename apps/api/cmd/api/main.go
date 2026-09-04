@@ -14,13 +14,14 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 
 	"github.com/odysight/crm/config"
-	"github.com/odysight/crm/internal/applicants"
 	"github.com/odysight/crm/internal/auth"
-	"github.com/odysight/crm/internal/documents"
+	"github.com/odysight/crm/internal/bookings"
+	"github.com/odysight/crm/internal/cleaners"
+	"github.com/odysight/crm/internal/customers"
 	"github.com/odysight/crm/internal/leads"
 	"github.com/odysight/crm/internal/payments"
 	"github.com/odysight/crm/internal/reports"
-	"github.com/odysight/crm/internal/visacases"
+	"github.com/odysight/crm/internal/servicerecords"
 	"github.com/odysight/crm/pkg/database"
 )
 
@@ -50,7 +51,7 @@ func run() error {
 	authRepo := auth.NewRepository(pool)
 	if err := authRepo.EnsureSeed(ctx, []auth.SeedUser{
 		{Name: "Admin User", Email: "admin@example.com", Password: "admin123", Role: auth.RoleSuperAdmin},
-		{Name: "Sarah Sales", Email: "sales@example.com", Password: "sales123", Role: auth.RoleSales},
+		{Name: "Dispatcher", Email: "dispatch@example.com", Password: "dispatch123", Role: auth.RoleDispatch},
 	}); err != nil {
 		return err
 	}
@@ -62,21 +63,25 @@ func run() error {
 	leadService := leads.NewService(leadRepo)
 	leadHandler := leads.NewHandler(leadService)
 
-	applicantRepo := applicants.NewRepository(pool)
-	applicantService := applicants.NewService(applicantRepo)
-	applicantHandler := applicants.NewHandler(applicantService)
+	customerRepo := customers.NewRepository(pool)
+	customerService := customers.NewService(customerRepo)
+	customerHandler := customers.NewHandler(customerService)
 
-	documentRepo := documents.NewRepository(pool)
-	documentService := documents.NewService(documentRepo)
-	documentHandler := documents.NewHandler(documentService)
+	cleanerRepo := cleaners.NewRepository(pool)
+	cleanerService := cleaners.NewService(cleanerRepo)
+	cleanerHandler := cleaners.NewHandler(cleanerService)
+
+	bookingRepo := bookings.NewRepository(pool)
+	bookingService := bookings.NewService(bookingRepo)
+	bookingHandler := bookings.NewHandler(bookingService)
+
+	serviceRecordRepo := servicerecords.NewRepository(pool)
+	serviceRecordService := servicerecords.NewService(serviceRecordRepo)
+	serviceRecordHandler := servicerecords.NewHandler(serviceRecordService)
 
 	paymentRepo := payments.NewRepository(pool)
 	paymentService := payments.NewService(paymentRepo)
 	paymentHandler := payments.NewHandler(paymentService)
-
-	visaCaseRepo := visacases.NewRepository(pool)
-	visaCaseService := visacases.NewService(visaCaseRepo)
-	visaCaseHandler := visacases.NewHandler(visaCaseService)
 
 	reportRepo := reports.NewRepository(pool)
 	reportService := reports.NewService(reportRepo)
@@ -99,10 +104,11 @@ func run() error {
 		r.Group(func(r chi.Router) {
 			r.Use(authorizer.Authenticate)
 			r.Mount("/leads", leads.Routes(leadHandler, authorizer))
-			r.Mount("/applicants", applicants.Routes(applicantHandler, authorizer))
-			r.Mount("/documents", documents.Routes(documentHandler, authorizer))
+			r.Mount("/customers", customers.Routes(customerHandler, authorizer))
+			r.Mount("/cleaners", cleaners.Routes(cleanerHandler, authorizer))
+			r.Mount("/bookings", bookings.Routes(bookingHandler, authorizer))
+			r.Mount("/service-records", servicerecords.Routes(serviceRecordHandler, authorizer))
 			r.Mount("/payments", payments.Routes(paymentHandler, authorizer))
-			r.Mount("/visa-cases", visacases.Routes(visaCaseHandler, authorizer))
 			r.Mount("/reports", reports.Routes(reportHandler, authorizer))
 		})
 	})

@@ -2,25 +2,30 @@ package auth
 
 // Permission constants follow the "resource.action" convention.
 const (
-	PermLeadsRead      Permission = "leads.read"
-	PermLeadsCreate    Permission = "leads.create"
-	PermLeadsUpdate    Permission = "leads.update"
-	PermLeadsDelete    Permission = "leads.delete"
-	PermApplicantsRead   Permission = "applicants.read"
-	PermApplicantsCreate Permission = "applicants.create"
-	PermApplicantsUpdate Permission = "applicants.update"
-	PermApplicantsDelete Permission = "applicants.delete"
-	PermVisaCasesRead    Permission = "visa_cases.read"
-	PermVisaCasesCreate  Permission = "visa_cases.create"
-	PermVisaCasesUpdate  Permission = "visa_cases.update"
-	PermDocumentsRead   Permission = "documents.read"
-	PermDocumentsUpload Permission = "documents.upload"
-	PermDocumentsUpdate Permission = "documents.update"
-	PermDocumentsDelete Permission = "documents.delete"
-	PermPaymentsRead   Permission = "payments.read"
-	PermPaymentsCreate Permission = "payments.create"
-	PermPaymentsUpdate Permission = "payments.update"
-	PermReportsRead    Permission = "reports.read"
+	PermLeadsRead          Permission = "leads.read"
+	PermLeadsCreate        Permission = "leads.create"
+	PermLeadsUpdate        Permission = "leads.update"
+	PermLeadsDelete        Permission = "leads.delete"
+	PermCustomersRead      Permission = "customers.read"
+	PermCustomersCreate    Permission = "customers.create"
+	PermCustomersUpdate    Permission = "customers.update"
+	PermCustomersDelete    Permission = "customers.delete"
+	PermBookingsRead       Permission = "bookings.read"
+	PermBookingsCreate     Permission = "bookings.create"
+	PermBookingsUpdate     Permission = "bookings.update"
+	PermBookingsDelete     Permission = "bookings.delete"
+	PermCleanersRead       Permission = "cleaners.read"
+	PermCleanersCreate     Permission = "cleaners.create"
+	PermCleanersUpdate     Permission = "cleaners.update"
+	PermCleanersDelete     Permission = "cleaners.delete"
+	PermServiceRecordsRead   Permission = "service_records.read"
+	PermServiceRecordsCreate Permission = "service_records.create"
+	PermServiceRecordsUpdate Permission = "service_records.update"
+	PermServiceRecordsDelete Permission = "service_records.delete"
+	PermPaymentsRead       Permission = "payments.read"
+	PermPaymentsCreate     Permission = "payments.create"
+	PermPaymentsUpdate     Permission = "payments.update"
+	PermReportsRead        Permission = "reports.read"
 )
 
 func perms(list ...Permission) map[Permission]struct{} {
@@ -34,47 +39,51 @@ func perms(list ...Permission) map[Permission]struct{} {
 var rolePermissions = map[Role]map[Permission]struct{}{
 	RoleSuperAdmin: perms(
 		PermLeadsRead, PermLeadsCreate, PermLeadsUpdate, PermLeadsDelete,
-		PermApplicantsRead, PermApplicantsCreate, PermApplicantsUpdate, PermApplicantsDelete,
-		PermVisaCasesRead, PermVisaCasesCreate, PermVisaCasesUpdate,
-		PermDocumentsRead, PermDocumentsUpload, PermDocumentsUpdate, PermDocumentsDelete,
+		PermCustomersRead, PermCustomersCreate, PermCustomersUpdate, PermCustomersDelete,
+		PermBookingsRead, PermBookingsCreate, PermBookingsUpdate, PermBookingsDelete,
+		PermCleanersRead, PermCleanersCreate, PermCleanersUpdate, PermCleanersDelete,
+		PermServiceRecordsRead, PermServiceRecordsCreate, PermServiceRecordsUpdate, PermServiceRecordsDelete,
 		PermPaymentsRead, PermPaymentsCreate, PermPaymentsUpdate,
 		PermReportsRead,
 	),
 	RoleAdmin: perms(
 		PermLeadsRead, PermLeadsCreate, PermLeadsUpdate, PermLeadsDelete,
-		PermApplicantsRead, PermApplicantsCreate, PermApplicantsUpdate, PermApplicantsDelete,
-		PermVisaCasesRead, PermVisaCasesCreate, PermVisaCasesUpdate,
-		PermDocumentsRead, PermDocumentsUpload, PermDocumentsUpdate, PermDocumentsDelete,
+		PermCustomersRead, PermCustomersCreate, PermCustomersUpdate, PermCustomersDelete,
+		PermBookingsRead, PermBookingsCreate, PermBookingsUpdate, PermBookingsDelete,
+		PermCleanersRead, PermCleanersCreate, PermCleanersUpdate, PermCleanersDelete,
+		PermServiceRecordsRead, PermServiceRecordsCreate, PermServiceRecordsUpdate, PermServiceRecordsDelete,
 		PermPaymentsRead, PermPaymentsCreate, PermPaymentsUpdate,
 		PermReportsRead,
 	),
 	RoleManager: perms(
 		PermLeadsRead, PermLeadsCreate, PermLeadsUpdate,
-		PermApplicantsRead, PermApplicantsCreate, PermApplicantsUpdate,
-		PermVisaCasesRead, PermVisaCasesCreate, PermVisaCasesUpdate,
-		PermDocumentsRead, PermDocumentsUpload, PermDocumentsUpdate,
+		PermCustomersRead, PermCustomersCreate, PermCustomersUpdate,
+		PermBookingsRead, PermBookingsCreate, PermBookingsUpdate,
+		PermCleanersRead, PermCleanersCreate, PermCleanersUpdate,
+		PermServiceRecordsRead, PermServiceRecordsCreate, PermServiceRecordsUpdate,
 		PermPaymentsRead,
 		PermReportsRead,
 	),
-	RoleSales: perms(
-		PermLeadsRead, PermLeadsCreate, PermLeadsUpdate,
-		PermApplicantsRead, PermApplicantsCreate, PermApplicantsUpdate,
-		PermVisaCasesRead, PermVisaCasesCreate, PermVisaCasesUpdate,
-		PermDocumentsRead, PermDocumentsUpload,
-	),
-	RoleStaff: perms(
-		PermLeadsRead,
-		PermApplicantsRead,
-		PermVisaCasesRead,
-		PermDocumentsRead, PermDocumentsUpload,
+	RoleDispatch: perms(
+		PermLeadsRead, PermLeadsUpdate,
+		PermCustomersRead,
+		PermBookingsRead, PermBookingsCreate, PermBookingsUpdate,
+		PermCleanersRead, PermCleanersUpdate,
+		PermServiceRecordsRead, PermServiceRecordsCreate, PermServiceRecordsUpdate,
 	),
 	RoleAccountant: perms(
 		PermLeadsRead,
-		PermApplicantsRead,
-		PermVisaCasesRead,
-		PermDocumentsRead,
+		PermCustomersRead,
+		PermBookingsRead,
+		PermCleanersRead,
+		PermServiceRecordsRead,
 		PermPaymentsRead, PermPaymentsCreate, PermPaymentsUpdate,
 		PermReportsRead,
+	),
+	RoleCleaner: perms(
+		PermBookingsRead, PermBookingsUpdate,
+		PermServiceRecordsRead, PermServiceRecordsCreate, PermServiceRecordsUpdate,
+		PermCustomersRead,
 	),
 }
 

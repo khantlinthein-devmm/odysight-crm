@@ -6,14 +6,14 @@ const (
 	RoleSuperAdmin Role = "SUPER_ADMIN"
 	RoleAdmin      Role = "ADMIN"
 	RoleManager    Role = "MANAGER"
-	RoleSales      Role = "SALES"
-	RoleStaff      Role = "STAFF"
+	RoleDispatch   Role = "DISPATCH"
 	RoleAccountant Role = "ACCOUNTANT"
+	RoleCleaner    Role = "CLEANER"
 )
 
 func (r Role) Valid() bool {
 	switch r {
-	case RoleSuperAdmin, RoleAdmin, RoleManager, RoleSales, RoleStaff, RoleAccountant:
+	case RoleSuperAdmin, RoleAdmin, RoleManager, RoleDispatch, RoleAccountant, RoleCleaner:
 		return true
 	}
 	return false

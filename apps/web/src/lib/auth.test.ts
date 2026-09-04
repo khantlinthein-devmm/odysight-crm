@@ -23,7 +23,7 @@ describe("auth", () => {
   });
 
   it("logout clears the session", async () => {
-    await login("sales@example.com", "sales123");
+    await login("dispatch@example.com", "dispatch123");
     expect(getSessionUser()).not.toBeNull();
     logout();
     expect(getSessionUser()).toBeNull();
