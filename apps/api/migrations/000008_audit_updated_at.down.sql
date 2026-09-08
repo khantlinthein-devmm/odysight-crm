@@ -1,0 +1,9 @@
+DROP TABLE IF EXISTS audit_logs;
+DROP FUNCTION IF EXISTS set_updated_at();
+ALTER TABLE service_records DROP COLUMN IF EXISTS updated_at;
+ALTER TABLE payments DROP COLUMN IF EXISTS updated_at;
+ALTER TABLE bookings DROP COLUMN IF EXISTS updated_at;
+ALTER TABLE cleaners DROP COLUMN IF EXISTS updated_at;
+ALTER TABLE customers DROP COLUMN IF EXISTS updated_at;
+ALTER TABLE leads DROP COLUMN IF EXISTS updated_at;
+ALTER TABLE users DROP COLUMN IF EXISTS updated_at;

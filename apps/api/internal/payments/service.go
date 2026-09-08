@@ -2,21 +2,28 @@ package payments
 
 import (
 	"context"
-	"errors"
 
+	"github.com/odysight/crm/pkg/dberror"
+	"github.com/odysight/crm/pkg/pagination"
 	"github.com/odysight/crm/pkg/response"
 )
 
 type Service struct {
-	repo *Repository
+	repo    *Repository
+	settles InvoiceSettler
 }
 
-func NewService(repo *Repository) *Service {
-	return &Service{repo: repo}
+// InvoiceSettler marks invoices paid when a payment reaches the paid status.
+type InvoiceSettler interface {
+	MarkPaidForBooking(ctx context.Context, bookingNumber string) error
 }
 
-func (s *Service) List(ctx context.Context) ([]Payment, error) {
-	return s.repo.List(ctx)
+func NewService(repo *Repository, settles InvoiceSettler) *Service {
+	return &Service{repo: repo, settles: settles}
+}
+
+func (s *Service) List(ctx context.Context, params pagination.Params) ([]Payment, int, error) {
+	return s.repo.List(ctx, params)
 }
 
 func (s *Service) Get(ctx context.Context, id int64) (Payment, error) {
@@ -45,6 +52,11 @@ func (s *Service) Create(ctx context.Context, req CreatePaymentRequest) (Payment
 	if err != nil {
 		return Payment{}, mapRepoError(err)
 	}
+	if created.Status == StatusPaid && s.settles != nil {
+		if settleErr := s.settles.MarkPaidForBooking(ctx, created.BookingNumber); settleErr != nil {
+			return Payment{}, settleErr
+		}
+	}
 	return created, nil
 }
 
@@ -70,12 +82,14 @@ func (s *Service) Update(ctx context.Context, id int64, req UpdatePaymentRequest
 	if err != nil {
 		return Payment{}, mapRepoError(err)
 	}
+	if updated.Status == StatusPaid && s.settles != nil {
+		if settleErr := s.settles.MarkPaidForBooking(ctx, updated.BookingNumber); settleErr != nil {
+			return Payment{}, settleErr
+		}
+	}
 	return updated, nil
 }
 
 func mapRepoError(err error) error {
-	if errors.Is(err, ErrNotFound) {
-		return response.NewAPIError(404, "payment not found")
-	}
-	return err
+	return dberror.Map(err, ErrNotFound, "payment not found")
 }

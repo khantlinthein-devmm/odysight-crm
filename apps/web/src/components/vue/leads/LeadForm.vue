@@ -67,7 +67,7 @@ function handleSubmit() {
 }
 
 const inputClass =
-  "w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 placeholder-slate-400 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500";
+  "w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-900 placeholder-gray-400 focus:border-gray-500 focus:outline-none focus:ring-1 focus:ring-navy-500";
 
 function inputClassFor(field: keyof CreateLeadInput) {
   return [
@@ -87,11 +87,11 @@ function inputClassFor(field: keyof CreateLeadInput) {
     :aria-labelledby="titleId"
     class="fixed inset-0 z-50 flex items-center justify-center p-4"
   >
-    <div class="absolute inset-0 bg-slate-900/50" @click="emit('cancel')"></div>
+    <div class="absolute inset-0 bg-black/50" @click="emit('cancel')"></div>
 
     <div class="relative w-full max-w-lg rounded-xl bg-white shadow-xl">
-      <div class="border-b border-slate-200 px-6 py-4">
-        <h2 :id="titleId" class="text-base font-semibold text-slate-900">
+      <div class="border-b border-gray-200 px-6 py-4">
+        <h2 :id="titleId" class="text-base font-semibold text-gray-900">
           {{ lead ? "Edit Lead" : "New Lead" }}
         </h2>
       </div>
@@ -100,7 +100,7 @@ function inputClassFor(field: keyof CreateLeadInput) {
         <div class="grid grid-cols-1 gap-4 px-6 py-5 sm:grid-cols-2">
           <div>
             <label
-              class="mb-1 block text-sm font-medium text-slate-700"
+              class="mb-1 block text-sm font-medium text-gray-700"
               for="firstName"
               >First name</label
             >
@@ -120,7 +120,7 @@ function inputClassFor(field: keyof CreateLeadInput) {
 
           <div>
             <label
-              class="mb-1 block text-sm font-medium text-slate-700"
+              class="mb-1 block text-sm font-medium text-gray-700"
               for="lastName"
               >Last name</label
             >
@@ -140,7 +140,7 @@ function inputClassFor(field: keyof CreateLeadInput) {
 
           <div class="sm:col-span-2">
             <label
-              class="mb-1 block text-sm font-medium text-slate-700"
+              class="mb-1 block text-sm font-medium text-gray-700"
               for="email"
               >Email</label
             >
@@ -161,7 +161,7 @@ function inputClassFor(field: keyof CreateLeadInput) {
 
           <div>
             <label
-              class="mb-1 block text-sm font-medium text-slate-700"
+              class="mb-1 block text-sm font-medium text-gray-700"
               for="phone"
               >Phone</label
             >
@@ -175,7 +175,7 @@ function inputClassFor(field: keyof CreateLeadInput) {
 
           <div>
             <label
-              class="mb-1 block text-sm font-medium text-slate-700"
+              class="mb-1 block text-sm font-medium text-gray-700"
               for="source"
               >Source</label
             >
@@ -192,7 +192,7 @@ function inputClassFor(field: keyof CreateLeadInput) {
 
           <div class="sm:col-span-2">
             <label
-              class="mb-1 block text-sm font-medium text-slate-700"
+              class="mb-1 block text-sm font-medium text-gray-700"
               for="status"
               >Status</label
             >
@@ -208,17 +208,17 @@ function inputClassFor(field: keyof CreateLeadInput) {
           </div>
         </div>
 
-        <div class="flex justify-end gap-3 border-t border-slate-200 px-6 py-4">
+        <div class="flex justify-end gap-3 border-t border-gray-200 px-6 py-4">
           <button
             type="button"
-            class="rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+            class="rounded-lg border border-gray-200 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100"
             @click="emit('cancel')"
           >
             Cancel
           </button>
           <button
             type="submit"
-            class="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700"
+            class="rounded-lg bg-navy-600 px-4 py-2 text-sm font-medium text-white hover:bg-navy-700"
           >
             {{ lead ? "Save changes" : "Create lead" }}
           </button>

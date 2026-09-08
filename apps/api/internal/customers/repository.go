@@ -7,6 +7,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/odysight/crm/pkg/pagination"
 )
 
 var ErrNotFound = errors.New("customer not found")
@@ -19,31 +20,72 @@ func NewRepository(pool *pgxpool.Pool) *Repository {
 	return &Repository{pool: pool}
 }
 
-const customerColumns = `id, first_name, last_name, email, phone, address, property_type, area, status, created_at`
+const customerColumns = `id, first_name, last_name, email, phone, address, property_type, area, status, lead_id, portal_enabled, created_at`
 
 func scanCustomer(row pgx.Row) (Customer, error) {
 	var c Customer
 	err := row.Scan(&c.ID, &c.FirstName, &c.LastName, &c.Email, &c.Phone,
-		&c.Address, &c.PropertyType, &c.Area, &c.Status, &c.CreatedAt)
+		&c.Address, &c.PropertyType, &c.Area, &c.Status, &c.LeadID, &c.PortalEnabled, &c.CreatedAt)
 	return c, err
 }
 
-func (r *Repository) List(ctx context.Context) ([]Customer, error) {
-	rows, err := r.pool.Query(ctx, `SELECT `+customerColumns+` FROM customers ORDER BY created_at DESC`)
+func (r *Repository) List(ctx context.Context, params pagination.Params) ([]Customer, int, error) {
+	args := []any{}
+	conds := []string{}
+	if params.Search != "" {
+		like := "%" + params.Search + "%"
+		start := len(args) + 1
+		orParts := []string{}
+		for i, col := range []string{"first_name", "last_name", "email", "phone", "area"} {
+			orParts = append(orParts, col+" ILIKE $"+itoa(start+i))
+			args = append(args, like)
+			_ = i
+		}
+		conds = append(conds, "("+joinOr(orParts)+")")
+	}
+	if params.Status != "" {
+		args = append(args, params.Status)
+		conds = append(conds, "status = $"+itoa(len(args)))
+	}
+	where := ""
+	if len(conds) > 0 {
+		where = "WHERE " + joinAnd(conds)
+	}
+	var total int
+	if err := r.pool.QueryRow(ctx, `SELECT COUNT(*) FROM customers `+where, args...).Scan(&total); err != nil {
+		return nil, 0, fmt.Errorf("count customers: %w", err)
+	}
+	args = append(args, params.Limit, params.Offset)
+	query := `SELECT ` + customerColumns + ` FROM customers ` + where + ` ORDER BY created_at DESC LIMIT $` + itoa(len(args)-1) + ` OFFSET $` + itoa(len(args))
+	rows, err := r.pool.Query(ctx, query, args...)
 	if err != nil {
-		return nil, fmt.Errorf("query customers: %w", err)
+		return nil, 0, fmt.Errorf("query customers: %w", err)
 	}
 	defer rows.Close()
 
-	customers := []Customer{}
+	items := []Customer{}
 	for rows.Next() {
-		c, err := scanCustomer(rows)
+		item, err := scanCustomer(rows)
 		if err != nil {
-			return nil, fmt.Errorf("scan customer: %w", err)
+			return nil, 0, fmt.Errorf("scan customer: %w", err)
 		}
-		customers = append(customers, c)
+		items = append(items, item)
 	}
-	return customers, rows.Err()
+	return items, total, rows.Err()
+}
+
+func itoa(i int) string             { return fmt.Sprintf("%d", i) }
+func joinOr(parts []string) string  { return joinWith(parts, " OR ") }
+func joinAnd(parts []string) string { return joinWith(parts, " AND ") }
+func joinWith(parts []string, sep string) string {
+	out := ""
+	for i, s := range parts {
+		if i > 0 {
+			out += sep
+		}
+		out += s
+	}
+	return out
 }
 
 func (r *Repository) GetByID(ctx context.Context, id int64) (Customer, error) {
@@ -60,10 +102,10 @@ func (r *Repository) GetByID(ctx context.Context, id int64) (Customer, error) {
 
 func (r *Repository) Create(ctx context.Context, c Customer) (Customer, error) {
 	created, err := scanCustomer(r.pool.QueryRow(ctx,
-		`INSERT INTO customers (first_name, last_name, email, phone, address, property_type, area, status)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+		`INSERT INTO customers (first_name, last_name, email, phone, address, property_type, area, status, lead_id)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 		 RETURNING `+customerColumns,
-		c.FirstName, c.LastName, c.Email, c.Phone, c.Address, c.PropertyType, c.Area, c.Status))
+		c.FirstName, c.LastName, c.Email, c.Phone, c.Address, c.PropertyType, c.Area, c.Status, c.LeadID))
 	if err != nil {
 		return Customer{}, fmt.Errorf("create customer: %w", err)
 	}
@@ -122,4 +164,23 @@ func (r *Repository) Delete(ctx context.Context, id int64) error {
 		return ErrNotFound
 	}
 	return nil
+}
+
+// UpdatePortalAuth sets the customer's portal password hash (nil clears it)
+// and portal_enabled flag.
+func (r *Repository) UpdatePortalAuth(ctx context.Context, id int64, passwordHash *string, enabled bool) (Customer, error) {
+	updated, err := scanCustomer(r.pool.QueryRow(ctx,
+		`UPDATE customers SET
+			password_hash  = COALESCE($2, password_hash),
+			portal_enabled = $3
+		 WHERE id = $1
+		 RETURNING `+customerColumns,
+		id, passwordHash, enabled))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Customer{}, ErrNotFound
+	}
+	if err != nil {
+		return Customer{}, fmt.Errorf("update portal auth for customer %d: %w", id, err)
+	}
+	return updated, nil
 }

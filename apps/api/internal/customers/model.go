@@ -21,11 +21,11 @@ func (s Status) Valid() bool {
 type PropertyType string
 
 const (
-	PropHouse      PropertyType = "house"
-	PropCondo      PropertyType = "condo"
-	PropOffice     PropertyType = "office"
-	PropApartment  PropertyType = "apartment"
-	PropOther      PropertyType = "other"
+	PropHouse     PropertyType = "house"
+	PropCondo     PropertyType = "condo"
+	PropOffice    PropertyType = "office"
+	PropApartment PropertyType = "apartment"
+	PropOther     PropertyType = "other"
 )
 
 func (p PropertyType) Valid() bool {
@@ -46,5 +46,8 @@ type Customer struct {
 	PropertyType PropertyType
 	Area         string
 	Status       Status
+	LeadID       *int64
+	PasswordHash string
+	PortalEnabled bool
 	CreatedAt    time.Time
 }

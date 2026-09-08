@@ -1,0 +1,25 @@
+{
+	# Caddy automatically provisions and renews Let's Encrypt certificates for
+	# real domains. For localhost it serves plain HTTP, which is fine for dev.
+	admin off
+}
+
+{$CADDY_DOMAIN} {
+	encode zstd gzip
+
+	header {
+		Strict-Transport-Security max-age=31536000
+		X-Content-Type-Options nosniff
+		X-Frame-Options DENY
+		Referrer-Policy strict-origin-when-cross-origin
+	}
+
+	@api path /api/*
+	handle @api {
+		reverse_proxy api:8080
+	}
+
+	handle {
+		reverse_proxy web:4321
+	}
+}

@@ -15,6 +15,12 @@ export interface BookingStatusCount {
   count: number;
 }
 
+export interface CleanerProductivity {
+  cleanerName: string;
+  completedBookings: number;
+  upcomingBookings: number;
+}
+
 export interface ReportSummary {
   totalLeads: number;
   activeCustomers: number;
@@ -23,6 +29,8 @@ export interface ReportSummary {
   leadsByStatus: LeadStatusCount[];
   revenueByMonth: MonthlyRevenue[];
   bookingsByStatus: BookingStatusCount[];
+  leadConversionRate: number | null;
+  cleanerProductivity: CleanerProductivity[];
 }
 
 const mockReport: ReportSummary = {
@@ -54,6 +62,13 @@ const mockReport: ReportSummary = {
     { status: "Cancelled", count: 6 },
     { status: "No Show", count: 2 },
     { status: "Rescheduled", count: 3 },
+  ],
+  leadConversionRate: 12.5,
+  cleanerProductivity: [
+    { cleanerName: "Nuch Srisai", completedBookings: 34, upcomingBookings: 5 },
+    { cleanerName: "Pimchanok W.", completedBookings: 28, upcomingBookings: 8 },
+    { cleanerName: "Somchai Prasert", completedBookings: 22, upcomingBookings: 3 },
+    { cleanerName: "Areeya Kaeo", completedBookings: 17, upcomingBookings: 6 },
   ],
 };
 

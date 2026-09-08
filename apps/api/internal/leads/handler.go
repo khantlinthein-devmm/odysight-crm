@@ -7,6 +7,8 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/odysight/crm/internal/customers"
+	"github.com/odysight/crm/pkg/pagination"
 	"github.com/odysight/crm/pkg/response"
 )
 
@@ -20,17 +22,18 @@ func NewHandler(service *Service) *Handler {
 
 // List handles GET /api/v1/leads
 func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
-	leads, err := h.service.List(r.Context())
+	params := pagination.Parse(r, 20, nil)
+	items, total, err := h.service.List(r.Context(), params)
 	if err != nil {
 		response.HandleError(w, r, err)
 		return
 	}
 
-	dtos := make([]LeadDTO, 0, len(leads))
-	for _, l := range leads {
-		dtos = append(dtos, toDTO(l))
+	dtos := make([]LeadDTO, 0, len(items))
+	for _, b := range items {
+		dtos = append(dtos, toDTO(b))
 	}
-	response.JSON(w, http.StatusOK, dtos)
+	response.JSON(w, http.StatusOK, pagination.Page[LeadDTO]{Data: dtos, Total: total, Limit: params.Limit, Offset: params.Offset})
 }
 
 // Get handles GET /api/v1/leads/{id}
@@ -97,6 +100,26 @@ func (h *Handler) Delete(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// Convert handles POST /api/v1/leads/{id}/convert — turns a lead into a customer.
+func (h *Handler) Convert(w http.ResponseWriter, r *http.Request) {
+	id, ok := parseID(w, r)
+	if !ok {
+		return
+	}
+
+	req, ok := decodeJSON[ConvertLeadRequest](w, r)
+	if !ok {
+		return
+	}
+
+	customer, err := h.service.Convert(r.Context(), id, req)
+	if err != nil {
+		response.HandleError(w, r, err)
+		return
+	}
+	response.JSON(w, http.StatusCreated, customers.ToDTO(customer))
+}
+
 func parseID(w http.ResponseWriter, r *http.Request) (int64, bool) {
 	raw := chi.URLParam(r, "id")
 	id, err := strconv.ParseInt(raw, 10, 64)
@@ -110,8 +133,13 @@ func parseID(w http.ResponseWriter, r *http.Request) (int64, bool) {
 func decodeJSON[T any](w http.ResponseWriter, r *http.Request) (T, bool) {
 	var out T
 	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20))
+	dec.DisallowUnknownFields()
 	if err := dec.Decode(&out); err != nil {
 		response.Error(w, http.StatusBadRequest, "invalid JSON body")
+		return out, false
+	}
+	if dec.More() {
+		response.Error(w, http.StatusBadRequest, "invalid JSON body: trailing data")
 		return out, false
 	}
 	return out, true

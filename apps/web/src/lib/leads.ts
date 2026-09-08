@@ -1,4 +1,4 @@
-import { ApiError, USE_MOCKS, apiFetch, delay } from "./api";
+import { ApiError, USE_MOCKS, apiFetch, delay, toQuery, unwrapPage, type Page } from "./api";
 
 export type LeadStatus =
   | "new"
@@ -100,12 +100,31 @@ function clone(lead: Lead): Lead {
   return { ...lead };
 }
 
-export async function getLeads(): Promise<Lead[]> {
+function filterMocks(params: ListParams): Lead[] {
+  const q = params.search?.trim().toLowerCase() ?? "";
+  let rows = mockLeads.filter((l) => {
+    if (params.status && l.status !== params.status) return false;
+    if (!q) return true;
+    return [l.firstName, l.lastName, l.email, l.phone]
+      .join(" ")
+      .toLowerCase()
+      .includes(q);
+  });
+  const offset = params.offset ?? 0;
+  const limit = params.limit ?? rows.length;
+  rows = rows.slice(offset, offset + limit);
+  return rows.map(clone);
+}
+
+export interface ListParams { search?: string; status?: string; limit?: number; offset?: number }
+
+export async function getLeads(params: ListParams = {}): Promise<Lead[]> {
   if (USE_MOCKS) {
     await delay(300);
-    return mockLeads.map(clone);
+    return filterMocks(params);
   }
-  return apiFetch<Lead[]>("/api/v1/leads");
+  const json = await apiFetch<Lead[] | Page<Lead>>("/api/v1/leads"+toQuery(params as Record<string, string|number|undefined>));
+  return unwrapPage(json);
 }
 
 export async function getLead(id: number): Promise<Lead> {

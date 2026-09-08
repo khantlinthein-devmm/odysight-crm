@@ -1,9 +1,162 @@
 ---
 import DashboardLayout from "../../layouts/DashboardLayout.astro";
+import SecurityPanel from "../../components/vue/settings/SecurityPanel.vue";
+import UserTable from "../../components/vue/users/UserTable.vue";
+import RolesMatrix from "../../components/vue/settings/RolesMatrix.vue";
+import AuditLogTable from "../../components/vue/settings/AuditLogTable.vue";
+import CompanyPanel from "../../components/vue/settings/CompanyPanel.vue";
+import LocalizationPanel from "../../components/vue/settings/LocalizationPanel.vue";
+import BookingDefaultsPanel from "../../components/vue/settings/BookingDefaultsPanel.vue";
+import PaymentSettingsPanel from "../../components/vue/settings/PaymentSettingsPanel.vue";
+import ServiceCatalogPanel from "../../components/vue/settings/ServiceCatalogPanel.vue";
+import NotificationsPanel from "../../components/vue/settings/NotificationsPanel.vue";
+import ExportPanel from "../../components/vue/settings/ExportPanel.vue";
+import SmtpPanel from "../../components/vue/settings/SmtpPanel.vue";
+import SmsPanel from "../../components/vue/settings/SmsPanel.vue";
+import DangerZonePanel from "../../components/vue/settings/DangerZonePanel.vue";
 ---
 
 <DashboardLayout title="Settings">
-  <div class="rounded-xl border border-slate-200 bg-white p-6">
-    <p class="text-sm text-slate-500">Settings will be shown here.</p>
+  <nav
+    aria-label="Settings sections"
+    class="mb-4 flex flex-wrap gap-2 text-sm"
+  >
+    <a
+      href="#security"
+      class="rounded-lg border border-gray-200 bg-white px-3 py-1.5 font-medium text-gray-600 hover:text-gray-900"
+      >Security</a
+    >
+    <a
+      href="#team"
+      class="rounded-lg border border-gray-200 bg-white px-3 py-1.5 font-medium text-gray-600 hover:text-gray-900"
+      >Team</a
+    >
+    <a
+      href="#company"
+      class="rounded-lg border border-gray-200 bg-white px-3 py-1.5 font-medium text-gray-600 hover:text-gray-900"
+      >Company</a
+    >
+    <a
+      href="#localization"
+      class="rounded-lg border border-gray-200 bg-white px-3 py-1.5 font-medium text-gray-600 hover:text-gray-900"
+      >Localization</a
+    >
+    <a
+      href="#catalog"
+      class="rounded-lg border border-gray-200 bg-white px-3 py-1.5 font-medium text-gray-600 hover:text-gray-900"
+      >Services</a
+    >
+    <a
+      href="#booking"
+      class="rounded-lg border border-gray-200 bg-white px-3 py-1.5 font-medium text-gray-600 hover:text-gray-900"
+      >Booking</a
+    >
+    <a
+      href="#payments"
+      class="rounded-lg border border-gray-200 bg-white px-3 py-1.5 font-medium text-gray-600 hover:text-gray-900"
+      >Payments</a
+    >
+    <a
+      href="#notifications"
+      class="rounded-lg border border-gray-200 bg-white px-3 py-1.5 font-medium text-gray-600 hover:text-gray-900"
+      >Notifications</a
+    >
+    <a
+      href="#email"
+      class="rounded-lg border border-gray-200 bg-white px-3 py-1.5 font-medium text-gray-600 hover:text-gray-900"
+      >Email</a
+    >
+    <a
+      href="#sms"
+      class="rounded-lg border border-gray-200 bg-white px-3 py-1.5 font-medium text-gray-600 hover:text-gray-900"
+      >SMS</a
+    >
+    <a
+      href="#whatsapp"
+      class="rounded-lg border border-gray-200 bg-white px-3 py-1.5 font-medium text-gray-600 hover:text-gray-900"
+      >WhatsApp</a
+    >
+    <a
+      href="#roles"
+      class="rounded-lg border border-gray-200 bg-white px-3 py-1.5 font-medium text-gray-600 hover:text-gray-900"
+      >Roles</a
+    >
+    <a
+      href="#audit"
+      class="rounded-lg border border-gray-200 bg-white px-3 py-1.5 font-medium text-gray-600 hover:text-gray-900"
+      >Audit log</a
+    >
+    <a
+      href="#export"
+      class="rounded-lg border border-gray-200 bg-white px-3 py-1.5 font-medium text-gray-600 hover:text-gray-900"
+      >Export</a
+    >
+    <a
+      href="#danger"
+      class="rounded-lg border border-red-200 bg-white px-3 py-1.5 font-medium text-red-600 hover:text-red-800"
+      >Danger zone</a
+    >
+  </nav>
+
+  <div class="space-y-4">
+    <section id="security" class="scroll-mt-20">
+      <SecurityPanel client:load />
+    </section>
+
+    <section id="team" class="scroll-mt-20">
+      <UserTable client:load />
+    </section>
+
+    <section id="company" class="scroll-mt-20">
+      <CompanyPanel client:load />
+    </section>
+
+    <section id="localization" class="scroll-mt-20">
+      <LocalizationPanel client:load />
+    </section>
+
+    <section id="catalog" class="scroll-mt-20">
+      <ServiceCatalogPanel client:load />
+    </section>
+
+    <section id="booking" class="scroll-mt-20">
+      <BookingDefaultsPanel client:load />
+    </section>
+
+    <section id="payments" class="scroll-mt-20">
+      <PaymentSettingsPanel client:load />
+    </section>
+
+    <section id="notifications" class="scroll-mt-20">
+      <NotificationsPanel client:load />
+    </section>
+
+    <section id="email" class="scroll-mt-20">
+      <SmtpPanel client:load />
+    </section>
+
+    <section id="sms" class="scroll-mt-20">
+      <SmsPanel client:load channel="sms" />
+    </section>
+
+    <section id="whatsapp" class="scroll-mt-20">
+      <SmsPanel client:load channel="whatsapp" />
+    </section>
+
+    <section id="roles" class="scroll-mt-20">
+      <RolesMatrix client:load />
+    </section>
+
+    <section id="audit" class="scroll-mt-20">
+      <AuditLogTable client:load />
+    </section>
+
+    <section id="export" class="scroll-mt-20">
+      <ExportPanel client:load />
+    </section>
+
+    <section id="danger" class="scroll-mt-20">
+      <DangerZonePanel />
+    </section>
   </div>
 </DashboardLayout>

@@ -7,6 +7,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/odysight/crm/pkg/pagination"
 	"github.com/odysight/crm/pkg/response"
 )
 
@@ -19,17 +20,18 @@ func NewHandler(service *Service) *Handler {
 }
 
 func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
-	records, err := h.service.List(r.Context())
+	params := pagination.Parse(r, 20, nil)
+	items, total, err := h.service.List(r.Context(), params)
 	if err != nil {
 		response.HandleError(w, r, err)
 		return
 	}
 
-	dtos := make([]ServiceRecordDTO, 0, len(records))
-	for _, rec := range records {
-		dtos = append(dtos, toDTO(rec))
+	dtos := make([]ServiceRecordDTO, 0, len(items))
+	for _, b := range items {
+		dtos = append(dtos, toDTO(b))
 	}
-	response.JSON(w, http.StatusOK, dtos)
+	response.JSON(w, http.StatusOK, pagination.Page[ServiceRecordDTO]{Data: dtos, Total: total, Limit: params.Limit, Offset: params.Offset})
 }
 
 func (h *Handler) Get(w http.ResponseWriter, r *http.Request) {
@@ -105,8 +107,13 @@ func parseID(w http.ResponseWriter, r *http.Request) (int64, bool) {
 func decodeJSON[T any](w http.ResponseWriter, r *http.Request) (T, bool) {
 	var out T
 	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20))
+	dec.DisallowUnknownFields()
 	if err := dec.Decode(&out); err != nil {
 		response.Error(w, http.StatusBadRequest, "invalid JSON body")
+		return out, false
+	}
+	if dec.More() {
+		response.Error(w, http.StatusBadRequest, "invalid JSON body: trailing data")
 		return out, false
 	}
 	return out, true

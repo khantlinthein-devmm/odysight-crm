@@ -39,6 +39,29 @@ func (r *Repository) GetByEmail(ctx context.Context, email string) (User, error)
 	return u, nil
 }
 
+func (r *Repository) GetByID(ctx context.Context, id int64) (User, error) {
+	u, err := scanUser(r.pool.QueryRow(ctx,
+		`SELECT `+userColumns+` FROM users WHERE id = $1`, id))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return User{}, ErrInvalidCredentials
+	}
+	if err != nil {
+		return User{}, fmt.Errorf("get user %d: %w", id, err)
+	}
+	return u, nil
+}
+
+func (r *Repository) UpdatePassword(ctx context.Context, id int64, hash string) error {
+	tag, err := r.pool.Exec(ctx, `UPDATE users SET password_hash = $2 WHERE id = $1`, id, hash)
+	if err != nil {
+		return fmt.Errorf("update password %d: %w", id, err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrInvalidCredentials
+	}
+	return nil
+}
+
 type SeedUser struct {
 	Name     string
 	Email    string

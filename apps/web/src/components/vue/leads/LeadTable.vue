@@ -23,12 +23,12 @@ const statusLabels: Record<LeadStatus, string> = {
 };
 
 const statusStyles: Record<LeadStatus, string> = {
-  new: "bg-sky-50 text-sky-700",
-  contacted: "bg-indigo-50 text-indigo-700",
-  qualified: "bg-violet-50 text-violet-700",
+  new: "bg-navy-50 text-navy-700",
+  contacted: "bg-navy-50 text-navy-700",
+  qualified: "bg-navy-50 text-navy-700",
   proposal: "bg-amber-50 text-amber-700",
-  won: "bg-emerald-50 text-emerald-700",
-  lost: "bg-slate-100 text-slate-600",
+  won: "bg-green-50 text-green-700",
+  lost: "bg-gray-100 text-gray-600",
 };
 
 const sourceLabels: Record<string, string> = {
@@ -147,13 +147,13 @@ onMounted(fetchLeads);
 </script>
 
 <template>
-  <div class="rounded-xl border border-slate-200 bg-white">
+  <div class="rounded-xl border border-gray-200 bg-white">
     <div
-      class="flex flex-col gap-3 border-b border-slate-200 px-6 py-4 sm:flex-row sm:items-center"
+      class="flex flex-col gap-3 border-b border-gray-200 px-6 py-4 sm:flex-row sm:items-center"
     >
-      <h2 class="text-base font-semibold text-slate-900">Leads</h2>
+      <h2 class="text-base font-semibold text-gray-900">Leads</h2>
       <span
-        class="rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-medium text-slate-600"
+        class="rounded-full bg-gray-100 px-2.5 py-0.5 text-xs font-medium text-gray-600"
       >
         {{ filteredLeads.length }}
       </span>
@@ -164,12 +164,12 @@ onMounted(fetchLeads);
           @input="page = 1"
           type="search"
           placeholder="Search name or email..."
-          class="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 sm:w-56"
+          class="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-gray-500 focus:outline-none focus:ring-1 focus:ring-navy-500 sm:w-56"
         />
         <select
           v-model="statusFilter"
           @change="page = 1"
-          class="rounded-lg border border-slate-200 px-3 py-2 text-sm capitalize focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+          class="rounded-lg border border-gray-200 px-3 py-2 text-sm capitalize focus:border-gray-500 focus:outline-none focus:ring-1 focus:ring-navy-500"
         >
           <option value="">All statuses</option>
           <option
@@ -182,7 +182,7 @@ onMounted(fetchLeads);
         </select>
         <button
           type="button"
-          class="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700"
+          class="rounded-lg bg-navy-600 px-4 py-2 text-sm font-medium text-white hover:bg-navy-700"
           @click="openCreate"
         >
           New Lead
@@ -191,12 +191,12 @@ onMounted(fetchLeads);
     </div>
 
     <div v-if="loading" class="px-6 py-16 text-center">
-      <p class="text-sm text-slate-500">Loading leads...</p>
+      <p class="text-sm text-gray-500">Loading leads...</p>
     </div>
 
     <div v-else-if="filteredLeads.length === 0" class="px-6 py-16 text-center">
-      <p class="text-sm font-medium text-slate-900">No leads found</p>
-      <p class="mt-1 text-sm text-slate-500">
+      <p class="text-sm font-medium text-gray-900">No leads found</p>
+      <p class="mt-1 text-sm text-gray-500">
         Try adjusting your filters or create a new lead.
       </p>
     </div>
@@ -205,7 +205,7 @@ onMounted(fetchLeads);
       <table class="w-full text-left text-sm">
         <thead>
           <tr
-            class="border-b border-slate-200 text-xs uppercase tracking-wide text-slate-500"
+            class="border-b border-gray-200 text-xs uppercase tracking-wide text-gray-500"
           >
             <th class="px-6 py-3 font-medium">Name</th>
             <th class="px-6 py-3 font-medium">Email</th>
@@ -216,23 +216,23 @@ onMounted(fetchLeads);
             <th class="px-6 py-3 font-medium text-right">Actions</th>
           </tr>
         </thead>
-        <tbody class="divide-y divide-slate-100">
+        <tbody class="divide-y divide-navy-100">
           <tr
             v-for="lead in pagedLeads"
             :key="lead.id"
-            class="hover:bg-slate-50"
+            class="hover:bg-gray-100"
           >
             <td class="px-6 py-4">
               <a
                 :href="`/leads/${lead.id}`"
-                class="font-medium text-indigo-600 hover:text-indigo-700"
+                class="font-medium text-navy-600 hover:text-navy-700"
               >
                 {{ lead.firstName }} {{ lead.lastName }}
               </a>
             </td>
-            <td class="px-6 py-4 text-slate-600">{{ lead.email }}</td>
-            <td class="px-6 py-4 text-slate-600">{{ lead.phone }}</td>
-            <td class="px-6 py-4 text-slate-600">
+            <td class="px-6 py-4 text-gray-600">{{ lead.email }}</td>
+            <td class="px-6 py-4 text-gray-600">{{ lead.phone }}</td>
+            <td class="px-6 py-4 text-gray-600">
               {{ sourceLabels[lead.source] ?? lead.source }}
             </td>
             <td class="px-6 py-4">
@@ -245,13 +245,13 @@ onMounted(fetchLeads);
                 {{ statusLabels[lead.status] }}
               </span>
             </td>
-            <td class="px-6 py-4 text-slate-600">
+            <td class="px-6 py-4 text-gray-600">
               {{ formatDate(lead.createdAt) }}
             </td>
             <td class="px-6 py-4 text-right whitespace-nowrap">
               <button
                 type="button"
-                class="rounded-lg px-2 py-1 text-sm font-medium text-slate-600 hover:bg-slate-100 hover:text-slate-900"
+                class="rounded-lg px-2 py-1 text-sm font-medium text-gray-600 hover:bg-gray-100 hover:text-gray-900"
                 @click="openEdit(lead)"
               >
                 Edit
@@ -271,14 +271,14 @@ onMounted(fetchLeads);
 
     <div
       v-if="!loading && totalPages > 1"
-      class="flex items-center justify-between border-t border-slate-200 px-6 py-3"
+      class="flex items-center justify-between border-t border-gray-200 px-6 py-3"
     >
-      <p class="text-sm text-slate-500">Page {{ page }} of {{ totalPages }}</p>
+      <p class="text-sm text-gray-500">Page {{ page }} of {{ totalPages }}</p>
       <div class="flex gap-2">
         <button
           type="button"
           :disabled="page <= 1"
-          class="rounded-lg border border-slate-200 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-40 disabled:hover:bg-transparent"
+          class="rounded-lg border border-gray-200 px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-100 disabled:opacity-40 disabled:hover:bg-transparent"
           @click="page--"
         >
           Previous
@@ -286,7 +286,7 @@ onMounted(fetchLeads);
         <button
           type="button"
           :disabled="page >= totalPages"
-          class="rounded-lg border border-slate-200 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-40 disabled:hover:bg-transparent"
+          class="rounded-lg border border-gray-200 px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-100 disabled:opacity-40 disabled:hover:bg-transparent"
           @click="page++"
         >
           Next

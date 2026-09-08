@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/odysight/crm/pkg/response"
+	"github.com/odysight/crm/pkg/validate"
 )
 
 type CleanerDTO struct {
@@ -53,10 +54,10 @@ func (r *CreateCleanerRequest) Validate() error {
 	if r.LastName == "" {
 		return response.NewAPIError(400, "lastName is required")
 	}
-	if r.Phone == "" {
-		return response.NewAPIError(400, "phone is required")
+	if !validate.Phone(r.Phone) {
+		return response.NewAPIError(400, "a valid phone is required")
 	}
-	if r.Email == "" || !strings.Contains(r.Email, "@") {
+	if !validate.Email(r.Email) {
 		return response.NewAPIError(400, "a valid email is required")
 	}
 	if r.Skills == "" {
@@ -91,7 +92,7 @@ func (r *UpdateCleanerRequest) Validate() error {
 	}
 	if r.Email != nil {
 		email := strings.ToLower(strings.TrimSpace(*r.Email))
-		if email == "" || !strings.Contains(email, "@") {
+		if !validate.Email(email) {
 			return response.NewAPIError(400, "a valid email is required")
 		}
 		r.Email = &email

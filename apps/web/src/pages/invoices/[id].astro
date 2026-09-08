@@ -1,0 +1,8 @@
+---
+import DashboardLayout from "../../layouts/DashboardLayout.astro";
+import InvoiceDetail from "../../components/vue/invoices/InvoiceDetail.vue";
+---
+
+<DashboardLayout title="Invoice">
+  <InvoiceDetail client:load invoiceId={Number(Astro.params.id)} />
+</DashboardLayout>

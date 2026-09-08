@@ -1,0 +1,9 @@
+.env
+*.exe
+*.exe~
+*.pid
+*.log
+api-test*
+/tmp/
+.git
+vendor/.git

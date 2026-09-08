@@ -60,9 +60,11 @@ func (r *CreatePaymentRequest) Validate() error {
 	if len(r.Currency) != 3 {
 		return response.NewAPIError(400, "a valid 3-letter currency code is required")
 	}
-	if r.Method != "" && !Method(r.Method).Valid() {
-		return response.NewAPIError(400, "invalid method")
+	if r.Method == "" {
+		return response.NewAPIError(400, "method is required")
 	}
+	// Payment methods are admin-editable via Settings → Payments,
+	// so any non-empty value is accepted (CHECK constraint removed).
 	if !Status(r.Status).Valid() {
 		return response.NewAPIError(400, "invalid status")
 	}
@@ -77,8 +79,8 @@ type UpdatePaymentRequest struct {
 const errNoFields = "at least one field must be provided"
 
 func (r *UpdatePaymentRequest) Validate() error {
-	if r.Method != nil && !Method(*r.Method).Valid() {
-		return response.NewAPIError(400, "invalid method")
+	if r.Method != nil && strings.TrimSpace(*r.Method) == "" {
+		return response.NewAPIError(400, "method cannot be empty")
 	}
 	if r.Status != nil && !Status(*r.Status).Valid() {
 		return response.NewAPIError(400, "invalid status")

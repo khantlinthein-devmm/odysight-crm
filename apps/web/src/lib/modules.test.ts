@@ -55,6 +55,7 @@ describe("bookings mock API", () => {
     const before = await getBookings();
     const input: CreateBookingInput = {
       customerName: "Test Customer",
+      customerEmail: "test@example.com",
       serviceType: "condo_cleaning",
       scheduledFor: "2026-09-10T09:00:00Z",
       durationMinutes: 180,
@@ -62,6 +63,9 @@ describe("bookings mock API", () => {
       assignedCleaner: "Nok Srisuwan",
       status: "pending",
       notes: "",
+      isRecurring: false,
+      recurrence: "",
+      seriesId: null,
     };
     const created = await createBooking(input);
     const after = await getBookings();

@@ -10,8 +10,18 @@ import {
   type CreateBookingInput,
 } from "../../../lib/bookings";
 import { showToast } from "../../../lib/toast";
+import { getWorkspaceSettings, serviceLabel } from "../../../lib/settings";
+import { getSessionUser } from "../../../lib/auth";
+import { hasPermission } from "../../../lib/roles";
+import { createInvoice } from "../../../lib/invoices";
 import BookingForm from "./BookingForm.vue";
 import ConfirmDialog from "../ui/ConfirmDialog.vue";
+
+const role = getSessionUser()?.role;
+const canCreate = computed(() => hasPermission(role, "bookings.create"));
+const canEdit = computed(() => hasPermission(role, "bookings.update"));
+const canDelete = computed(() => hasPermission(role, "bookings.delete"));
+const canInvoice = computed(() => hasPermission(role, "invoices.create"));
 
 const statusLabels: Record<BookingStatus, string> = {
   pending: "Pending",
@@ -25,12 +35,18 @@ const statusLabels: Record<BookingStatus, string> = {
 
 const statusStyles: Record<BookingStatus, string> = {
   pending: "bg-amber-50 text-amber-700",
-  confirmed: "bg-sky-50 text-sky-700",
-  in_progress: "bg-indigo-50 text-indigo-700",
-  completed: "bg-emerald-50 text-emerald-700",
-  cancelled: "bg-slate-100 text-slate-600",
+  confirmed: "bg-navy-50 text-navy-700",
+  in_progress: "bg-navy-50 text-navy-700",
+  completed: "bg-green-50 text-green-700",
+  cancelled: "bg-gray-100 text-gray-600",
   no_show: "bg-red-50 text-red-700",
-  rescheduled: "bg-violet-50 text-violet-700",
+  rescheduled: "bg-navy-50 text-navy-700",
+};
+
+const recurrenceLabels: Record<string, string> = {
+  weekly: "Weekly",
+  biweekly: "Bi-weekly",
+  monthly: "Monthly",
 };
 
 const serviceTypeLabels: Record<string, string> = {
@@ -44,6 +60,13 @@ const serviceTypeLabels: Record<string, string> = {
   aircon_service: "Aircon Service",
 };
 
+function labelForService(id: string): string {
+  // Prefer the live catalog name; fall back to built-ins, then the raw id.
+  const live = serviceLabel(id);
+  if (live !== id) return live;
+  return serviceTypeLabels[id] ?? id;
+}
+
 const bookings = ref<Booking[]>([]);
 const loading = ref(true);
 const search = ref("");
@@ -56,6 +79,7 @@ const editingBooking = ref<Booking | undefined>(undefined);
 const saving = ref(false);
 const pendingDelete = ref<Booking | null>(null);
 const deleting = ref(false);
+const invoicingId = ref<number | null>(null);
 
 const filteredBookings = computed(() => {
   const query = search.value.trim().toLowerCase();
@@ -82,6 +106,8 @@ const pagedBookings = computed(() => {
 async function fetchBookings() {
   loading.value = true;
   try {
+    // Warm the workspace settings cache so service names render from the catalog.
+    await getWorkspaceSettings().catch(() => null);
     bookings.value = await getBookings();
   } catch {
     showToast("Failed to load bookings", "error");
@@ -120,8 +146,12 @@ async function handleSave(input: CreateBookingInput) {
       showToast("Booking created", "success");
     }
     closeForm();
-  } catch {
-    showToast("Failed to save booking", "error");
+  } catch (err) {
+    const message =
+      err instanceof Error && err.message
+        ? err.message
+        : "Failed to save booking";
+    showToast(message, "error");
   } finally {
     saving.value = false;
   }
@@ -144,6 +174,34 @@ async function handleDelete() {
   }
 }
 
+async function handleInvoice(booking: Booking) {
+  invoicingId.value = booking.id;
+  try {
+    const created = await createInvoice({ bookingId: booking.id });
+    showToast("Invoice created", "success");
+    window.location.href = `/invoices/${created.id}`;
+  } catch (err) {
+    const message =
+      err instanceof Error && err.message
+        ? err.message
+        : "Failed to create invoice";
+    showToast(message, "error");
+  } finally {
+    invoicingId.value = null;
+  }
+}
+
+function cleanerSummary(booking: Booking): string {
+  const primary =
+    booking.cleaners?.find((c) => c.role === "primary")?.name ??
+    booking.cleaners?.[0]?.name ??
+    booking.assignedCleaner ??
+    "";
+  const crewCount = (booking.cleaners ?? []).filter((c) => c.role === "crew")
+    .length;
+  return crewCount > 0 ? `${primary} +${crewCount} crew` : primary;
+}
+
 function formatDate(iso: string): string {
   return new Date(iso).toLocaleString();
 }
@@ -152,13 +210,13 @@ onMounted(fetchBookings);
 </script>
 
 <template>
-  <div class="rounded-xl border border-slate-200 bg-white">
+  <div class="rounded-xl border border-gray-200 bg-white">
     <div
-      class="flex flex-col gap-3 border-b border-slate-200 px-6 py-4 sm:flex-row sm:items-center"
+      class="flex flex-col gap-3 border-b border-gray-200 px-6 py-4 sm:flex-row sm:items-center"
     >
-      <h2 class="text-base font-semibold text-slate-900">Bookings</h2>
+      <h2 class="text-base font-semibold text-gray-900">Bookings</h2>
       <span
-        class="rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-medium text-slate-600"
+        class="rounded-full bg-gray-100 px-2.5 py-0.5 text-xs font-medium text-gray-600"
       >
         {{ filteredBookings.length }}
       </span>
@@ -169,12 +227,12 @@ onMounted(fetchBookings);
           @input="page = 1"
           type="search"
           placeholder="Search booking or customer..."
-          class="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 sm:w-56"
+          class="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-gray-500 focus:outline-none focus:ring-1 focus:ring-navy-500 sm:w-56"
         />
         <select
           v-model="statusFilter"
           @change="page = 1"
-          class="rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+          class="rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-gray-500 focus:outline-none focus:ring-1 focus:ring-navy-500"
         >
           <option value="">All statuses</option>
           <option
@@ -186,8 +244,9 @@ onMounted(fetchBookings);
           </option>
         </select>
         <button
+          v-if="canCreate"
           type="button"
-          class="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700"
+          class="rounded-lg bg-navy-600 px-4 py-2 text-sm font-medium text-white hover:bg-navy-700"
           @click="openCreate"
         >
           New Booking
@@ -196,15 +255,15 @@ onMounted(fetchBookings);
     </div>
 
     <div v-if="loading" class="px-6 py-16 text-center">
-      <p class="text-sm text-slate-500">Loading bookings...</p>
+      <p class="text-sm text-gray-500">Loading bookings...</p>
     </div>
 
     <div
       v-else-if="filteredBookings.length === 0"
       class="px-6 py-16 text-center"
     >
-      <p class="text-sm font-medium text-slate-900">No bookings found</p>
-      <p class="mt-1 text-sm text-slate-500">
+      <p class="text-sm font-medium text-gray-900">No bookings found</p>
+      <p class="mt-1 text-sm text-gray-500">
         Try adjusting your filters or create a new booking.
       </p>
     </div>
@@ -213,37 +272,48 @@ onMounted(fetchBookings);
       <table class="w-full text-left text-sm">
         <thead>
           <tr
-            class="border-b border-slate-200 text-xs uppercase tracking-wide text-slate-500"
+            class="border-b border-gray-200 text-xs uppercase tracking-wide text-gray-500"
           >
             <th class="px-6 py-3 font-medium">Booking #</th>
             <th class="px-6 py-3 font-medium">Customer</th>
             <th class="px-6 py-3 font-medium">Service Type</th>
+            <th class="px-6 py-3 font-medium">Repeat</th>
             <th class="px-6 py-3 font-medium">Scheduled</th>
             <th class="px-6 py-3 font-medium">Cleaner</th>
             <th class="px-6 py-3 font-medium">Status</th>
             <th class="px-6 py-3 font-medium text-right">Actions</th>
           </tr>
         </thead>
-        <tbody class="divide-y divide-slate-100">
+        <tbody class="divide-y divide-navy-100">
           <tr
             v-for="booking in pagedBookings"
             :key="booking.id"
-            class="hover:bg-slate-50"
+            class="hover:bg-gray-100"
           >
-            <td class="px-6 py-4 font-mono text-xs text-indigo-600">
+            <td class="px-6 py-4 font-mono text-xs text-gray-600">
               {{ booking.bookingNumber }}
             </td>
-            <td class="px-6 py-4 font-medium text-slate-900">
+            <td class="px-6 py-4 font-medium text-gray-900">
               {{ booking.customerName }}
             </td>
-            <td class="px-6 py-4 text-slate-600">
-              {{ serviceTypeLabels[booking.serviceType] ?? booking.serviceType }}
+            <td class="px-6 py-4 text-gray-600">
+              {{ labelForService(booking.serviceType) }}
             </td>
-            <td class="px-6 py-4 text-slate-600">
+            <td class="px-6 py-4">
+              <span
+                v-if="booking.isRecurring && booking.recurrence"
+                class="inline-flex rounded-full bg-amber-50 px-2.5 py-0.5 text-xs font-medium text-amber-700"
+                title="This booking repeats"
+              >
+                ↻ {{ recurrenceLabels[booking.recurrence] ?? booking.recurrence }}
+              </span>
+              <span v-else class="text-gray-400">—</span>
+            </td>
+            <td class="px-6 py-4 text-gray-600">
               {{ formatDate(booking.scheduledFor) }}
             </td>
-            <td class="px-6 py-4 text-slate-600">
-              {{ booking.assignedCleaner }}
+            <td class="px-6 py-4 text-gray-600">
+              {{ cleanerSummary(booking) }}
             </td>
             <td class="px-6 py-4">
               <span
@@ -257,13 +327,24 @@ onMounted(fetchBookings);
             </td>
             <td class="px-6 py-4 text-right whitespace-nowrap">
               <button
+                v-if="canEdit"
                 type="button"
-                class="rounded-lg px-2 py-1 text-sm font-medium text-slate-600 hover:bg-slate-100 hover:text-slate-900"
+                class="rounded-lg px-2 py-1 text-sm font-medium text-gray-600 hover:bg-gray-100 hover:text-gray-900"
                 @click="openEdit(booking)"
               >
                 Edit
               </button>
               <button
+                v-if="canInvoice && booking.status === 'completed'"
+                type="button"
+                :disabled="invoicingId === booking.id"
+                class="rounded-lg px-2 py-1 text-sm font-medium text-navy-700 hover:bg-navy-50 disabled:opacity-50"
+                @click="handleInvoice(booking)"
+              >
+                Invoice
+              </button>
+              <button
+                v-if="canDelete"
                 type="button"
                 class="rounded-lg px-2 py-1 text-sm font-medium text-red-600 hover:bg-red-50"
                 @click="pendingDelete = booking"
@@ -278,14 +359,14 @@ onMounted(fetchBookings);
 
     <div
       v-if="!loading && totalPages > 1"
-      class="flex items-center justify-between border-t border-slate-200 px-6 py-3"
+      class="flex items-center justify-between border-t border-gray-200 px-6 py-3"
     >
-      <p class="text-sm text-slate-500">Page {{ page }} of {{ totalPages }}</p>
+      <p class="text-sm text-gray-500">Page {{ page }} of {{ totalPages }}</p>
       <div class="flex gap-2">
         <button
           type="button"
           :disabled="page <= 1"
-          class="rounded-lg border border-slate-200 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-40 disabled:hover:bg-transparent"
+          class="rounded-lg border border-gray-200 px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-100 disabled:opacity-40 disabled:hover:bg-transparent"
           @click="page--"
         >
           Previous
@@ -293,7 +374,7 @@ onMounted(fetchBookings);
         <button
           type="button"
           :disabled="page >= totalPages"
-          class="rounded-lg border border-slate-200 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-40 disabled:hover:bg-transparent"
+          class="rounded-lg border border-gray-200 px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-100 disabled:opacity-40 disabled:hover:bg-transparent"
           @click="page++"
         >
           Next

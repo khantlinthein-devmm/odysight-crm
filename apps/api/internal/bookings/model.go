@@ -45,16 +45,44 @@ func (s ServiceType) Valid() bool {
 	return false
 }
 
+// CleanerBrief links a booking to a real cleaner from the cleaners table.
+type CleanerBrief struct {
+	ID   int64
+	Name string
+	Role string // "primary" | "crew"
+}
+
 type Booking struct {
 	ID              int64
 	BookingNumber   string
 	CustomerName    string
+	CustomerEmail   string
+	CustomerID      *int64
 	ServiceType     ServiceType
 	ScheduledFor    time.Time
 	DurationMinutes int
 	Address         string
-	AssignedCleaner string
+	AssignedCleaner string // display: primary cleaner's full name
 	Status          Status
 	Notes           string
 	CreatedAt       time.Time
+	IsRecurring     bool
+	Recurrence      string // "weekly" | "biweekly" | "monthly" | "" (never recurring)
+	SeriesID        *string
+	Cleaners        []CleanerBrief
+}
+
+// Recurrence frequencies for recurring bookings.
+const (
+	RecurWeekly   = "weekly"
+	RecurBiweekly = "biweekly"
+	RecurMonthly  = "monthly"
+)
+
+func IsValidRecurrence(r string) bool {
+	switch r {
+	case RecurWeekly, RecurBiweekly, RecurMonthly:
+		return true
+	}
+	return false
 }

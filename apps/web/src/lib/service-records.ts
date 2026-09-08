@@ -1,4 +1,4 @@
-import { ApiError, USE_MOCKS, apiFetch, delay } from "./api";
+import { ApiError, USE_MOCKS, apiFetch, delay, toQuery, unwrapPage, type Page } from "./api";
 
 export type ServiceRecordStatus =
   | "pending"
@@ -94,12 +94,31 @@ function clone(record: ServiceRecord): ServiceRecord {
   return { ...record, rating: record.rating, completedAt: record.completedAt };
 }
 
-export async function getServiceRecords(): Promise<ServiceRecord[]> {
+function filterMocks(params: ListParams): ServiceRecord[] {
+  const q = params.search?.trim().toLowerCase() ?? "";
+  let rows = mockServiceRecords.filter((r) => {
+    if (params.status && r.status !== params.status) return false;
+    if (!q) return true;
+    return [r.bookingNumber, r.cleanerName, r.serviceType, r.notes]
+      .join(" ")
+      .toLowerCase()
+      .includes(q);
+  });
+  const offset = params.offset ?? 0;
+  const limit = params.limit ?? rows.length;
+  rows = rows.slice(offset, offset + limit);
+  return rows.map(clone);
+}
+
+export interface ListParams { search?: string; status?: string; limit?: number; offset?: number }
+
+export async function getServiceRecords(params: ListParams = {}): Promise<ServiceRecord[]> {
   if (USE_MOCKS) {
     await delay(300);
-    return mockServiceRecords.map(clone);
+    return filterMocks(params);
   }
-  return apiFetch<ServiceRecord[]>("/api/v1/service-records");
+  const json = await apiFetch<ServiceRecord[] | Page<ServiceRecord>>("/api/v1/service-records"+toQuery(params as Record<string, string|number|undefined>));
+  return unwrapPage(json);
 }
 
 export async function getServiceRecord(id: number): Promise<ServiceRecord> {

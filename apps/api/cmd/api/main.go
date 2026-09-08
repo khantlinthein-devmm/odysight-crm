@@ -7,22 +7,37 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 
+	"github.com/jackc/pgx/v5/pgxpool"
+
 	"github.com/odysight/crm/config"
+	"github.com/odysight/crm/internal/audit"
 	"github.com/odysight/crm/internal/auth"
 	"github.com/odysight/crm/internal/bookings"
 	"github.com/odysight/crm/internal/cleaners"
 	"github.com/odysight/crm/internal/customers"
+	"github.com/odysight/crm/internal/feedback"
+	"github.com/odysight/crm/internal/invoices"
 	"github.com/odysight/crm/internal/leads"
+	"github.com/odysight/crm/internal/notifications"
 	"github.com/odysight/crm/internal/payments"
+	"github.com/odysight/crm/internal/portal"
 	"github.com/odysight/crm/internal/reports"
 	"github.com/odysight/crm/internal/servicerecords"
+	"github.com/odysight/crm/internal/settings"
+	"github.com/odysight/crm/internal/users"
 	"github.com/odysight/crm/pkg/database"
+	"github.com/odysight/crm/pkg/mailer"
+	apmw "github.com/odysight/crm/pkg/middleware"
+	"github.com/odysight/crm/pkg/migrate"
+	"github.com/odysight/crm/pkg/response"
 )
 
 func main() {
@@ -48,75 +63,174 @@ func run() error {
 	defer pool.Close()
 	slog.Info("connected to database")
 
-	authRepo := auth.NewRepository(pool)
-	if err := authRepo.EnsureSeed(ctx, []auth.SeedUser{
-		{Name: "Admin User", Email: "admin@example.com", Password: "admin123", Role: auth.RoleSuperAdmin},
-		{Name: "Dispatcher", Email: "dispatch@example.com", Password: "dispatch123", Role: auth.RoleDispatch},
-	}); err != nil {
-		return err
+	if cfg.RunMigrations {
+		if err := migrate.Up(ctx, pool, cfg.MigrationsDir); err != nil {
+			return err
+		}
 	}
-	authService := auth.NewService(authRepo, cfg.JWTSecret)
-	authHandler := auth.NewHandler(authService)
-	authorizer := auth.NewAuthorizer(cfg.JWTSecret)
 
-	leadRepo := leads.NewRepository(pool)
-	leadService := leads.NewService(leadRepo)
-	leadHandler := leads.NewHandler(leadService)
+	authRepo := auth.NewRepository(pool)
+	if cfg.SeedEnabled {
+		seeds := []auth.SeedUser{
+			{Name: cfg.SeedAdminName, Email: cfg.SeedAdminEmail, Password: cfg.SeedAdminPass, Role: auth.RoleSuperAdmin},
+		}
+		if cfg.SeedDispatchPass != "" {
+			seeds = append(seeds, auth.SeedUser{Name: cfg.SeedDispatchName, Email: cfg.SeedDispatchEmail, Password: cfg.SeedDispatchPass, Role: auth.RoleDispatch})
+		}
+		if err := authRepo.EnsureSeed(ctx, seeds); err != nil {
+			return err
+		}
+		slog.Info("seed check complete", "enabled", true)
+	}
+	authService := auth.NewServiceWithTTL(authRepo, cfg.JWTSecret, cfg.TokenTTL)
+	authHandler := auth.NewHandler(authService, !cfg.IsDev(), cfg.TokenTTL)
+	authorizer := auth.NewAuthorizer(cfg.JWTSecret)
 
 	customerRepo := customers.NewRepository(pool)
 	customerService := customers.NewService(customerRepo)
 	customerHandler := customers.NewHandler(customerService)
+
+	leadRepo := leads.NewRepository(pool)
+	leadService := leads.NewService(leadRepo, customerService)
+	leadHandler := leads.NewHandler(leadService)
 
 	cleanerRepo := cleaners.NewRepository(pool)
 	cleanerService := cleaners.NewService(cleanerRepo)
 	cleanerHandler := cleaners.NewHandler(cleanerService)
 
 	bookingRepo := bookings.NewRepository(pool)
-	bookingService := bookings.NewService(bookingRepo)
-	bookingHandler := bookings.NewHandler(bookingService)
+
+	// Demo portal customer (idempotent) so a seeded install always has someone
+	// who can sign in at /portal with somchai@smileclean.com.
+	if cfg.SeedEnabled {
+		if err := seedPortalDemoCustomer(ctx, pool, bookingRepo); err != nil {
+			return err
+		}
+		slog.Info("portal demo seed check complete", "enabled", true)
+	}
+
+	// Recurring-booking job: fires on boot then hourly, cloning each due
+	// recurring booking forward and disabling its source row.
+	recurrence := bookings.NewRecurrenceRunner(bookingRepo, time.Hour)
+	go recurrence.Run(ctx)
+
+	feedbackRepo := feedback.NewRepository(pool)
+	feedbackService := feedback.NewService(feedbackRepo)
+	feedbackHandler := feedback.NewHandler(feedbackService)
 
 	serviceRecordRepo := servicerecords.NewRepository(pool)
 	serviceRecordService := servicerecords.NewService(serviceRecordRepo)
 	serviceRecordHandler := servicerecords.NewHandler(serviceRecordService)
 
-	paymentRepo := payments.NewRepository(pool)
-	paymentService := payments.NewService(paymentRepo)
-	paymentHandler := payments.NewHandler(paymentService)
-
 	reportRepo := reports.NewRepository(pool)
 	reportService := reports.NewService(reportRepo)
 	reportHandler := reports.NewHandler(reportService)
+
+	userRepo := users.NewRepository(pool)
+	userService := users.NewService(userRepo)
+	userHandler := users.NewHandler(userService)
+
+	auditRepo := audit.NewRepository(pool)
+	auditService := audit.NewService(auditRepo)
+	auditHandler := audit.NewHandler(auditService)
+
+	settingsRepo := settings.NewRepository(pool)
+	if err := settingsRepo.EnsureSeed(ctx, settings.Defaults()); err != nil {
+		return err
+	}
+	settingsService := settings.NewService(settingsRepo)
+	settingsHandler := settings.NewHandler(settingsService)
+
+	newInvoiceMailer := func() invoices.Emailer {
+		cfg, err := settingsService.SMTPConfig(context.Background())
+		if err != nil {
+			return nil
+		}
+		return mailer.New(cfg)
+	}
+
+	newNotificationMailer := func() notifications.Emailer {
+		return newInvoiceMailer()
+	}
+
+	notifRepo := notifications.NewRepository(pool)
+	notifService := notifications.NewService(notifRepo, settingsService, newNotificationMailer)
+	notifHandler := notifications.NewHandler(notifService)
+
+	bookingService := bookings.NewService(bookingRepo, notifService)
+	bookingHandler := bookings.NewHandler(bookingService)
+
+	portalRepo := portal.NewRepository(pool)
+	portalService := portal.NewService(portalRepo, feedbackService, cfg.JWTSecret)
+	portalHandler := portal.NewHandler(portalService, !cfg.IsDev(), cfg.TokenTTL)
+	portalAuthorizer := portal.NewAuthorizer(cfg.JWTSecret)
+
+	invoiceRepo := invoices.NewRepository(pool)
+	invoiceService := invoices.NewService(invoiceRepo, settingsService, newInvoiceMailer, notifService)
+	invoiceHandler := invoices.NewHandler(invoiceService)
+
+	// Overdue-invoice reminder job: fires on boot, then every hour. Stamping
+	// reminder_sent_at keeps it idempotent. Single-instance only.
+	reminders := invoices.NewReminderRunner(invoiceRepo, settingsService, newInvoiceMailer, notifService, time.Hour)
+	go reminders.Run(ctx)
+
+	paymentRepo := payments.NewRepository(pool)
+	paymentService := payments.NewService(paymentRepo, invoiceService)
+	paymentHandler := payments.NewHandler(paymentService)
 
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID)
 	r.Use(middleware.RealIP)
 	r.Use(middleware.Logger)
 	r.Use(middleware.Recoverer)
-	r.Use(middleware.Timeout(30 * time.Second))
+	r.Use(middleware.Timeout(cfg.RequestTimeout))
+	r.Use(apmw.SecurityHeaders)
+	r.Use(apmw.CORS(cfg.CORSOrigins))
+	r.Use(apmw.RateLimit(cfg.RateLimitRPM, cfg.TrustedProxyIPs))
 
 	r.Get("/health", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ok"))
 	})
+	r.Get("/ready", func(w http.ResponseWriter, r *http.Request) {
+		ctx, cancel := context.WithTimeout(r.Context(), cfg.ReadyTimeout)
+		defer cancel()
+		if err := pool.Ping(ctx); err != nil {
+			response.Error(w, http.StatusServiceUnavailable, "database not ready")
+			return
+		}
+		response.JSON(w, http.StatusOK, map[string]string{"status": "ready"})
+	})
 
 	r.Route("/api/v1", func(r chi.Router) {
-		r.Mount("/auth", auth.Routes(authHandler))
+		r.Mount("/auth", auth.Routes(authHandler, authorizer, apmw.LoginRateLimit(cfg.LoginRateLimitRPM, cfg.TrustedProxyIPs)))
+		r.Mount("/portal", portal.Routes(portalHandler, portalAuthorizer))
 		r.Group(func(r chi.Router) {
 			r.Use(authorizer.Authenticate)
+			r.Use(auditLog(pool, cfg.ReadyTimeout))
 			r.Mount("/leads", leads.Routes(leadHandler, authorizer))
 			r.Mount("/customers", customers.Routes(customerHandler, authorizer))
 			r.Mount("/cleaners", cleaners.Routes(cleanerHandler, authorizer))
 			r.Mount("/bookings", bookings.Routes(bookingHandler, authorizer))
 			r.Mount("/service-records", servicerecords.Routes(serviceRecordHandler, authorizer))
+			r.Mount("/invoices", invoices.Routes(invoiceHandler, authorizer))
 			r.Mount("/payments", payments.Routes(paymentHandler, authorizer))
 			r.Mount("/reports", reports.Routes(reportHandler, authorizer))
+			r.Mount("/users", users.Routes(userHandler, authorizer))
+			r.Mount("/audit-logs", audit.Routes(auditHandler, authorizer))
+			r.Mount("/settings", settings.Routes(settingsHandler, authorizer))
+			r.Mount("/feedback", feedback.Routes(feedbackHandler, authorizer))
+			r.Mount("/notifications", notifications.Routes(notifHandler, authorizer))
 		})
 	})
 
 	srv := &http.Server{
 		Addr:              ":" + cfg.Port,
 		Handler:           r,
-		ReadHeaderTimeout: 10 * time.Second,
+		ReadHeaderTimeout: cfg.ReadHeaderTimeout,
+		ReadTimeout:       cfg.ReadTimeout,
+		WriteTimeout:      cfg.WriteTimeout,
+		IdleTimeout:       cfg.IdleTimeout,
 	}
 
 	errCh := make(chan error, 1)
@@ -128,7 +242,7 @@ func run() error {
 	select {
 	case <-ctx.Done():
 		slog.Info("shutting down")
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), cfg.ShutdownTimeout)
 		defer cancel()
 		return srv.Shutdown(shutdownCtx)
 	case err := <-errCh:
@@ -137,4 +251,36 @@ func run() error {
 		}
 		return err
 	}
+}
+
+// auditLog records mutating requests best-effort into audit_logs.
+func auditLog(pool *pgxpool.Pool, timeout time.Duration) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			next.ServeHTTP(w, r)
+			if r.Method != http.MethodPost && r.Method != http.MethodPatch && r.Method != http.MethodDelete {
+				return
+			}
+			id, _ := auth.IdentityFromContext(r.Context())
+			ctx, cancel := context.WithTimeout(context.Background(), timeout)
+			defer cancel()
+			_, _ = pool.Exec(ctx,
+				`INSERT INTO audit_logs (user_id, action, resource, resource_id) VALUES ($1, $2, $3, $4)`,
+				id.UserID, r.Method, r.URL.Path, resourceIDFromPath(r.URL.Path))
+		})
+	}
+}
+
+// resourceIDFromPath extracts the trailing numeric ID from a well-formed
+// /resource/{id} path, returning nil when the path carries no ID.
+func resourceIDFromPath(path string) *int64 {
+	parts := strings.Split(strings.Trim(path, "/"), "/")
+	if len(parts) == 0 {
+		return nil
+	}
+	id, err := strconv.ParseInt(parts[len(parts)-1], 10, 64)
+	if err != nil {
+		return nil
+	}
+	return &id
 }

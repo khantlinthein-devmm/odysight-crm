@@ -12,6 +12,7 @@ func Routes(h *Handler, az *auth.Authorizer) chi.Router {
 	r.With(az.Require(auth.PermCleanersCreate)).Post("/", h.Create)
 	r.Route("/{id}", func(r chi.Router) {
 		r.Use(az.Require(auth.PermCleanersRead))
+		r.Get("/", h.Get)
 		r.With(az.Require(auth.PermCleanersUpdate)).Patch("/", h.Update)
 		r.With(az.Require(auth.PermCleanersDelete)).Delete("/", h.Delete)
 	})

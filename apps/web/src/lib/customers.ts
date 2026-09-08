@@ -1,4 +1,4 @@
-import { ApiError, USE_MOCKS, apiFetch, delay } from "./api";
+import { ApiError, USE_MOCKS, apiFetch, delay, toQuery, unwrapPage, type Page } from "./api";
 
 export type CustomerStatus = "active" | "inactive" | "blocked";
 
@@ -19,10 +19,15 @@ export interface Customer {
   propertyType: PropertyType;
   area: string;
   status: CustomerStatus;
+  leadId?: number | null;
+  portalEnabled?: boolean;
   createdAt: string;
 }
 
-export type CreateCustomerInput = Omit<Customer, "id" | "createdAt">;
+export type CreateCustomerInput = Omit<
+  Customer,
+  "id" | "createdAt" | "portalEnabled"
+> & { portalEnabled?: false };
 
 export type UpdateCustomerInput = Partial<CreateCustomerInput>;
 
@@ -39,6 +44,7 @@ const mockCustomers: Customer[] = [
     propertyType: "condo",
     area: "Sukhumvit",
     status: "active",
+    portalEnabled: true,
     createdAt: "2026-08-19T10:00:00Z",
   },
   {
@@ -107,12 +113,31 @@ function clone(customer: Customer): Customer {
   return { ...customer };
 }
 
-export async function getCustomers(): Promise<Customer[]> {
+function filterMocks(params: ListParams): Customer[] {
+  const q = params.search?.trim().toLowerCase() ?? "";
+  let rows = mockCustomers.filter((c) => {
+    if (params.status && c.status !== params.status) return false;
+    if (!q) return true;
+    return [c.firstName, c.lastName, c.email, c.phone, c.address, c.area]
+      .join(" ")
+      .toLowerCase()
+      .includes(q);
+  });
+  const offset = params.offset ?? 0;
+  const limit = params.limit ?? rows.length;
+  rows = rows.slice(offset, offset + limit);
+  return rows.map(clone);
+}
+
+export interface ListParams { search?: string; status?: string; limit?: number; offset?: number }
+
+export async function getCustomers(params: ListParams = {}): Promise<Customer[]> {
   if (USE_MOCKS) {
     await delay(300);
-    return mockCustomers.map(clone);
+    return filterMocks(params);
   }
-  return apiFetch<Customer[]>("/api/v1/customers");
+  const json = await apiFetch<Customer[] | Page<Customer>>("/api/v1/customers"+toQuery(params as Record<string, string|number|undefined>));
+  return unwrapPage(json);
 }
 
 export async function getCustomer(id: number): Promise<Customer> {
@@ -133,6 +158,8 @@ export async function createCustomer(
     const customer: Customer = {
       ...input,
       id: ++mockId,
+      leadId: input.leadId ?? null,
+      portalEnabled: input.portalEnabled ?? false,
       createdAt: new Date().toISOString(),
     };
     mockCustomers.unshift(customer);
@@ -171,4 +198,31 @@ export async function deleteCustomer(id: number): Promise<void> {
     return;
   }
   await apiFetch<void>(`/api/v1/customers/${id}`, { method: "DELETE" });
+}
+
+// setCustomerPortal enables/disables a customer's portal access and, when
+// enabling with a password, sets the portal password. An empty password keeps
+// any stored password unchanged.
+export async function setCustomerPortal(
+  id: number,
+  enabled: boolean,
+  password = "",
+): Promise<Customer> {
+  if (USE_MOCKS) {
+    await delay(300);
+    const customer = mockCustomers.find((c) => c.id === id);
+    if (!customer) throw new ApiError(404, `Customer ${id} not found`);
+    if (enabled && password.length < 8 && !customer.portalEnabled) {
+      throw new ApiError(400, "Portal password must be at least 8 characters");
+    }
+    customer.portalEnabled = enabled;
+    return clone(customer);
+  }
+  return apiFetch<Customer>(`/api/v1/customers/${id}/portal`, {
+    method: "PATCH",
+    body: JSON.stringify({
+      enabled,
+      password: password.trim() || undefined,
+    }),
+  });
 }

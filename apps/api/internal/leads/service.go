@@ -2,22 +2,30 @@ package leads
 
 import (
 	"context"
-	"errors"
 	"strings"
 
+	"github.com/odysight/crm/internal/customers"
+	"github.com/odysight/crm/pkg/dberror"
+	"github.com/odysight/crm/pkg/pagination"
 	"github.com/odysight/crm/pkg/response"
 )
 
 type Service struct {
-	repo *Repository
+	repo      *Repository
+	converter CustomerCreator
 }
 
-func NewService(repo *Repository) *Service {
-	return &Service{repo: repo}
+// CustomerCreator creates a customer record when a lead is converted.
+type CustomerCreator interface {
+	ConvertToCustomer(ctx context.Context, req customers.CreateCustomerRequest) (customers.Customer, error)
 }
 
-func (s *Service) List(ctx context.Context) ([]Lead, error) {
-	return s.repo.List(ctx)
+func NewService(repo *Repository, converter CustomerCreator) *Service {
+	return &Service{repo: repo, converter: converter}
+}
+
+func (s *Service) List(ctx context.Context, params pagination.Params) ([]Lead, int, error) {
+	return s.repo.List(ctx, params)
 }
 
 func (s *Service) Get(ctx context.Context, id int64) (Lead, error) {
@@ -94,9 +102,47 @@ func (s *Service) Delete(ctx context.Context, id int64) error {
 	return mapRepoError(err)
 }
 
-func mapRepoError(err error) error {
-	if errors.Is(err, ErrNotFound) {
-		return response.NewAPIError(404, "lead not found")
+// Convert turns a lead into a customer and marks the lead as won.
+func (s *Service) Convert(ctx context.Context, id int64, req ConvertLeadRequest) (customers.Customer, error) {
+	if err := req.Validate(); err != nil {
+		return customers.Customer{}, err
 	}
-	return err
+
+	lead, err := s.repo.GetByID(ctx, id)
+	if err != nil {
+		return customers.Customer{}, mapRepoError(err)
+	}
+	if lead.Status == StatusLost {
+		return customers.Customer{}, response.NewAPIError(400, "cannot convert a lost lead to a customer")
+	}
+
+	status := customers.Status(req.Status)
+	createReq := customers.CreateCustomerRequest{
+		FirstName:    lead.FirstName,
+		LastName:     lead.LastName,
+		Email:        lead.Email,
+		Phone:        lead.Phone,
+		Address:      req.Address,
+		PropertyType: req.PropertyType,
+		Area:         req.Area,
+		Status:       string(status),
+		LeadID:       &id,
+	}
+
+	created, err := s.converter.ConvertToCustomer(ctx, createReq)
+	if err != nil {
+		return customers.Customer{}, err
+	}
+
+	won := StatusWon
+	_, err = s.repo.Update(ctx, id, Patch{Status: &won})
+	if err != nil {
+		return customers.Customer{}, mapRepoError(err)
+	}
+
+	return created, nil
+}
+
+func mapRepoError(err error) error {
+	return dberror.Map(err, ErrNotFound, "lead not found")
 }

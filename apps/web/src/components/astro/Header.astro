@@ -9,12 +9,12 @@ const { title = "Dashboard" } = Astro.props;
 ---
 
 <header
-  class="sticky top-0 z-20 flex h-16 items-center gap-4 border-b border-slate-200 bg-white px-4 sm:px-6"
+  class="sticky top-0 z-20 flex h-16 items-center gap-4 border-b border-gray-200 bg-white px-4 sm:px-6"
 >
   <button
     id="sidebar-open"
     type="button"
-    class="rounded-lg p-2 text-slate-500 hover:bg-slate-100 lg:hidden"
+    class="rounded-lg p-2 text-gray-500 hover:bg-gray-100 lg:hidden"
     aria-label="Open sidebar"
   >
     <svg
@@ -31,12 +31,12 @@ const { title = "Dashboard" } = Astro.props;
     </svg>
   </button>
 
-  <h1 class="text-lg font-semibold text-slate-900">{title}</h1>
+  <h1 class="text-lg font-semibold text-gray-900">{title}</h1>
 
-  <div class="ml-auto flex items-center gap-3">
+  <div class="ml-auto flex items-center gap-2 sm:gap-3">
     <div class="relative hidden md:block">
       <svg
-        class="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400"
+        class="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400 transition-colors group-hover:text-gray-500"
         fill="none"
         viewBox="0 0 24 24"
         stroke="currentColor"
@@ -50,36 +50,36 @@ const { title = "Dashboard" } = Astro.props;
       <button
         id="command-palette-trigger"
         type="button"
-        class="flex w-64 items-center rounded-lg border border-slate-200 bg-slate-50 py-2 pl-9 pr-3 text-left text-sm text-slate-400 hover:border-indigo-400 hover:bg-white"
+        class="group flex h-10 w-64 items-center gap-2 rounded-xl border border-gray-200 bg-white pl-10 pr-2 text-left text-sm shadow-sm transition-all hover:border-gray-300 hover:shadow focus:border-navy-400 focus:outline-none focus:ring-2 focus:ring-navy-500/20"
       >
-        Search...
+        <span class="flex-1 truncate text-gray-400">Search or jump to…</span>
         <kbd
-          class="ml-auto rounded border border-slate-200 bg-white px-1.5 py-0.5 font-mono text-[10px] text-slate-400"
-          >Ctrl K</kbd
+          class="pointer-events-none inline-flex h-6 shrink-0 items-center gap-1 rounded-md border border-gray-200 bg-gray-50 px-1.5 font-mono text-[11px] font-medium text-gray-400"
+          ><span>Ctrl</span><span class="text-gray-500">K</span></kbd
         >
       </button>
     </div>
 
     <NotificationBell client:load />
 
-    <div class="flex items-center gap-2">
+    <div class="flex items-center gap-1 sm:gap-2">
       <div
         id="user-avatar"
-        class="flex h-9 w-9 items-center justify-center rounded-full bg-indigo-100 text-sm font-semibold text-indigo-700"
+        class="flex h-9 w-9 items-center justify-center rounded-full bg-gray-100 text-sm font-semibold text-gray-700"
       >
         ?
       </div>
       <div class="hidden min-w-0 sm:block">
-        <p id="user-name" class="truncate text-sm font-medium text-slate-900">
+        <p id="user-name" class="truncate text-sm font-medium text-gray-900">
           ...
         </p>
-        <p id="user-role" class="truncate text-xs text-slate-500"></p>
+        <p id="user-role" class="truncate text-xs text-gray-500"></p>
       </div>
       <button
         id="logout-btn"
         type="button"
         title="Sign out"
-        class="rounded-lg p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+        class="ml-1 flex h-9 w-9 items-center justify-center rounded-lg text-gray-400 hover:bg-gray-100 hover:text-navy-600"
       >
         <svg
           class="h-5 w-5"

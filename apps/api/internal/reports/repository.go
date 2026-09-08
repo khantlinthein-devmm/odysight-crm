@@ -46,7 +46,217 @@ func (r *Repository) LoadSummary(ctx context.Context, now time.Time) (Summary, e
 		return Summary{}, err
 	}
 
-	return buildSummary(row, counts, revenue, bookingCounts), nil
+	productivity, err := r.loadCleanerProductivity(ctx)
+	if err != nil {
+		return Summary{}, err
+	}
+
+	return buildSummary(row, counts, revenue, bookingCounts, productivity), nil
+}
+
+func (r *Repository) LoadFinancial(ctx context.Context, from, to time.Time, currency string) (FinancialReport, error) {
+	report := FinancialReport{
+		From:     from,
+		To:       to,
+		Currency: currency,
+		ARAging:  make([]ARAgingBucket, 0, 5),
+	}
+
+	revenue, err := r.loadRevenueBuckets(ctx, from, to, currency)
+	if err != nil {
+		return report, err
+	}
+
+	tax, err := r.loadTaxSummary(ctx, from, to, currency)
+	if err != nil {
+		return report, err
+	}
+
+	aging, err := r.loadARAging(ctx, currency)
+	if err != nil {
+		return report, err
+	}
+
+	report.Revenue = revenue
+	report.Tax = tax
+	report.ARAging = aging
+	return report, nil
+}
+
+// loadRevenueBuckets aggregates billed vs collected amounts per month.
+func (r *Repository) loadRevenueBuckets(ctx context.Context, from, to time.Time, currency string) ([]RevenueBucket, error) {
+	rows, err := r.pool.Query(ctx,
+		`SELECT m.period,
+		        COALESCE(billed.billed, 0),
+		        COALESCE(collected.collected, 0)
+		 FROM generate_series($1::timestamptz, $2::timestamptz, interval '1 month') AS m(period)
+		 LEFT JOIN (
+		     SELECT date_trunc('month', issued_at) AS month, SUM(total) AS billed
+		     FROM invoices
+		     WHERE status <> 'void' AND currency = $3 AND issued_at BETWEEN $1 AND $2
+		     GROUP BY 1
+		 ) billed ON billed.month = m.period
+		 LEFT JOIN (
+		     SELECT date_trunc('month', p.created_at) AS month, SUM(p.amount) AS collected
+		     FROM payments p
+		     JOIN invoices i ON i.invoice_number = p.invoice_number AND i.currency = $3
+		     WHERE p.status = 'paid' AND p.created_at BETWEEN $1 AND $2
+		     GROUP BY 1
+		 ) collected ON collected.month = m.period
+		 ORDER BY m.period`,
+		from, to, currency)
+	if err != nil {
+		return nil, fmt.Errorf("query revenue buckets: %w", err)
+	}
+	defer rows.Close()
+
+	buckets := []RevenueBucket{}
+	for rows.Next() {
+		var period time.Time
+		var billed, collected float64
+		if err := rows.Scan(&period, &billed, &collected); err != nil {
+			return nil, fmt.Errorf("scan revenue bucket: %w", err)
+		}
+		buckets = append(buckets, RevenueBucket{
+			Period:      period.Format("2006-01"),
+			Billed:      billed,
+			Collected:   collected,
+			Outstanding: billed - collected,
+		})
+	}
+	return buckets, rows.Err()
+}
+
+// loadTaxSummary aggregates tax billed, tax collected, and tax outstanding.
+func (r *Repository) loadTaxSummary(ctx context.Context, from, to time.Time, currency string) (TaxSummary, error) {
+	var s TaxSummary
+	rows, err := r.pool.Query(ctx,
+		`SELECT tax_rate,
+		        COALESCE(SUM(total), 0)             AS billed_total,
+		        COALESCE(SUM(tax_amount), 0)        AS tax_billed,
+		        COALESCE(SUM(total) FILTER (WHERE status = 'paid'), 0)   AS collected_total,
+		        COALESCE(SUM(tax_amount) FILTER (WHERE status = 'paid'), 0) AS tax_collected
+		 FROM invoices
+		 WHERE status <> 'void' AND currency = $3 AND issued_at BETWEEN $1 AND $2
+		 GROUP BY tax_rate
+		 ORDER BY tax_rate`,
+		from, to, currency)
+	if err != nil {
+		return TaxSummary{}, fmt.Errorf("query tax summary: %w", err)
+	}
+	defer rows.Close()
+
+	hasRows := false
+	for rows.Next() {
+		var rate, billed, taxBilled, collected, taxCollected float64
+		if err := rows.Scan(&rate, &billed, &taxBilled, &collected, &taxCollected); err != nil {
+			return TaxSummary{}, fmt.Errorf("scan tax summary: %w", err)
+		}
+		hasRows = true
+		s.TaxRate = rate
+		s.BilledTotal += billed
+		s.TaxBilled += taxBilled
+		s.CollectedTotal += collected
+		s.TaxCollected += taxCollected
+	}
+	if err := rows.Err(); err != nil {
+		return TaxSummary{}, err
+	}
+	s.TaxOutstanding = s.TaxBilled - s.TaxCollected
+	if !hasRows {
+		s.TaxRate = defaultTaxRate(currency)
+	}
+	return s, nil
+}
+
+// loadARAging buckets open (unpaid, non-void) invoices by days past due.
+func (r *Repository) loadARAging(ctx context.Context, currency string) ([]ARAgingBucket, error) {
+	rows, err := r.pool.Query(ctx,
+		`SELECT
+		     CASE
+		         WHEN $2::timestamptz <= issued_at THEN 'Current'
+		         WHEN $2 - issued_at <= interval '30 days' THEN '1-30'
+		         WHEN $2 - issued_at <= interval '60 days' THEN '31-60'
+		         WHEN $2 - issued_at <= interval '90 days' THEN '61-90'
+		         ELSE '90+'
+		     END AS bucket,
+		     COALESCE(SUM(total), 0),
+		     COUNT(*)
+		 FROM invoices
+		 WHERE currency = $1 AND status = 'issued'
+		 GROUP BY 1`,
+		currency, time.Now())
+	if err != nil {
+		return nil, fmt.Errorf("query AR aging: %w", err)
+	}
+	defer rows.Close()
+
+	byLabel := map[string]*ARAgingBucket{}
+	order := []string{"Current", "1-30", "31-60", "61-90", "90+"}
+	for rows.Next() {
+		var label string
+		var amount float64
+		var count int64
+		if err := rows.Scan(&label, &amount, &count); err != nil {
+			return nil, fmt.Errorf("scan AR aging: %w", err)
+		}
+		byLabel[label] = &ARAgingBucket{Label: label, Amount: amount, Count: count}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	out := make([]ARAgingBucket, 0, len(order))
+	for _, label := range order {
+		if b, ok := byLabel[label]; ok {
+			out = append(out, *b)
+		} else {
+			out = append(out, ARAgingBucket{Label: label})
+		}
+	}
+	return out, nil
+}
+
+// defaultTaxRate is used when no invoices exist in the period.
+func defaultTaxRate(currency string) float64 {
+	// THB VAT is 7% (VAT on services). Other currencies use 0 by default.
+	if currency == "THB" {
+		return 7
+	}
+	return 0
+}
+
+func (r *Repository) loadCleanerProductivity(ctx context.Context) ([]CleanerProductivity, error) {
+	rows, err := r.pool.Query(ctx,
+		`SELECT CASE
+		           WHEN cl.first_name IS NOT NULL THEN cl.first_name || ' ' || cl.last_name
+		           WHEN NULLIF(b.assigned_cleaner, '') IS NOT NULL THEN b.assigned_cleaner
+		           ELSE 'Unassigned'
+		       END AS cleaner_name,
+		        COUNT(*) FILTER (WHERE b.status = 'completed') AS completed,
+		        COUNT(*) FILTER (WHERE b.status IN ('pending', 'confirmed', 'in_progress')) AS upcoming
+		 FROM bookings b
+		 LEFT JOIN booking_cleaners bc
+		        ON bc.booking_id = b.id AND bc.role = 'primary'
+		 LEFT JOIN cleaners cl ON cl.id = bc.cleaner_id
+		 WHERE bc.cleaner_id IS NOT NULL OR b.assigned_cleaner IS NOT NULL
+		 GROUP BY cleaner_name
+		 ORDER BY completed DESC, upcoming DESC, cleaner_name ASC
+		 LIMIT 10`)
+	if err != nil {
+		return nil, fmt.Errorf("query cleaner productivity: %w", err)
+	}
+	defer rows.Close()
+
+	productivity := []CleanerProductivity{}
+	for rows.Next() {
+		var p CleanerProductivity
+		if err := rows.Scan(&p.CleanerName, &p.CompletedBookings, &p.UpcomingBookings); err != nil {
+			return nil, fmt.Errorf("scan cleaner productivity: %w", err)
+		}
+		productivity = append(productivity, p)
+	}
+	return productivity, rows.Err()
 }
 
 func (r *Repository) loadLeadsByStatus(ctx context.Context) (map[string]int64, error) {

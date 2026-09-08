@@ -7,6 +7,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/odysight/crm/pkg/pagination"
 )
 
 var ErrNotFound = errors.New("service record not found")
@@ -28,22 +29,63 @@ func scanRecord(row pgx.Row) (ServiceRecord, error) {
 	return r, err
 }
 
-func (r *Repository) List(ctx context.Context) ([]ServiceRecord, error) {
-	rows, err := r.pool.Query(ctx, `SELECT `+recordColumns+` FROM service_records ORDER BY created_at DESC`)
+func (r *Repository) List(ctx context.Context, params pagination.Params) ([]ServiceRecord, int, error) {
+	args := []any{}
+	conds := []string{}
+	if params.Search != "" {
+		like := "%" + params.Search + "%"
+		start := len(args) + 1
+		orParts := []string{}
+		for i, col := range []string{"booking_number", "cleaner_name"} {
+			orParts = append(orParts, col+" ILIKE $"+itoa(start+i))
+			args = append(args, like)
+			_ = i
+		}
+		conds = append(conds, "("+joinOr(orParts)+")")
+	}
+	if params.Status != "" {
+		args = append(args, params.Status)
+		conds = append(conds, "status = $"+itoa(len(args)))
+	}
+	where := ""
+	if len(conds) > 0 {
+		where = "WHERE " + joinAnd(conds)
+	}
+	var total int
+	if err := r.pool.QueryRow(ctx, `SELECT COUNT(*) FROM service_records `+where, args...).Scan(&total); err != nil {
+		return nil, 0, fmt.Errorf("count service_records: %w", err)
+	}
+	args = append(args, params.Limit, params.Offset)
+	query := `SELECT `+recordColumns+` FROM service_records ` + where + ` ORDER BY created_at DESC LIMIT $` + itoa(len(args)-1) + ` OFFSET $` + itoa(len(args))
+	rows, err := r.pool.Query(ctx, query, args...)
 	if err != nil {
-		return nil, fmt.Errorf("query service records: %w", err)
+		return nil, 0, fmt.Errorf("query service_records: %w", err)
 	}
 	defer rows.Close()
 
-	records := []ServiceRecord{}
+	items := []ServiceRecord{}
 	for rows.Next() {
-		rec, err := scanRecord(rows)
+		item, err := scanRecord(rows)
 		if err != nil {
-			return nil, fmt.Errorf("scan service record: %w", err)
+			return nil, 0, fmt.Errorf("scan service_record: %w", err)
 		}
-		records = append(records, rec)
+		items = append(items, item)
 	}
-	return records, rows.Err()
+	return items, total, rows.Err()
+}
+
+func itoa(i int) string { return fmt.Sprintf("%d", i) }
+func joinOr(parts []string) string { return joinWith(parts, " OR ") }
+func joinAnd(parts []string) string { return joinWith(parts, " AND ") }
+func joinWith(parts []string, sep string) string {
+	out := ""
+	for i, s := range parts {
+		if i > 0 {
+			out += sep
+		}
+		out += s
+	}
+	return out
 }
 
 func (r *Repository) GetByID(ctx context.Context, id int64) (ServiceRecord, error) {

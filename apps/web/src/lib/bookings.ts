@@ -1,4 +1,4 @@
-import { ApiError, USE_MOCKS, apiFetch, delay } from "./api";
+import { ApiError, USE_MOCKS, apiFetch, delay, toQuery, unwrapPage, type Page } from "./api";
 
 export type BookingStatus =
   | "pending"
@@ -9,20 +9,24 @@ export type BookingStatus =
   | "no_show"
   | "rescheduled";
 
-export type ServiceType =
-  | "house_cleaning"
-  | "condo_cleaning"
-  | "deep_cleaning"
-  | "move_in_out"
-  | "after_renovation"
-  | "office_cleaning"
-  | "junk_removal"
-  | "aircon_service";
+// Service types are admin-editable via Settings → Service catalog,
+// so this is an open string (the API no longer enforces a fixed enum).
+export type ServiceType = string;
+
+export interface BookingCleaner {
+  id: number;
+  name: string;
+  role: "primary" | "crew";
+}
+
+export type RecurrenceFreq = "weekly" | "biweekly" | "monthly";
 
 export interface Booking {
   id: number;
   bookingNumber: string;
   customerName: string;
+  customerEmail: string;
+  customerId?: number | null;
   serviceType: ServiceType;
   scheduledFor: string;
   durationMinutes: number;
@@ -30,23 +34,54 @@ export interface Booking {
   assignedCleaner: string;
   status: BookingStatus;
   notes: string;
+  isRecurring: boolean;
+  recurrence: RecurrenceFreq | "";
+  seriesId: string | null;
   createdAt: string;
+  cleaners: BookingCleaner[];
 }
 
 export type CreateBookingInput = Omit<
   Booking,
-  "id" | "bookingNumber" | "createdAt"
->;
+  "id" | "bookingNumber" | "createdAt" | "cleaners"
+> & {
+  // Selects real cleaners; first = primary, rest = crew. Derived by the form.
+  cleanerIds?: number[];
+};
 
 export type UpdateBookingInput = Partial<CreateBookingInput>;
 
 let mockId = 300;
+
+// Parity with mockCleaners (lib/cleaners.ts) so cleanerIds resolve to names.
+const mockCleanerNames: Record<number, string> = {
+  601: "Nok Srisuwan",
+  602: "Pim Jiraroj",
+  603: "Daeng Chaiya",
+  604: "Mali Kongdee",
+  605: "Som Intarakamhaeng",
+};
+
+function resolveMockCleaners(cleanerIds?: number[]): BookingCleaner[] | undefined {
+  if (!cleanerIds || cleanerIds.length === 0) return undefined;
+  return cleanerIds
+    .map((id, i) => ({
+      id,
+      name: mockCleanerNames[id] ?? `Cleaner ${id}`,
+      role: (i === 0 ? "primary" : "crew") as BookingCleaner["role"],
+    }));
+}
+
+function primaryFromCleaners(cleaners?: BookingCleaner[]): string {
+  return cleaners?.find((c) => c.role === "primary")?.name ?? cleaners?.[0]?.name ?? "";
+}
 
 const mockBookings: Booking[] = [
   {
     id: 201,
     bookingNumber: "BK-2026-0201",
     customerName: "Somchai Prasert",
+    customerEmail: "somchai@example.com",
     serviceType: "condo_cleaning",
     scheduledFor: "2026-09-06T09:00:00Z",
     durationMinutes: 180,
@@ -54,12 +89,17 @@ const mockBookings: Booking[] = [
     assignedCleaner: "Nok Srisuwan",
     status: "confirmed",
     notes: "Focus on kitchen and bathroom",
+    isRecurring: true,
+    recurrence: "weekly",
+    seriesId: "a1b2c3d4",
     createdAt: "2026-08-18T10:00:00Z",
+    cleaners: [{ id: 601, name: "Nok Srisuwan", role: "primary" }],
   },
   {
     id: 202,
     bookingNumber: "BK-2026-0202",
     customerName: "Jane Smith",
+    customerEmail: "jane.smith@example.com",
     serviceType: "deep_cleaning",
     scheduledFor: "2026-09-07T13:00:00Z",
     durationMinutes: 240,
@@ -67,12 +107,20 @@ const mockBookings: Booking[] = [
     assignedCleaner: "Daeng Chaiya",
     status: "pending",
     notes: "",
+    isRecurring: false,
+    recurrence: "",
+    seriesId: null,
     createdAt: "2026-08-16T09:30:00Z",
+    cleaners: [
+      { id: 603, name: "Daeng Chaiya", role: "primary" },
+      { id: 605, name: "Som Intarakamhaeng", role: "crew" },
+    ],
   },
   {
     id: 203,
     bookingNumber: "BK-2026-0203",
     customerName: "Omar Farouk",
+    customerEmail: "omar@example.com",
     serviceType: "move_in_out",
     scheduledFor: "2026-09-08T08:00:00Z",
     durationMinutes: 300,
@@ -80,12 +128,17 @@ const mockBookings: Booking[] = [
     assignedCleaner: "Mali Kongdee",
     status: "confirmed",
     notes: "Renters moving out",
+    isRecurring: false,
+    recurrence: "",
+    seriesId: null,
     createdAt: "2026-08-13T15:20:00Z",
+    cleaners: [{ id: 604, name: "Mali Kongdee", role: "primary" }],
   },
   {
     id: 204,
     bookingNumber: "BK-2026-0204",
     customerName: "Maria Gomez",
+    customerEmail: "maria.gomez@example.com",
     serviceType: "house_cleaning",
     scheduledFor: "2026-09-09T10:00:00Z",
     durationMinutes: 180,
@@ -93,12 +146,20 @@ const mockBookings: Booking[] = [
     assignedCleaner: "Som Intarakamhaeng",
     status: "completed",
     notes: "",
+    isRecurring: true,
+    recurrence: "biweekly",
+    seriesId: "e5f6a7b8",
     createdAt: "2026-08-10T12:00:00Z",
+    cleaners: [
+      { id: 605, name: "Som Intarakamhaeng", role: "primary" },
+      { id: 602, name: "Pim Jiraroj", role: "crew" },
+    ],
   },
   {
     id: 205,
     bookingNumber: "BK-2026-0205",
     customerName: "Wei Chen",
+    customerEmail: "wei.chen@example.com",
     serviceType: "office_cleaning",
     scheduledFor: "2026-09-05T17:00:00Z",
     durationMinutes: 210,
@@ -106,7 +167,11 @@ const mockBookings: Booking[] = [
     assignedCleaner: "Pim Jiraroj",
     status: "cancelled",
     notes: "Client postponed",
+    isRecurring: false,
+    recurrence: "",
+    seriesId: null,
     createdAt: "2026-08-08T08:45:00Z",
+    cleaners: [{ id: 602, name: "Pim Jiraroj", role: "primary" }],
   },
 ];
 
@@ -114,12 +179,33 @@ function clone(booking: Booking): Booking {
   return { ...booking };
 }
 
-export async function getBookings(): Promise<Booking[]> {
+function filterMocks(params: ListParams): Booking[] {
+  const q = params.search?.trim().toLowerCase() ?? "";
+  let rows = mockBookings.filter((b) => {
+    if (params.status && b.status !== params.status) return false;
+    if (params.from && b.scheduledFor < params.from) return false;
+    if (params.to && b.scheduledFor >= params.to) return false;
+    if (!q) return true;
+    return [b.customerName, b.bookingNumber, b.address, b.assignedCleaner]
+      .join(" ")
+      .toLowerCase()
+      .includes(q);
+  });
+  const offset = params.offset ?? 0;
+  const limit = params.limit ?? rows.length;
+  rows = rows.slice(offset, offset + limit);
+  return rows.map(clone);
+}
+
+export interface ListParams { search?: string; status?: string; limit?: number; offset?: number; from?: string; to?: string; cleaner?: number }
+
+export async function getBookings(params: ListParams = {}): Promise<Booking[]> {
   if (USE_MOCKS) {
     await delay(300);
-    return mockBookings.map(clone);
+    return filterMocks(params);
   }
-  return apiFetch<Booking[]>("/api/v1/bookings");
+  const json = await apiFetch<Booking[] | Page<Booking>>("/api/v1/bookings"+toQuery(params as Record<string, string|number|undefined>));
+  return unwrapPage(json);
 }
 
 export async function getBooking(id: number): Promise<Booking> {
@@ -137,11 +223,14 @@ export async function createBooking(
 ): Promise<Booking> {
   if (USE_MOCKS) {
     await delay(400);
+    const cleaners = resolveMockCleaners(input.cleanerIds);
     const booking: Booking = {
       ...input,
       id: ++mockId,
       bookingNumber: `BK-2026-0${mockId}`,
       createdAt: new Date().toISOString(),
+      assignedCleaner: input.assignedCleaner || primaryFromCleaners(cleaners),
+      cleaners: cleaners ?? [],
     };
     mockBookings.unshift(booking);
     return clone(booking);
@@ -160,7 +249,20 @@ export async function updateBooking(
     await delay(400);
     const index = mockBookings.findIndex((b) => b.id === id);
     if (index === -1) throw new ApiError(404, `Booking ${id} not found`);
-    const booking = { ...mockBookings[index], ...input };
+    const existing = mockBookings[index];
+    const cleaners =
+      input.cleanerIds !== undefined
+        ? (resolveMockCleaners(input.cleanerIds) ?? [])
+        : existing.cleaners;
+    const booking: Booking = {
+      ...existing,
+      ...input,
+      cleaners,
+      assignedCleaner:
+        input.cleanerIds !== undefined
+          ? primaryFromCleaners(cleaners)
+          : input.assignedCleaner ?? existing.assignedCleaner,
+    };
     mockBookings[index] = booking;
     return clone(booking);
   }

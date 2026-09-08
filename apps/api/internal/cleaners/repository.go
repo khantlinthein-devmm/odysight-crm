@@ -7,6 +7,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/odysight/crm/pkg/pagination"
 )
 
 var ErrNotFound = errors.New("cleaner not found")
@@ -27,22 +28,63 @@ func scanCleaner(row pgx.Row) (Cleaner, error) {
 	return c, err
 }
 
-func (r *Repository) List(ctx context.Context) ([]Cleaner, error) {
-	rows, err := r.pool.Query(ctx, `SELECT `+cleanerColumns+` FROM cleaners ORDER BY created_at DESC`)
+func (r *Repository) List(ctx context.Context, params pagination.Params) ([]Cleaner, int, error) {
+	args := []any{}
+	conds := []string{}
+	if params.Search != "" {
+		like := "%" + params.Search + "%"
+		start := len(args) + 1
+		orParts := []string{}
+		for i, col := range []string{"first_name", "last_name", "email", "phone"} {
+			orParts = append(orParts, col+" ILIKE $"+itoa(start+i))
+			args = append(args, like)
+			_ = i
+		}
+		conds = append(conds, "("+joinOr(orParts)+")")
+	}
+	if params.Status != "" {
+		args = append(args, params.Status)
+		conds = append(conds, "status = $"+itoa(len(args)))
+	}
+	where := ""
+	if len(conds) > 0 {
+		where = "WHERE " + joinAnd(conds)
+	}
+	var total int
+	if err := r.pool.QueryRow(ctx, `SELECT COUNT(*) FROM cleaners `+where, args...).Scan(&total); err != nil {
+		return nil, 0, fmt.Errorf("count cleaners: %w", err)
+	}
+	args = append(args, params.Limit, params.Offset)
+	query := `SELECT `+cleanerColumns+` FROM cleaners ` + where + ` ORDER BY created_at DESC LIMIT $` + itoa(len(args)-1) + ` OFFSET $` + itoa(len(args))
+	rows, err := r.pool.Query(ctx, query, args...)
 	if err != nil {
-		return nil, fmt.Errorf("query cleaners: %w", err)
+		return nil, 0, fmt.Errorf("query cleaners: %w", err)
 	}
 	defer rows.Close()
 
-	cleaners := []Cleaner{}
+	items := []Cleaner{}
 	for rows.Next() {
-		c, err := scanCleaner(rows)
+		item, err := scanCleaner(rows)
 		if err != nil {
-			return nil, fmt.Errorf("scan cleaner: %w", err)
+			return nil, 0, fmt.Errorf("scan cleaner: %w", err)
 		}
-		cleaners = append(cleaners, c)
+		items = append(items, item)
 	}
-	return cleaners, rows.Err()
+	return items, total, rows.Err()
+}
+
+func itoa(i int) string { return fmt.Sprintf("%d", i) }
+func joinOr(parts []string) string { return joinWith(parts, " OR ") }
+func joinAnd(parts []string) string { return joinWith(parts, " AND ") }
+func joinWith(parts []string, sep string) string {
+	out := ""
+	for i, s := range parts {
+		if i > 0 {
+			out += sep
+		}
+		out += s
+	}
+	return out
 }
 
 func (r *Repository) GetByID(ctx context.Context, id int64) (Cleaner, error) {

@@ -1,4 +1,4 @@
-import { ApiError, USE_MOCKS, apiFetch, delay } from "./api";
+import { ApiError, USE_MOCKS, apiFetch, delay, toQuery, unwrapPage, type Page } from "./api";
 
 export type CleanerStatus =
   | "available"
@@ -80,12 +80,31 @@ function clone(cleaner: Cleaner): Cleaner {
   return { ...cleaner };
 }
 
-export async function getCleaners(): Promise<Cleaner[]> {
+function filterMocks(params: ListParams): Cleaner[] {
+  const q = params.search?.trim().toLowerCase() ?? "";
+  let rows = mockCleaners.filter((c) => {
+    if (params.status && c.status !== params.status) return false;
+    if (!q) return true;
+    return [c.firstName, c.lastName, c.email, c.phone, c.skills]
+      .join(" ")
+      .toLowerCase()
+      .includes(q);
+  });
+  const offset = params.offset ?? 0;
+  const limit = params.limit ?? rows.length;
+  rows = rows.slice(offset, offset + limit);
+  return rows.map(clone);
+}
+
+export interface ListParams { search?: string; status?: string; limit?: number; offset?: number }
+
+export async function getCleaners(params: ListParams = {}): Promise<Cleaner[]> {
   if (USE_MOCKS) {
     await delay(300);
-    return mockCleaners.map(clone);
+    return filterMocks(params);
   }
-  return apiFetch<Cleaner[]>("/api/v1/cleaners");
+  const json = await apiFetch<Cleaner[] | Page<Cleaner>>("/api/v1/cleaners"+toQuery(params as Record<string, string|number|undefined>));
+  return unwrapPage(json);
 }
 
 export async function getCleaner(id: number): Promise<Cleaner> {

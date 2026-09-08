@@ -69,7 +69,7 @@
 
 {#if open}
   <div class="fixed inset-0 z-50 flex items-start justify-center px-4 pt-24">
-    <div class="absolute inset-0 bg-slate-900/50" onclick={hide} aria-hidden="true"></div>
+    <div class="absolute inset-0 bg-black/50" onclick={hide} aria-hidden="true"></div>
 
     <div class="relative w-full max-w-lg overflow-hidden rounded-xl bg-white shadow-2xl">
       <input
@@ -77,36 +77,36 @@
         placeholder="Type a command or search..."
         bind:value={query}
         oninput={() => (activeIndex = 0)}
-        class="w-full border-b border-slate-200 px-4 py-3 text-sm text-slate-900 placeholder-slate-400 focus:outline-none"
+        class="w-full border-b border-gray-100 px-5 py-4 text-sm text-gray-900 placeholder-gray-400 focus:outline-none"
       />
 
-      <ul class="max-h-64 overflow-y-auto py-2">
+      <ul class="max-h-64 overflow-y-auto p-1.5">
         {#each results as command, index (command.label)}
           <li>
             <button
               type="button"
               class:list={[
-                'flex w-full items-center justify-between px-4 py-2 text-left text-sm',
-                index === activeIndex ? 'bg-indigo-50 text-indigo-700' : 'text-slate-700 hover:bg-slate-50',
+                'flex w-full items-center justify-between gap-3 rounded-lg px-3 py-2.5 text-left text-sm transition-colors',
+                index === activeIndex ? 'bg-navy-50 text-navy-700' : 'text-navy-700 hover:bg-gray-100',
               ]}
               onmouseenter={() => (activeIndex = index)}
               onclick={() => navigate(command)}
             >
               <span class="font-medium">{command.label}</span>
               {#if command.hint}
-                <span class="text-xs text-slate-400">{command.hint}</span>
+                <span class="shrink-0 text-xs text-gray-400">{command.hint}</span>
               {/if}
             </button>
           </li>
         {:else}
-          <li class="px-4 py-6 text-center text-sm text-slate-500">No matching commands</li>
+          <li class="px-3 py-8 text-center text-sm text-gray-500">No matching commands</li>
         {/each}
       </ul>
 
-      <div class="flex items-center gap-4 border-t border-slate-200 px-4 py-2 text-xs text-slate-400">
-        <span>↑↓ Navigate</span>
-        <span>↵ Select</span>
-        <span>Esc Close</span>
+      <div class="flex items-center gap-4 border-t border-gray-100 bg-gray-50/50 px-5 py-2.5 text-xs text-gray-400">
+        <span class="flex items-center gap-1.5"><kbd class="rounded border border-gray-200 bg-white px-1.5 py-0.5 font-mono">↑↓</kbd> Navigate</span>
+        <span class="flex items-center gap-1.5"><kbd class="rounded border border-gray-200 bg-white px-1.5 py-0.5 font-mono">↵</kbd> Select</span>
+        <span class="flex items-center gap-1.5"><kbd class="rounded border border-gray-200 bg-white px-1.5 py-0.5 font-mono">Esc</kbd> Close</span>
       </div>
     </div>
   </div>

@@ -4,7 +4,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/odysight/crm/internal/customers"
 	"github.com/odysight/crm/pkg/response"
+	"github.com/odysight/crm/pkg/validate"
 )
 
 // DTOs use camelCase to match the frontend contract.
@@ -54,11 +56,11 @@ func (r *CreateLeadRequest) Validate() error {
 	if r.LastName == "" {
 		return response.NewAPIError(400, "lastName is required")
 	}
-	if r.Email == "" || !strings.Contains(r.Email, "@") {
+	if !validate.Email(r.Email) {
 		return response.NewAPIError(400, "a valid email is required")
 	}
-	if r.Phone == "" {
-		return response.NewAPIError(400, "phone is required")
+	if !validate.Phone(r.Phone) {
+		return response.NewAPIError(400, "a valid phone is required")
 	}
 
 	status := Status(r.Status)
@@ -94,7 +96,7 @@ func (r *UpdateLeadRequest) Validate() error {
 	}
 	if r.Email != nil {
 		email := strings.ToLower(strings.TrimSpace(*r.Email))
-		if email == "" || !strings.Contains(email, "@") {
+		if !validate.Email(email) {
 			return response.NewAPIError(400, "a valid email is required")
 		}
 		r.Email = &email
@@ -111,4 +113,32 @@ func (r *UpdateLeadRequest) Validate() error {
 func (r *UpdateLeadRequest) IsEmpty() bool {
 	return r.FirstName == nil && r.LastName == nil && r.Email == nil &&
 		r.Phone == nil && r.Status == nil && r.Source == nil
+}
+
+type ConvertLeadRequest struct {
+	Address      string `json:"address"`
+	PropertyType string `json:"propertyType"`
+	Area         string `json:"area"`
+	Status       string `json:"status"`
+}
+
+func (r *ConvertLeadRequest) Validate() error {
+	r.Address = strings.TrimSpace(r.Address)
+	r.PropertyType = strings.TrimSpace(r.PropertyType)
+	r.Area = strings.TrimSpace(r.Area)
+	r.Status = strings.TrimSpace(r.Status)
+
+	if r.Address == "" {
+		return response.NewAPIError(400, "address is required")
+	}
+	if !customers.PropertyType(r.PropertyType).Valid() {
+		return response.NewAPIError(400, "invalid propertyType")
+	}
+	if r.Area == "" {
+		return response.NewAPIError(400, "area is required")
+	}
+	if !customers.Status(r.Status).Valid() {
+		return response.NewAPIError(400, "invalid status")
+	}
+	return nil
 }

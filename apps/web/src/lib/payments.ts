@@ -1,14 +1,10 @@
-import { ApiError, USE_MOCKS, apiFetch, delay } from "./api";
+import { ApiError, USE_MOCKS, apiFetch, delay, toQuery, unwrapPage, type Page } from "./api";
 
 export type PaymentStatus = "pending" | "paid" | "failed" | "refunded";
 
-export type PaymentMethod =
-  | "cash"
-  | "bank_transfer"
-  | "promptpay"
-  | "credit_card"
-  | "line_pay"
-  | "online_wallet";
+// Payment methods are admin-editable via Settings → Payments,
+// so this is an open string (the API no longer enforces a fixed enum).
+export type PaymentMethod = string;
 
 export interface Payment {
   id: number;
@@ -93,12 +89,31 @@ function clone(payment: Payment): Payment {
   return { ...payment };
 }
 
-export async function getPayments(): Promise<Payment[]> {
+function filterMocks(params: ListParams): Payment[] {
+  const q = params.search?.trim().toLowerCase() ?? "";
+  let rows = mockPayments.filter((p) => {
+    if (params.status && p.status !== params.status) return false;
+    if (!q) return true;
+    return [p.customerName, p.invoiceNumber, p.bookingNumber]
+      .join(" ")
+      .toLowerCase()
+      .includes(q);
+  });
+  const offset = params.offset ?? 0;
+  const limit = params.limit ?? rows.length;
+  rows = rows.slice(offset, offset + limit);
+  return rows.map(clone);
+}
+
+export interface ListParams { search?: string; status?: string; limit?: number; offset?: number }
+
+export async function getPayments(params: ListParams = {}): Promise<Payment[]> {
   if (USE_MOCKS) {
     await delay(300);
-    return mockPayments.map(clone);
+    return filterMocks(params);
   }
-  return apiFetch<Payment[]>("/api/v1/payments");
+  const json = await apiFetch<Payment[] | Page<Payment>>("/api/v1/payments"+toQuery(params as Record<string, string|number|undefined>));
+  return unwrapPage(json);
 }
 
 export async function getPayment(id: number): Promise<Payment> {

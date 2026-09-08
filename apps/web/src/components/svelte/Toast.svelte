@@ -10,9 +10,9 @@
   let nextId = 0;
 
   const styles: Record<ToastType, string> = {
-    success: 'border-emerald-200 bg-emerald-50 text-emerald-800',
+    success: 'border-green-200 bg-green-50 text-green-800',
     error: 'border-red-200 bg-red-50 text-red-800',
-    info: 'border-sky-200 bg-sky-50 text-sky-800',
+    info: 'border-gray-200 bg-gray-50 text-gray-700',
   };
 
   function dismiss(id: number) {

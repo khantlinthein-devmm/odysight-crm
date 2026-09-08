@@ -2,9 +2,10 @@ package cleaners
 
 import (
 	"context"
-	"errors"
 	"strings"
 
+	"github.com/odysight/crm/pkg/dberror"
+	"github.com/odysight/crm/pkg/pagination"
 	"github.com/odysight/crm/pkg/response"
 )
 
@@ -16,8 +17,8 @@ func NewService(repo *Repository) *Service {
 	return &Service{repo: repo}
 }
 
-func (s *Service) List(ctx context.Context) ([]Cleaner, error) {
-	return s.repo.List(ctx)
+func (s *Service) List(ctx context.Context, params pagination.Params) ([]Cleaner, int, error) {
+	return s.repo.List(ctx, params)
 }
 
 func (s *Service) Get(ctx context.Context, id int64) (Cleaner, error) {
@@ -95,8 +96,5 @@ func (s *Service) Delete(ctx context.Context, id int64) error {
 }
 
 func mapRepoError(err error) error {
-	if errors.Is(err, ErrNotFound) {
-		return response.NewAPIError(404, "cleaner not found")
-	}
-	return err
+	return dberror.Map(err, ErrNotFound, "cleaner not found")
 }

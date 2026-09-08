@@ -2,9 +2,12 @@ package customers
 
 import (
 	"context"
-	"errors"
 	"strings"
 
+	"golang.org/x/crypto/bcrypt"
+
+	"github.com/odysight/crm/pkg/dberror"
+	"github.com/odysight/crm/pkg/pagination"
 	"github.com/odysight/crm/pkg/response"
 )
 
@@ -16,8 +19,8 @@ func NewService(repo *Repository) *Service {
 	return &Service{repo: repo}
 }
 
-func (s *Service) List(ctx context.Context) ([]Customer, error) {
-	return s.repo.List(ctx)
+func (s *Service) List(ctx context.Context, params pagination.Params) ([]Customer, int, error) {
+	return s.repo.List(ctx, params)
 }
 
 func (s *Service) Get(ctx context.Context, id int64) (Customer, error) {
@@ -42,6 +45,33 @@ func (s *Service) Create(ctx context.Context, req CreateCustomerRequest) (Custom
 		PropertyType: PropertyType(req.PropertyType),
 		Area:         req.Area,
 		Status:       Status(req.Status),
+		LeadID:       req.LeadID,
+	}
+
+	created, err := s.repo.Create(ctx, c)
+	if err != nil {
+		return Customer{}, mapRepoError(err)
+	}
+	return created, nil
+}
+
+// ConvertToCustomer creates a customer from data pre-filled by a converted lead.
+// It skips the full create validation so callers can pass lead-derived values.
+func (s *Service) ConvertToCustomer(ctx context.Context, req CreateCustomerRequest) (Customer, error) {
+	if err := req.Validate(); err != nil {
+		return Customer{}, err
+	}
+
+	c := Customer{
+		FirstName:    req.FirstName,
+		LastName:     req.LastName,
+		Email:        req.Email,
+		Phone:        req.Phone,
+		Address:      req.Address,
+		PropertyType: PropertyType(req.PropertyType),
+		Area:         req.Area,
+		Status:       Status(req.Status),
+		LeadID:       req.LeadID,
 	}
 
 	created, err := s.repo.Create(ctx, c)
@@ -104,9 +134,33 @@ func (s *Service) Delete(ctx context.Context, id int64) error {
 	return mapRepoError(err)
 }
 
-func mapRepoError(err error) error {
-	if errors.Is(err, ErrNotFound) {
-		return response.NewAPIError(404, "customer not found")
+// SetPortalAuth enables or disables a customer's portal access. A new
+// password (when provided) replaces the stored hash before enabling.
+func (s *Service) SetPortalAuth(ctx context.Context, id int64, password *string, enabled bool) (Customer, error) {
+	if enabled && password != nil && len(*password) < 8 {
+		return Customer{}, response.NewAPIError(400, "portal password must be at least 8 characters")
 	}
-	return err
+	var hash *string
+	if password != nil {
+		h, err := bcrypt.GenerateFromPassword([]byte(*password), bcrypt.DefaultCost)
+		if err != nil {
+			return Customer{}, response.NewAPIError(500, "failed to hash password")
+		}
+		hashed := string(h)
+		hash = &hashed
+	}
+	// Disabling the portal clears the stored hash so it can never be used again.
+	if !enabled {
+		empty := ""
+		hash = &empty
+	}
+	c, err := s.repo.UpdatePortalAuth(ctx, id, hash, enabled)
+	if err != nil {
+		return Customer{}, mapRepoError(err)
+	}
+	return c, nil
+}
+
+func mapRepoError(err error) error {
+	return dberror.Map(err, ErrNotFound, "customer not found")
 }

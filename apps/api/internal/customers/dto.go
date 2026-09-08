@@ -5,34 +5,44 @@ import (
 	"time"
 
 	"github.com/odysight/crm/pkg/response"
+	"github.com/odysight/crm/pkg/validate"
 )
 
 type CustomerDTO struct {
-	ID           int64     `json:"id"`
-	FirstName    string    `json:"firstName"`
-	LastName     string    `json:"lastName"`
-	Email        string    `json:"email"`
-	Phone        string    `json:"phone"`
-	Address      string    `json:"address"`
-	PropertyType string    `json:"propertyType"`
-	Area         string    `json:"area"`
-	Status       string    `json:"status"`
-	CreatedAt    time.Time `json:"createdAt"`
+	ID            int64     `json:"id"`
+	FirstName     string    `json:"firstName"`
+	LastName      string    `json:"lastName"`
+	Email         string    `json:"email"`
+	Phone         string    `json:"phone"`
+	Address       string    `json:"address"`
+	PropertyType  string    `json:"propertyType"`
+	Area          string    `json:"area"`
+	Status        string    `json:"status"`
+	LeadID        *int64    `json:"leadId"`
+	PortalEnabled bool      `json:"portalEnabled"`
+	CreatedAt     time.Time `json:"createdAt"`
 }
 
 func toDTO(c Customer) CustomerDTO {
 	return CustomerDTO{
-		ID:           c.ID,
-		FirstName:    c.FirstName,
-		LastName:     c.LastName,
-		Email:        c.Email,
-		Phone:        c.Phone,
-		Address:      c.Address,
-		PropertyType: string(c.PropertyType),
-		Area:         c.Area,
-		Status:       string(c.Status),
-		CreatedAt:    c.CreatedAt,
+		ID:            c.ID,
+		FirstName:     c.FirstName,
+		LastName:      c.LastName,
+		Email:         c.Email,
+		Phone:         c.Phone,
+		Address:       c.Address,
+		PropertyType:  string(c.PropertyType),
+		Area:          c.Area,
+		Status:        string(c.Status),
+		LeadID:        c.LeadID,
+		PortalEnabled: c.PortalEnabled,
+		CreatedAt:     c.CreatedAt,
 	}
+}
+
+// ToDTO exports toDTO for other packages (e.g. lead conversion responses).
+func ToDTO(c Customer) CustomerDTO {
+	return toDTO(c)
 }
 
 type CreateCustomerRequest struct {
@@ -44,6 +54,7 @@ type CreateCustomerRequest struct {
 	PropertyType string `json:"propertyType"`
 	Area         string `json:"area"`
 	Status       string `json:"status"`
+	LeadID       *int64 `json:"leadId"`
 }
 
 func (r *CreateCustomerRequest) Validate() error {
@@ -61,11 +72,11 @@ func (r *CreateCustomerRequest) Validate() error {
 	if r.LastName == "" {
 		return response.NewAPIError(400, "lastName is required")
 	}
-	if r.Email == "" || !strings.Contains(r.Email, "@") {
+	if !validate.Email(r.Email) {
 		return response.NewAPIError(400, "a valid email is required")
 	}
-	if r.Phone == "" {
-		return response.NewAPIError(400, "phone is required")
+	if !validate.Phone(r.Phone) {
+		return response.NewAPIError(400, "a valid phone is required")
 	}
 	if r.Address == "" {
 		return response.NewAPIError(400, "address is required")
@@ -104,7 +115,7 @@ func (r *UpdateCustomerRequest) Validate() error {
 	}
 	if r.Email != nil {
 		email := strings.ToLower(strings.TrimSpace(*r.Email))
-		if email == "" || !strings.Contains(email, "@") {
+		if !validate.Email(email) {
 			return response.NewAPIError(400, "a valid email is required")
 		}
 		r.Email = &email

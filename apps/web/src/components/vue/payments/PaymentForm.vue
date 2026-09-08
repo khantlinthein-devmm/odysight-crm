@@ -1,7 +1,13 @@
 <script setup lang="ts">
-import { computed, reactive, ref, useId } from "vue";
+import { computed, onMounted, reactive, ref, useId } from "vue";
 import { useModalA11y } from "../ui/useModalA11y";
 import type { CreatePaymentInput } from "../../../lib/payments";
+import {
+  activePaymentMethods,
+  currencyCode,
+  getWorkspaceSettings,
+  paymentMethodLabel,
+} from "../../../lib/settings";
 
 const emit = defineEmits<{
   save: [input: CreatePaymentInput];
@@ -11,7 +17,7 @@ const emit = defineEmits<{
 const titleId = useId();
 const { container } = useModalA11y(() => emit("cancel"));
 
-const paymentMethods = [
+const fallbackMethods = [
   { value: "cash", label: "Cash" },
   { value: "bank_transfer", label: "Bank Transfer" },
   { value: "promptpay", label: "PromptPay" },
@@ -19,6 +25,29 @@ const paymentMethods = [
   { value: "line_pay", label: "LINE Pay" },
   { value: "online_wallet", label: "Online Wallet" },
 ];
+
+const paymentMethods = computed(() => {
+  const live = activePaymentMethods();
+  if (live.length > 0)
+    return live.map((m) => ({ value: m, label: paymentMethodLabel(m) }));
+  return fallbackMethods;
+});
+
+const currency = ref("THB");
+
+onMounted(async () => {
+  try {
+    await getWorkspaceSettings();
+    currency.value = currencyCode();
+    form.currency = currency.value;
+    const live = activePaymentMethods();
+    if (live.length > 0 && !live.includes(form.method)) {
+      form.method = live[0]!;
+    }
+  } catch {
+    /* fall back to built-ins */
+  }
+});
 
 const form = reactive<CreatePaymentInput>({
   customerName: "",
@@ -49,7 +78,7 @@ function handleSubmit() {
 }
 
 const inputClass =
-  "w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 placeholder-slate-400 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500";
+  "w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-900 placeholder-gray-400 focus:border-gray-500 focus:outline-none focus:ring-1 focus:ring-navy-500";
 
 function inputClassFor(field: keyof CreatePaymentInput) {
   return [
@@ -69,11 +98,11 @@ function inputClassFor(field: keyof CreatePaymentInput) {
     :aria-labelledby="titleId"
     class="fixed inset-0 z-50 flex items-center justify-center p-4"
   >
-    <div class="absolute inset-0 bg-slate-900/50" @click="emit('cancel')"></div>
+    <div class="absolute inset-0 bg-black/50" @click="emit('cancel')"></div>
 
     <div class="relative w-full max-w-lg rounded-xl bg-white shadow-xl">
-      <div class="border-b border-slate-200 px-6 py-4">
-        <h2 :id="titleId" class="text-base font-semibold text-slate-900">
+      <div class="border-b border-gray-200 px-6 py-4">
+        <h2 :id="titleId" class="text-base font-semibold text-gray-900">
           New Payment
         </h2>
       </div>
@@ -82,7 +111,7 @@ function inputClassFor(field: keyof CreatePaymentInput) {
         <div class="grid grid-cols-1 gap-4 px-6 py-5 sm:grid-cols-2">
           <div class="sm:col-span-2">
             <label
-              class="mb-1 block text-sm font-medium text-slate-700"
+              class="mb-1 block text-sm font-medium text-gray-700"
               for="p-customer"
               >Customer name</label
             >
@@ -102,9 +131,9 @@ function inputClassFor(field: keyof CreatePaymentInput) {
 
           <div>
             <label
-              class="mb-1 block text-sm font-medium text-slate-700"
+              class="mb-1 block text-sm font-medium text-gray-700"
               for="p-amount"
-              >Amount (THB)</label
+              >Amount ({{ currency }})</label
             >
             <input
               id="p-amount"
@@ -125,7 +154,7 @@ function inputClassFor(field: keyof CreatePaymentInput) {
 
           <div>
             <label
-              class="mb-1 block text-sm font-medium text-slate-700"
+              class="mb-1 block text-sm font-medium text-gray-700"
               for="p-booking"
               >Booking #</label
             >
@@ -139,7 +168,7 @@ function inputClassFor(field: keyof CreatePaymentInput) {
 
           <div>
             <label
-              class="mb-1 block text-sm font-medium text-slate-700"
+              class="mb-1 block text-sm font-medium text-gray-700"
               for="p-method"
               >Method</label
             >
@@ -156,7 +185,7 @@ function inputClassFor(field: keyof CreatePaymentInput) {
 
           <div>
             <label
-              class="mb-1 block text-sm font-medium text-slate-700"
+              class="mb-1 block text-sm font-medium text-gray-700"
               for="p-status"
               >Status</label
             >
@@ -167,17 +196,17 @@ function inputClassFor(field: keyof CreatePaymentInput) {
           </div>
         </div>
 
-        <div class="flex justify-end gap-3 border-t border-slate-200 px-6 py-4">
+        <div class="flex justify-end gap-3 border-t border-gray-200 px-6 py-4">
           <button
             type="button"
-            class="rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+            class="rounded-lg border border-gray-200 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100"
             @click="emit('cancel')"
           >
             Cancel
           </button>
           <button
             type="submit"
-            class="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700"
+            class="rounded-lg bg-navy-600 px-4 py-2 text-sm font-medium text-white hover:bg-navy-700"
           >
             Create payment
           </button>

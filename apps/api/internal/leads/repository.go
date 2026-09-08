@@ -7,6 +7,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/odysight/crm/pkg/pagination"
 )
 
 var ErrNotFound = errors.New("lead not found")
@@ -27,22 +28,63 @@ func scanLead(row pgx.Row) (Lead, error) {
 	return l, err
 }
 
-func (r *Repository) List(ctx context.Context) ([]Lead, error) {
-	rows, err := r.pool.Query(ctx, `SELECT `+leadColumns+` FROM leads ORDER BY created_at DESC`)
+func (r *Repository) List(ctx context.Context, params pagination.Params) ([]Lead, int, error) {
+	args := []any{}
+	conds := []string{}
+	if params.Search != "" {
+		like := "%" + params.Search + "%"
+		start := len(args) + 1
+		orParts := []string{}
+		for i, col := range []string{"first_name", "last_name", "email", "phone"} {
+			orParts = append(orParts, col+" ILIKE $"+itoa(start+i))
+			args = append(args, like)
+			_ = i
+		}
+		conds = append(conds, "("+joinOr(orParts)+")")
+	}
+	if params.Status != "" {
+		args = append(args, params.Status)
+		conds = append(conds, "status = $"+itoa(len(args)))
+	}
+	where := ""
+	if len(conds) > 0 {
+		where = "WHERE " + joinAnd(conds)
+	}
+	var total int
+	if err := r.pool.QueryRow(ctx, `SELECT COUNT(*) FROM leads `+where, args...).Scan(&total); err != nil {
+		return nil, 0, fmt.Errorf("count leads: %w", err)
+	}
+	args = append(args, params.Limit, params.Offset)
+	query := `SELECT `+leadColumns+` FROM leads ` + where + ` ORDER BY created_at DESC LIMIT $` + itoa(len(args)-1) + ` OFFSET $` + itoa(len(args))
+	rows, err := r.pool.Query(ctx, query, args...)
 	if err != nil {
-		return nil, fmt.Errorf("query leads: %w", err)
+		return nil, 0, fmt.Errorf("query leads: %w", err)
 	}
 	defer rows.Close()
 
-	leads := []Lead{}
+	items := []Lead{}
 	for rows.Next() {
-		var l Lead
-		if err := rows.Scan(&l.ID, &l.FirstName, &l.LastName, &l.Email, &l.Phone, &l.Status, &l.Source, &l.CreatedAt); err != nil {
-			return nil, fmt.Errorf("scan lead: %w", err)
+		item, err := scanLead(rows)
+		if err != nil {
+			return nil, 0, fmt.Errorf("scan lead: %w", err)
 		}
-		leads = append(leads, l)
+		items = append(items, item)
 	}
-	return leads, rows.Err()
+	return items, total, rows.Err()
+}
+
+func itoa(i int) string { return fmt.Sprintf("%d", i) }
+func joinOr(parts []string) string { return joinWith(parts, " OR ") }
+func joinAnd(parts []string) string { return joinWith(parts, " AND ") }
+func joinWith(parts []string, sep string) string {
+	out := ""
+	for i, s := range parts {
+		if i > 0 {
+			out += sep
+		}
+		out += s
+	}
+	return out
 }
 
 func (r *Repository) GetByID(ctx context.Context, id int64) (Lead, error) {

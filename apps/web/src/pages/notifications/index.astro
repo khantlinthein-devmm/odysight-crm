@@ -1,0 +1,8 @@
+---
+import DashboardLayout from "../../layouts/DashboardLayout.astro";
+import NotificationLogTable from "../../components/vue/notifications/NotificationLogTable.vue";
+---
+
+<DashboardLayout title="Notifications">
+  <NotificationLogTable client:load />
+</DashboardLayout>

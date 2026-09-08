@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, reactive, ref, useId } from "vue";
+import { computed, onMounted, reactive, ref, useId } from "vue";
 import { useModalA11y } from "../ui/useModalA11y";
 import type {
   Customer,
@@ -7,6 +7,7 @@ import type {
   CreateCustomerInput,
   PropertyType,
 } from "../../../lib/customers";
+import { getLeads, type Lead } from "../../../lib/leads";
 
 const props = defineProps<{
   customer?: Customer;
@@ -43,7 +44,42 @@ const form = reactive<CreateCustomerInput>({
   propertyType: props.customer?.propertyType ?? "house",
   area: props.customer?.area ?? "",
   status: props.customer?.status ?? "active",
+  leadId: props.customer?.leadId ?? null,
 });
+
+const leads = ref<Lead[]>([]);
+const leadsLoading = ref(false);
+const selectedLeadId = ref<number | null>(props.customer?.leadId ?? null);
+
+const isCreating = computed(() => !props.customer);
+
+function leadLabel(lead: Lead): string {
+  return `${lead.firstName} ${lead.lastName} — ${lead.email}`;
+}
+
+async function loadLeads() {
+  if (!isCreating.value) return;
+  leadsLoading.value = true;
+  try {
+    leads.value = await getLeads();
+  } catch {
+    leads.value = [];
+  } finally {
+    leadsLoading.value = false;
+  }
+}
+
+function applyLead(leadId: number | string) {
+  const raw = typeof leadId === "string" ? Number(leadId) : leadId;
+  selectedLeadId.value = raw || null;
+  form.leadId = selectedLeadId.value;
+  const lead = leads.value.find((l) => l.id === raw);
+  if (!lead) return;
+  form.firstName = lead.firstName;
+  form.lastName = lead.lastName;
+  form.email = lead.email;
+  form.phone = lead.phone;
+}
 
 const submitted = ref(false);
 
@@ -69,7 +105,7 @@ function handleSubmit() {
 }
 
 const inputClass =
-  "w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 placeholder-slate-400 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500";
+  "w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-900 placeholder-gray-400 focus:border-gray-500 focus:outline-none focus:ring-1 focus:ring-navy-500";
 
 function inputClassFor(field: keyof CreateCustomerInput) {
   return [
@@ -79,6 +115,8 @@ function inputClassFor(field: keyof CreateCustomerInput) {
       : "",
   ];
 }
+
+onMounted(loadLeads);
 </script>
 
 <template>
@@ -89,20 +127,48 @@ function inputClassFor(field: keyof CreateCustomerInput) {
     :aria-labelledby="titleId"
     class="fixed inset-0 z-50 flex items-center justify-center p-4"
   >
-    <div class="absolute inset-0 bg-slate-900/50" @click="emit('cancel')"></div>
+    <div class="absolute inset-0 bg-black/50" @click="emit('cancel')"></div>
 
     <div class="relative w-full max-w-lg rounded-xl bg-white shadow-xl">
-      <div class="border-b border-slate-200 px-6 py-4">
-        <h2 :id="titleId" class="text-base font-semibold text-slate-900">
+      <div class="border-b border-gray-200 px-6 py-4">
+        <h2 :id="titleId" class="text-base font-semibold text-gray-900">
           {{ customer ? "Edit Customer" : "New Customer" }}
         </h2>
       </div>
 
       <form @submit.prevent="handleSubmit">
         <div class="grid grid-cols-1 gap-4 px-6 py-5 sm:grid-cols-2">
+          <div v-if="isCreating" class="sm:col-span-2">
+            <label
+              class="mb-1 block text-sm font-medium text-gray-700"
+              for="c-leadId"
+              >Create from lead (optional)</label
+            >
+            <select
+              id="c-leadId"
+              :value="selectedLeadId ?? ''"
+              :disabled="leadsLoading"
+              @change="applyLead(($event.target as HTMLSelectElement).value)"
+              class="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-900 focus:border-gray-500 focus:outline-none focus:ring-1 focus:ring-navy-500"
+            >
+              <option value="">Manual entry</option>
+              <option
+                v-for="lead in leads"
+                :key="lead.id"
+                :value="lead.id"
+              >
+                {{ leadLabel(lead) }}
+              </option>
+            </select>
+            <p class="mt-1 text-xs text-gray-500">
+              Pick a lead to pre-fill customer details, or leave empty to enter
+              manually.
+            </p>
+          </div>
+
           <div>
             <label
-              class="mb-1 block text-sm font-medium text-slate-700"
+              class="mb-1 block text-sm font-medium text-gray-700"
               for="c-firstName"
               >First name</label
             >
@@ -122,7 +188,7 @@ function inputClassFor(field: keyof CreateCustomerInput) {
 
           <div>
             <label
-              class="mb-1 block text-sm font-medium text-slate-700"
+              class="mb-1 block text-sm font-medium text-gray-700"
               for="c-lastName"
               >Last name</label
             >
@@ -142,7 +208,7 @@ function inputClassFor(field: keyof CreateCustomerInput) {
 
           <div class="sm:col-span-2">
             <label
-              class="mb-1 block text-sm font-medium text-slate-700"
+              class="mb-1 block text-sm font-medium text-gray-700"
               for="c-email"
               >Email</label
             >
@@ -163,7 +229,7 @@ function inputClassFor(field: keyof CreateCustomerInput) {
 
           <div>
             <label
-              class="mb-1 block text-sm font-medium text-slate-700"
+              class="mb-1 block text-sm font-medium text-gray-700"
               for="c-phone"
               >Phone</label
             >
@@ -183,7 +249,7 @@ function inputClassFor(field: keyof CreateCustomerInput) {
 
           <div>
             <label
-              class="mb-1 block text-sm font-medium text-slate-700"
+              class="mb-1 block text-sm font-medium text-gray-700"
               for="c-area"
               >Area</label
             >
@@ -203,7 +269,7 @@ function inputClassFor(field: keyof CreateCustomerInput) {
 
           <div class="sm:col-span-2">
             <label
-              class="mb-1 block text-sm font-medium text-slate-700"
+              class="mb-1 block text-sm font-medium text-gray-700"
               for="c-address"
               >Address</label
             >
@@ -223,7 +289,7 @@ function inputClassFor(field: keyof CreateCustomerInput) {
 
           <div>
             <label
-              class="mb-1 block text-sm font-medium text-slate-700"
+              class="mb-1 block text-sm font-medium text-gray-700"
               for="c-propertyType"
               >Property type</label
             >
@@ -244,7 +310,7 @@ function inputClassFor(field: keyof CreateCustomerInput) {
 
           <div>
             <label
-              class="mb-1 block text-sm font-medium text-slate-700"
+              class="mb-1 block text-sm font-medium text-gray-700"
               for="c-status"
               >Status</label
             >
@@ -260,17 +326,17 @@ function inputClassFor(field: keyof CreateCustomerInput) {
           </div>
         </div>
 
-        <div class="flex justify-end gap-3 border-t border-slate-200 px-6 py-4">
+        <div class="flex justify-end gap-3 border-t border-gray-200 px-6 py-4">
           <button
             type="button"
-            class="rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+            class="rounded-lg border border-gray-200 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100"
             @click="emit('cancel')"
           >
             Cancel
           </button>
           <button
             type="submit"
-            class="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700"
+            class="rounded-lg bg-navy-600 px-4 py-2 text-sm font-medium text-white hover:bg-navy-700"
           >
             {{ customer ? "Save changes" : "Create customer" }}
           </button>

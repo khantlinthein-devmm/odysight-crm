@@ -4,18 +4,189 @@ services:
     container_name: odysight-postgres
     restart: unless-stopped
     environment:
-      POSTGRES_USER: user
-      POSTGRES_PASSWORD: password
-      POSTGRES_DB: odysight_crm
+      POSTGRES_USER: ${POSTGRES_USER:?POSTGRES_USER is required}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      POSTGRES_DB: ${POSTGRES_DB:?POSTGRES_DB is required}
     ports:
-      - "5433:5432"
+      # Loopback only: app containers reach Postgres over the internal network.
+      - "127.0.0.1:${POSTGRES_PORT:?POSTGRES_PORT is required}:5432"
     volumes:
       - odysight_pgdata:/var/lib/postgresql/data
+    networks:
+      - odysight
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U user -d odysight_crm"]
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
       interval: 5s
       timeout: 3s
       retries: 10
+    deploy:
+      resources:
+        limits:
+          memory: 512m
+
+  api:
+    build: ./apps/api
+    container_name: odysight-api
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      APP_ENV: ${APP_ENV:?APP_ENV is required (development|staging|production)}
+      PORT: ${API_INTERNAL_PORT:?API_INTERNAL_PORT is required}
+      DATABASE_URL: postgres://${POSTGRES_USER:?POSTGRES_USER is required}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/${POSTGRES_DB:?POSTGRES_DB is required}
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required (min 32 chars, e.g. openssl rand -hex 32)}
+      JWT_TTL: ${JWT_TTL:?JWT_TTL is required (e.g. 8h)}
+      CORS_ORIGINS: ${CORS_ORIGINS:?CORS_ORIGINS is required (comma-separated origins)}
+      SEED_ENABLED: ${SEED_ENABLED:?SEED_ENABLED is required (true|false)}
+      SEED_ADMIN_EMAIL: ${SEED_ADMIN_EMAIL:-}
+      SEED_ADMIN_PASSWORD: ${SEED_ADMIN_PASSWORD:-}
+      SEED_ADMIN_NAME: ${SEED_ADMIN_NAME:-Admin User}
+      SEED_DISPATCH_EMAIL: ${SEED_DISPATCH_EMAIL:-}
+      SEED_DISPATCH_PASSWORD: ${SEED_DISPATCH_PASSWORD:-}
+      SEED_DISPATCH_NAME: ${SEED_DISPATCH_NAME:-Dispatcher}
+      RUN_MIGRATIONS: ${RUN_MIGRATIONS:-true}
+      MIGRATIONS_DIR: ${MIGRATIONS_DIR:-migrations}
+      RATE_LIMIT_RPM: ${RATE_LIMIT_RPM:-300}
+      LOGIN_RATE_LIMIT_RPM: ${LOGIN_RATE_LIMIT_RPM:-20}
+      # Comma-separated proxy IPs allowed to set X-Forwarded-For.
+      # Defaults to the Caddy container's static IP (see networks below).
+      TRUSTED_PROXY_IPS: ${TRUSTED_PROXY_IPS:-172.30.0.20}
+      REQUEST_TIMEOUT: ${REQUEST_TIMEOUT:-30s}
+      READ_HEADER_TIMEOUT: ${READ_HEADER_TIMEOUT:-10s}
+      READ_TIMEOUT: ${READ_TIMEOUT:-15s}
+      WRITE_TIMEOUT: ${WRITE_TIMEOUT:-30s}
+      IDLE_TIMEOUT: ${IDLE_TIMEOUT:-60s}
+      READY_TIMEOUT: ${READY_TIMEOUT:-2s}
+      SHUTDOWN_TIMEOUT: ${SHUTDOWN_TIMEOUT:-10s}
+    ports:
+      # Loopback only for local development; production traffic goes via Caddy.
+      - "127.0.0.1:${API_PORT:?API_PORT is required}:${API_INTERNAL_PORT:?API_INTERNAL_PORT is required}"
+    working_dir: /app
+    networks:
+      - odysight
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:$${PORT}/ready"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          memory: 256m
+
+  web:
+    build:
+      context: ./apps/web
+      args:
+        PUBLIC_API_URL: ${PUBLIC_API_URL:?PUBLIC_API_URL is required (browser-reachable API base, e.g. http://localhost:8080 or https://crm.example.com/api)}
+        PUBLIC_USE_MOCKS: ${PUBLIC_USE_MOCKS:-false}
+    container_name: odysight-web
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_healthy
+    environment:
+      HOST: "0.0.0.0"
+      PORT: ${WEB_INTERNAL_PORT:?WEB_INTERNAL_PORT is required}
+      # Server-side only: used by the SSR middleware to validate session cookies.
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
+    ports:
+      - "127.0.0.1:${WEB_PORT:?WEB_PORT is required}:${WEB_INTERNAL_PORT:?WEB_INTERNAL_PORT is required}"
+    networks:
+      - odysight
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:$${PORT}/ || exit 1"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          memory: 256m
+
+  caddy:
+    image: caddy:2-alpine
+    container_name: odysight-caddy
+    restart: unless-stopped
+    depends_on:
+      web:
+        condition: service_healthy
+      api:
+        condition: service_healthy
+    environment:
+      CADDY_DOMAIN: ${CADDY_DOMAIN:-localhost}
+    networks:
+      odysight:
+        ipv4_address: 172.30.0.20
+    ports:
+      # Public entrypoint: TLS termination (Let's Encrypt) for production.
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    deploy:
+      resources:
+        limits:
+          memory: 64m
+
+  backup:
+    image: postgres:17-alpine
+    container_name: odysight-backup
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_USER: ${POSTGRES_USER:?POSTGRES_USER is required}
+      POSTGRES_DB: ${POSTGRES_DB:?POSTGRES_DB is required}
+      PGPASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+    volumes:
+      - odysight_backups:/backups
+    networks:
+      - odysight
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - >
+        trap 'echo "backup loop stopped"; exit 0' TERM INT;
+        while true; do
+          echo "starting pg_dump at $$(date -Is)";
+          pg_dump -h postgres -U "$$POSTGRES_USER" -d "$$POSTGRES_DB" -Fc -f "/backups/odysight_$$(date +%Y%m%d_%H%M%S).dump" && echo "backup ok";
+          find /backups -maxdepth 1 -name '*.dump' -mtime +14 -delete;
+          sleep 86400;
+        done
+    deploy:
+      resources:
+        limits:
+          memory: 128m
+
+  mailhog:
+    image: mailhog/mailhog:v1.0.1
+    container_name: odysight-mailhog
+    restart: unless-stopped
+    # SMTP :1025 and web/API :8025 bound to loopback for local development.
+    ports:
+      - "127.0.0.1:1025:1025"
+      - "127.0.0.1:8025:8025"
+    networks:
+      - odysight
+    deploy:
+      resources:
+        limits:
+          memory: 128m
+
+networks:
+  odysight:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.30.0.0/24
 
 volumes:
   odysight_pgdata:
+  odysight_backups:
+  caddy_data:
+  caddy_config:
