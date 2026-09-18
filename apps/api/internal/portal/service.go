@@ -59,10 +59,10 @@ func (s *Service) Login(ctx context.Context, req LoginRequest) (string, Customer
 	if !c.PortalEnabled || c.Status == "blocked" {
 		return "", Customer{}, response.NewAPIError(403, "portal access is not enabled for this account")
 	}
-	if c.PasswordHash == "" {
+	if c.PasswordHash == nil || *c.PasswordHash == "" {
 		return "", Customer{}, response.NewAPIError(403, "no portal password set; contact the office")
 	}
-	if err := bcrypt.CompareHashAndPassword([]byte(c.PasswordHash), []byte(req.Password)); err != nil {
+	if err := bcrypt.CompareHashAndPassword([]byte(*c.PasswordHash), []byte(req.Password)); err != nil {
 		return "", Customer{}, response.NewAPIError(401, "invalid email or password")
 	}
 
@@ -89,8 +89,25 @@ func (s *Service) Login(ctx context.Context, req LoginRequest) (string, Customer
 	}, nil
 }
 
+// requireAccess re-checks that a customer may still use the portal, so
+// disabling portal access or blocking the account takes effect immediately
+// instead of lingering until the JWT expires.
+func (s *Service) requireAccess(ctx context.Context, customerID int64) error {
+	enabled, blocked, err := s.repo.AccessState(ctx, customerID)
+	if err != nil {
+		return response.NewAPIError(401, "invalid token subject")
+	}
+	if !enabled || blocked {
+		return response.NewAPIError(403, "portal access is not enabled for this account")
+	}
+	return nil
+}
+
 // Me returns the portal customer's profile.
 func (s *Service) Me(ctx context.Context, customerID int64) (Customer, error) {
+	if err := s.requireAccess(ctx, customerID); err != nil {
+		return Customer{}, err
+	}
 	c, err := s.repo.GetByID(ctx, customerID)
 	if err != nil {
 		return Customer{}, response.NewAPIError(401, "invalid token subject")
@@ -103,9 +120,15 @@ func (s *Service) ChangePassword(ctx context.Context, customerID int64, current,
 	if len(newPass) < 8 {
 		return response.NewAPIError(400, "new password must be at least 8 characters")
 	}
+	if err := s.requireAccess(ctx, customerID); err != nil {
+		return err
+	}
 	hash, err := s.repo.PasswordHashByID(ctx, customerID)
 	if err != nil {
 		return response.NewAPIError(401, "invalid token subject")
+	}
+	if hash == "" {
+		return response.NewAPIError(403, "no portal password set; contact the office")
 	}
 	if err := bcrypt.CompareHashAndPassword([]byte(hash), []byte(current)); err != nil {
 		return response.NewAPIError(400, "current password is incorrect")
@@ -122,12 +145,18 @@ func (s *Service) ChangePassword(ctx context.Context, customerID int64, current,
 
 // Bookings lists the customer's own bookings.
 func (s *Service) Bookings(ctx context.Context, customerID int64) ([]Booking, error) {
+	if err := s.requireAccess(ctx, customerID); err != nil {
+		return nil, err
+	}
 	return s.repo.Bookings(ctx, customerID)
 }
 
 // SubmitFeedback records portal feedback for one of the customer's own
 // completed bookings. Returns the feedback id and booking number as a slug.
 func (s *Service) SubmitFeedback(ctx context.Context, customerID int64, bookingID int64, rating int, comment string) error {
+	if err := s.requireAccess(ctx, customerID); err != nil {
+		return err
+	}
 	status, err := s.repo.EnsureBookingOwned(ctx, customerID, bookingID)
 	if err != nil {
 		return response.NewAPIError(404, "booking not found")

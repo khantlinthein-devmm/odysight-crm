@@ -211,6 +211,7 @@ func (r *Repository) OverdueIssued(ctx context.Context, before time.Time) ([]Inv
 	rows, err := r.pool.Query(ctx,
 		`SELECT `+invoiceColumns+` FROM invoices
 		 WHERE status = 'issued' AND paid_at IS NULL AND reminder_sent_at IS NULL AND issued_at < $1
+		   AND customer_email IS NOT NULL AND customer_email <> ''
 		 ORDER BY issued_at ASC
 		 LIMIT 100`, before)
 	if err != nil {

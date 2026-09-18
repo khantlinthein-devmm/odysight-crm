@@ -1,4 +1,4 @@
-# Smile Clean CRM
+# Odysight CRM
 
 A modern CRM platform being migrated from **AdminJS + Node.js** to a modular architecture built with:
 

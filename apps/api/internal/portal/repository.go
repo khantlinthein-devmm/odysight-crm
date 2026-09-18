@@ -14,14 +14,15 @@ var ErrInvalidCredentials = errors.New("invalid portal credentials")
 var ErrNotFound = errors.New("portal customer not found")
 
 // customerWithHash is the full row used to verify portal credentials.
+// PasswordHash is nullable: customers without a portal password yet have NULL.
 type customerWithHash struct {
-	ID           int64
-	Name         string
-	Email        string
-	Phone        string
-	Address      string
-	Area         string
-	PasswordHash  string
+	ID            int64
+	Name          string
+	Email         string
+	Phone         string
+	Address       string
+	Area          string
+	PasswordHash  *string
 	PortalEnabled bool
 	Status        string
 }
@@ -79,7 +80,7 @@ func (r *Repository) GetByID(ctx context.Context, id int64) (Customer, error) {
 // Bookings lists a customer's own bookings, most recent first.
 func (r *Repository) Bookings(ctx context.Context, customerID int64) ([]Booking, error) {
 	rows, err := r.pool.Query(ctx,
-		`SELECT id, booking_number, service_type, scheduled_for, duration_minutes, address, assigned_cleaner, status, notes
+		`SELECT id, booking_number, service_type, scheduled_for, duration_minutes, address, COALESCE(assigned_cleaner, ''), status, notes
 		 FROM bookings
 		 WHERE customer_id = $1
 		 ORDER BY scheduled_for DESC`, customerID)
@@ -98,6 +99,23 @@ func (r *Repository) Bookings(ctx context.Context, customerID int64) ([]Booking,
 		items = append(items, b)
 	}
 	return items, rows.Err()
+}
+
+// AccessState reports whether a customer may currently use the portal:
+// enabled flag set and not blocked. Used to re-check on every request so
+// disabling/blocking takes effect before the JWT expires.
+func (r *Repository) AccessState(ctx context.Context, id int64) (enabled bool, blocked bool, err error) {
+	var status string
+	err = r.pool.QueryRow(ctx,
+		`SELECT portal_enabled, status FROM customers WHERE id = $1`, id).
+		Scan(&enabled, &status)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return false, false, ErrNotFound
+	}
+	if err != nil {
+		return false, false, fmt.Errorf("check portal access for customer %d: %w", id, err)
+	}
+	return enabled, status == "blocked", nil
 }
 
 // PasswordHashByID returns the stored password hash for a customer, or empty

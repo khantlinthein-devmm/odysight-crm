@@ -33,6 +33,7 @@ export interface ServiceItem {
   name: string;
   durationMinutes: number;
   basePrice: number;
+  pricePerSqm: number;
   active: boolean;
 }
 
@@ -78,7 +79,7 @@ export interface WorkspaceSettings {
 
 export const DEFAULT_SETTINGS: WorkspaceSettings = {
   company: {
-    name: "Smile Clean",
+    name: "Smile Clean Thailand",
     phone: "",
     address: "",
     invoiceFooter: "Thank you for your business!",
@@ -109,14 +110,14 @@ export const DEFAULT_SETTINGS: WorkspaceSettings = {
     ],
   },
   services: [
-    { id: "house_cleaning", name: "House Cleaning", durationMinutes: 180, basePrice: 1500, active: true },
-    { id: "condo_cleaning", name: "Condo Cleaning", durationMinutes: 120, basePrice: 1200, active: true },
-    { id: "deep_cleaning", name: "Deep Cleaning", durationMinutes: 240, basePrice: 2500, active: true },
-    { id: "move_in_out", name: "Move In/Out", durationMinutes: 300, basePrice: 3000, active: true },
-    { id: "after_renovation", name: "After Renovation", durationMinutes: 240, basePrice: 2800, active: true },
-    { id: "office_cleaning", name: "Office Cleaning", durationMinutes: 210, basePrice: 2200, active: true },
-    { id: "junk_removal", name: "Junk Removal", durationMinutes: 120, basePrice: 1000, active: true },
-    { id: "aircon_service", name: "Aircon Service", durationMinutes: 90, basePrice: 800, active: true },
+    { id: "house_cleaning", name: "House Cleaning", durationMinutes: 180, basePrice: 1500, pricePerSqm: 25, active: true },
+    { id: "condo_cleaning", name: "Condo Cleaning", durationMinutes: 120, basePrice: 1200, pricePerSqm: 25, active: true },
+    { id: "deep_cleaning", name: "Deep Cleaning", durationMinutes: 240, basePrice: 2500, pricePerSqm: 35, active: true },
+    { id: "move_in_out", name: "Move In/Out", durationMinutes: 300, basePrice: 3000, pricePerSqm: 35, active: true },
+    { id: "after_renovation", name: "After Renovation", durationMinutes: 240, basePrice: 2800, pricePerSqm: 40, active: true },
+    { id: "office_cleaning", name: "Office Cleaning", durationMinutes: 210, basePrice: 2200, pricePerSqm: 30, active: true },
+    { id: "junk_removal", name: "Junk Removal", durationMinutes: 120, basePrice: 1000, pricePerSqm: 0, active: true },
+    { id: "aircon_service", name: "Aircon Service", durationMinutes: 90, basePrice: 800, pricePerSqm: 0, active: true },
   ],
   notifications: {
     newLeadEmail: true,
@@ -158,12 +159,21 @@ let cache: WorkspaceSettings | null = null;
 let inflight: Promise<WorkspaceSettings> | null = null;
 
 function merge(all: Partial<WorkspaceSettings>): WorkspaceSettings {
+  const fallbackRate = (id: string): number =>
+    DEFAULT_SETTINGS.services.find((s) => s.id === id)?.pricePerSqm ?? 0;
+  const services = (all.services ?? DEFAULT_SETTINGS.services).map((s) => ({
+    ...s,
+    pricePerSqm:
+      typeof s.pricePerSqm === "number" && Number.isFinite(s.pricePerSqm)
+        ? s.pricePerSqm
+        : fallbackRate(s.id),
+  }));
   return {
     company: { ...DEFAULT_SETTINGS.company, ...all.company },
     localization: { ...DEFAULT_SETTINGS.localization, ...all.localization },
     booking: { ...DEFAULT_SETTINGS.booking, ...all.booking },
     payments: { ...DEFAULT_SETTINGS.payments, ...all.payments },
-    services: all.services ?? DEFAULT_SETTINGS.services,
+    services,
     notifications: { ...DEFAULT_SETTINGS.notifications, ...all.notifications },
     smtp: { ...DEFAULT_SETTINGS.smtp, ...all.smtp },
     sms: { ...DEFAULT_SETTINGS.sms, ...all.sms },

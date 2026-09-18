@@ -120,6 +120,9 @@ func (r *UpdateCustomerRequest) Validate() error {
 		}
 		r.Email = &email
 	}
+	if r.Phone != nil && !validate.Phone(*r.Phone) {
+		return response.NewAPIError(400, "a valid phone is required")
+	}
 	if r.Address != nil && strings.TrimSpace(*r.Address) == "" {
 		return response.NewAPIError(400, "address cannot be empty")
 	}

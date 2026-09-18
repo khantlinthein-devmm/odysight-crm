@@ -12,8 +12,10 @@ import type {
 } from "../../../lib/bookings";
 import {
   activeServices,
+  formatMoney,
   getWorkspaceSettings,
 } from "../../../lib/settings";
+import { lineTotal } from "../../../lib/pricing";
 
 const props = defineProps<{
   booking?: Booking;
@@ -59,6 +61,40 @@ function applyServiceDuration(fallback?: number) {
   if (props.booking) return;
   const found = activeServices().find((s) => s.id === form.serviceType);
   form.durationMinutes = found?.durationMinutes ?? fallback ?? form.durationMinutes;
+  if (found && !rateTouched.value) {
+    ratePerSqm.value = found.pricePerSqm ?? 0;
+    basePrice.value = found.basePrice ?? 0;
+  }
+}
+
+// --- Price estimate (informational; booking API stores no price) ---
+const areaSqm = ref(0);
+const ratePerSqm = ref(0);
+const basePrice = ref(0);
+const rateTouched = ref(false);
+const equipmentFee = ref(0);
+const transportFee = ref(0);
+const labourFee = ref(0);
+const showEstimate = ref(true);
+
+const estimateTotal = computed(
+  () =>
+    lineTotal({
+      basePrice: Number(basePrice.value) || 0,
+      areaSqm: Number(areaSqm.value) || 0,
+      pricePerSqm: Number(ratePerSqm.value) || 0,
+    }) +
+    (Number(equipmentFee.value) || 0) +
+    (Number(transportFee.value) || 0) +
+    (Number(labourFee.value) || 0),
+);
+
+function insertEstimateIntoNotes() {
+  const area = Number(areaSqm.value) || 0;
+  const summary =
+    `Estimate: ${formatMoney(estimateTotal.value)}` +
+    (area > 0 ? ` (${area}m² @ ${formatMoney(Number(ratePerSqm.value) || 0)}/m²)` : "");
+  form.notes = form.notes ? `${form.notes}\n${summary}` : summary;
 }
 
 const cleaners = ref<Cleaner[]>([]);
@@ -90,6 +126,11 @@ onMounted(async () => {
         form.serviceType = ws.services[0]!.id;
       }
       applyServiceDuration(ws.booking.defaultDurationMinutes);
+      const found = ws.services.find((s) => s.id === form.serviceType);
+      if (found) {
+        basePrice.value = found.basePrice ?? 0;
+        ratePerSqm.value = found.pricePerSqm ?? 0;
+      }
     }
   } catch {
     /* fall back to built-in defaults */
@@ -231,12 +272,13 @@ function inputClassFor(field: keyof CreateBookingInput) {
     role="dialog"
     aria-modal="true"
     :aria-labelledby="titleId"
-    class="fixed inset-0 z-50 flex items-center justify-center p-4"
+    class="fixed inset-0 z-50 overflow-y-auto"
   >
-    <div class="absolute inset-0 bg-black/50" @click="emit('cancel')"></div>
+    <div class="fixed inset-0 bg-black/50" @click="emit('cancel')"></div>
 
-    <div class="relative w-full max-w-lg rounded-xl bg-white shadow-xl">
-      <div class="border-b border-gray-200 px-6 py-4">
+    <div class="relative flex min-h-full items-center justify-center p-4 sm:p-6">
+      <div class="relative w-full max-w-2xl rounded-2xl bg-white shadow-xl">
+      <div class="sticky top-0 z-10 rounded-t-2xl border-b border-gray-200 bg-white px-6 py-4">
         <h2 :id="titleId" class="text-base font-semibold text-gray-900">
           {{ booking ? `Edit Booking ${booking.bookingNumber}` : "New Booking" }}
         </h2>
@@ -509,9 +551,82 @@ function inputClassFor(field: keyof CreateBookingInput) {
               placeholder="Any additional notes..."
             ></textarea>
           </div>
+
+          <div class="sm:col-span-2 rounded-2xl bg-gray-50 p-4 ring-1 ring-gray-100">
+            <button
+              type="button"
+              class="flex w-full items-center justify-between text-sm font-medium text-gray-700"
+              @click="showEstimate = !showEstimate"
+            >
+              <span>Price estimate · {{ formatMoney(estimateTotal) }}</span>
+              <span class="text-xs text-gray-400">{{ showEstimate ? "Hide" : "Show" }}</span>
+            </button>
+            <div v-if="showEstimate" class="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3">
+              <div>
+                <label class="mb-1 block text-xs font-medium text-gray-600" for="b-area">Area (m²)</label>
+                <input
+                  id="b-area"
+                  v-model.number="areaSqm"
+                  type="number"
+                  min="0"
+                  :class="inputClass"
+                  placeholder="e.g. 80"
+                />
+              </div>
+              <div>
+                <label class="mb-1 block text-xs font-medium text-gray-600" for="b-rate">Rate / m²</label>
+                <input
+                  id="b-rate"
+                  v-model.number="ratePerSqm"
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  :class="inputClass"
+                  @input="rateTouched = true"
+                />
+              </div>
+              <div>
+                <label class="mb-1 block text-xs font-medium text-gray-600" for="b-base">Base price</label>
+                <input
+                  id="b-base"
+                  v-model.number="basePrice"
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  :class="inputClass"
+                  @input="rateTouched = true"
+                />
+              </div>
+              <div>
+                <label class="mb-1 block text-xs font-medium text-gray-600" for="b-equip">Equipment</label>
+                <input id="b-equip" v-model.number="equipmentFee" type="number" min="0" step="0.01" :class="inputClass" />
+              </div>
+              <div>
+                <label class="mb-1 block text-xs font-medium text-gray-600" for="b-transport">Transport</label>
+                <input id="b-transport" v-model.number="transportFee" type="number" min="0" step="0.01" :class="inputClass" />
+              </div>
+              <div>
+                <label class="mb-1 block text-xs font-medium text-gray-600" for="b-labour">Labour</label>
+                <input id="b-labour" v-model.number="labourFee" type="number" min="0" step="0.01" :class="inputClass" />
+              </div>
+            </div>
+            <div v-if="showEstimate" class="mt-3 flex flex-wrap items-center justify-between gap-2">
+              <p class="text-sm text-gray-600">
+                Total: <span class="font-semibold text-gray-900">{{ formatMoney(estimateTotal) }}</span>
+                <a href="/calculator" target="_blank" class="ml-2 text-xs text-navy-600 hover:underline">Full calculator →</a>
+              </p>
+              <button
+                type="button"
+                class="rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-100"
+                @click="insertEstimateIntoNotes"
+              >
+                Insert into notes
+              </button>
+            </div>
+          </div>
         </div>
 
-        <div class="flex justify-end gap-3 border-t border-gray-200 px-6 py-4">
+        <div class="sticky bottom-0 flex justify-end gap-3 rounded-b-2xl border-t border-gray-200 bg-white px-6 py-4">
           <button
             type="button"
             class="rounded-lg border border-gray-200 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100"
@@ -527,6 +642,7 @@ function inputClassFor(field: keyof CreateBookingInput) {
           </button>
         </div>
       </form>
+      </div>
     </div>
   </div>
 </template>

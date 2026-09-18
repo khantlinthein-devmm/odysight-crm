@@ -62,6 +62,9 @@ type Booking struct {
 	ScheduledFor    time.Time
 	DurationMinutes int
 	Address         string
+	// Area is the dispatch zone (e.g. "Bang Na"), copied from the customer
+	// when the booking is created. Cleaners filter the available pool by it.
+	Area            string
 	AssignedCleaner string // display: primary cleaner's full name
 	Status          Status
 	Notes           string

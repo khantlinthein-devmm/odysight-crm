@@ -41,6 +41,8 @@ func (s *Service) Create(ctx context.Context, req CreateCleanerRequest) (Cleaner
 		Email:     req.Email,
 		Skills:    req.Skills,
 		Status:    Status(req.Status),
+		Area:      req.Area,
+		UserID:    req.UserID,
 	}
 
 	created, err := s.repo.Create(ctx, c)
@@ -82,8 +84,43 @@ func (s *Service) Update(ctx context.Context, id int64, req UpdateCleanerRequest
 		status := Status(*req.Status)
 		patch.Status = &status
 	}
+	if req.Area != nil {
+		v := strings.TrimSpace(*req.Area)
+		patch.Area = &v
+	}
+	if req.UserID != nil {
+		patch.UserID = req.UserID
+	}
+	if req.IsOnline != nil {
+		patch.IsOnline = req.IsOnline
+	}
 
 	updated, err := s.repo.Update(ctx, id, patch)
+	if err != nil {
+		return Cleaner{}, mapRepoError(err)
+	}
+	return updated, nil
+}
+
+// Me resolves the cleaner profile for the logged-in user (role CLEANER).
+func (s *Service) Me(ctx context.Context, userID int64) (Cleaner, error) {
+	c, err := s.repo.FindForUser(ctx, userID)
+	if err != nil {
+		return Cleaner{}, mapRepoError(err)
+	}
+	return c, nil
+}
+
+// UpdateLocation records a GPS ping for the logged-in cleaner.
+func (s *Service) UpdateLocation(ctx context.Context, userID int64, req LocationUpdateRequest) (Cleaner, error) {
+	if err := req.Validate(); err != nil {
+		return Cleaner{}, err
+	}
+	c, err := s.repo.FindForUser(ctx, userID)
+	if err != nil {
+		return Cleaner{}, mapRepoError(err)
+	}
+	updated, err := s.repo.UpdateLocation(ctx, c.ID, req.Lat, req.Lng, req.Area, req.IsOnline)
 	if err != nil {
 		return Cleaner{}, mapRepoError(err)
 	}
@@ -93,6 +130,37 @@ func (s *Service) Update(ctx context.Context, id int64, req UpdateCleanerRequest
 func (s *Service) Delete(ctx context.Context, id int64) error {
 	err := s.repo.Delete(ctx, id)
 	return mapRepoError(err)
+}
+
+// ListPhones returns all labeled phone numbers for a cleaner.
+func (s *Service) ListPhones(ctx context.Context, cleanerID int64) ([]PhoneNumber, error) {
+	phones, err := s.repo.ListPhones(ctx, cleanerID)
+	if err != nil {
+		return nil, mapRepoError(err)
+	}
+	return phones, nil
+}
+
+// GetPhones is an alias for ListPhones.
+func (s *Service) GetPhones(ctx context.Context, cleanerID int64) ([]PhoneNumber, error) {
+	return s.ListPhones(ctx, cleanerID)
+}
+
+// AddPhone validates and adds a labeled phone number to a cleaner.
+func (s *Service) AddPhone(ctx context.Context, cleanerID int64, req AddPhoneRequest) (PhoneNumber, error) {
+	if err := req.Validate(); err != nil {
+		return PhoneNumber{}, err
+	}
+	phone, err := s.repo.AddPhone(ctx, cleanerID, req.Label, req.Phone)
+	if err != nil {
+		return PhoneNumber{}, mapRepoError(err)
+	}
+	return phone, nil
+}
+
+// RemovePhone deletes a labeled phone number scoped to its cleaner.
+func (s *Service) RemovePhone(ctx context.Context, cleanerID, phoneID int64) error {
+	return mapRepoError(s.repo.RemovePhone(ctx, cleanerID, phoneID))
 }
 
 func mapRepoError(err error) error {

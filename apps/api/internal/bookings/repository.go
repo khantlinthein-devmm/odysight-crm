@@ -17,6 +17,10 @@ var ErrNotFound = errors.New("booking not found")
 // ErrUnknownCleaner indicates a requested cleaner ID does not exist.
 var ErrUnknownCleaner = errors.New("cleaner not found")
 
+// ErrAlreadyAssigned indicates the booking is no longer in the available
+// pool (already taken, confirmed, or otherwise not pending).
+var ErrAlreadyAssigned = errors.New("booking is no longer available")
+
 // Conflict describes a time-overlapping booking that blocks an assignment.
 type Conflict struct {
 	CleanerID       int64
@@ -36,7 +40,7 @@ func NewRepository(pool *pgxpool.Pool) *Repository {
 	return &Repository{pool: pool}
 }
 
-const bookingColumns = `id, booking_number, customer_name, customer_email, customer_id, service_type, scheduled_for, duration_minutes, address, assigned_cleaner, status, notes, is_recurring, recurrence, series_id, created_at`
+const bookingColumns = `id, booking_number, customer_name, customer_email, customer_id, service_type, scheduled_for, duration_minutes, address, area, assigned_cleaner, status, notes, is_recurring, recurrence, series_id, created_at`
 
 const bookingNumberExpr = `'BK-' || to_char(created_at, 'YYYY') || '-' || lpad(id::text, 4, '0')`
 
@@ -44,7 +48,7 @@ func scanBooking(row pgx.Row) (Booking, error) {
 	var b Booking
 	var recurrence *string
 	err := row.Scan(&b.ID, &b.BookingNumber, &b.CustomerName, &b.CustomerEmail, &b.CustomerID, &b.ServiceType,
-		&b.ScheduledFor, &b.DurationMinutes, &b.Address, &b.AssignedCleaner,
+		&b.ScheduledFor, &b.DurationMinutes, &b.Address, &b.Area, &b.AssignedCleaner,
 		&b.Status, &b.Notes, &b.IsRecurring, &recurrence, &b.SeriesID, &b.CreatedAt)
 	if recurrence != nil {
 		b.Recurrence = *recurrence
@@ -183,16 +187,25 @@ func (r *Repository) List(ctx context.Context, params pagination.Params) ([]Book
 		like := "%" + params.Search + "%"
 		start := len(args) + 1
 		orParts := []string{}
-		for i, col := range []string{"booking_number", "customer_name", "address", "assigned_cleaner"} {
+		for i, col := range []string{"booking_number", "customer_name", "address", "area", "assigned_cleaner"} {
 			orParts = append(orParts, col+" ILIKE $"+itoa(start+i))
 			args = append(args, like)
 			_ = i
 		}
 		conds = append(conds, "("+joinOr(orParts)+")")
 	}
-	if params.Status != "" {
+	if params.Available {
+		// The mobile available pool: pending jobs nobody has taken yet.
+		conds = append(conds, "status = 'pending'")
+		conds = append(conds, "(assigned_cleaner IS NULL OR assigned_cleaner = '')")
+		conds = append(conds, "NOT EXISTS (SELECT 1 FROM booking_cleaners bc WHERE bc.booking_id = bookings.id)")
+	} else if params.Status != "" {
 		args = append(args, params.Status)
 		conds = append(conds, "status = $"+itoa(len(args)))
+	}
+	if params.Area != "" {
+		args = append(args, params.Area)
+		conds = append(conds, "lower(area) = lower($"+itoa(len(args))+")")
 	}
 	if params.From != "" {
 		args = append(args, params.From)
@@ -292,15 +305,23 @@ func (r *Repository) Create(ctx context.Context, b Booking) (Booking, error) {
 		return Booking{}, fmt.Errorf("begin tx: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+	// Older office clients do not send an area yet: fall back to the linked
+	// customer's area so the booking still matches cleaners by zone.
+	if b.Area == "" && b.CustomerID != nil {
+		var customerArea *string
+		if err := tx.QueryRow(ctx, `SELECT area FROM customers WHERE id = $1`, *b.CustomerID).Scan(&customerArea); err == nil && customerArea != nil {
+			b.Area = *customerArea
+		}
+	}
 	// Unique temp value avoids UNIQUE collisions on concurrent inserts.
 	temp := "TMP-" + fmt.Sprintf("%d", time.Now().UnixNano())
 	var id int64
 	if err := tx.QueryRow(ctx,
-		`INSERT INTO bookings (booking_number, customer_name, customer_email, customer_id, service_type, scheduled_for, duration_minutes, address, assigned_cleaner, status, notes, is_recurring, recurrence, series_id)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+		`INSERT INTO bookings (booking_number, customer_name, customer_email, customer_id, service_type, scheduled_for, duration_minutes, address, area, assigned_cleaner, status, notes, is_recurring, recurrence, series_id)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
 		 RETURNING id`,
 		temp, b.CustomerName, b.CustomerEmail, b.CustomerID, b.ServiceType, b.ScheduledFor, b.DurationMinutes,
-		b.Address, b.AssignedCleaner, b.Status, b.Notes, b.IsRecurring, recurrenceValue(b), b.SeriesID).Scan(&id); err != nil {
+		b.Address, b.Area, b.AssignedCleaner, b.Status, b.Notes, b.IsRecurring, recurrenceValue(b), b.SeriesID).Scan(&id); err != nil {
 		return Booking{}, fmt.Errorf("create booking: %w", err)
 	}
 
@@ -367,6 +388,7 @@ type Patch struct {
 	ScheduledFor    *time.Time
 	DurationMinutes *int
 	Address         *string
+	Area            *string
 	AssignedCleaner *string
 	Status          *Status
 	Notes           *string
@@ -401,15 +423,16 @@ func (r *Repository) Update(ctx context.Context, id int64, p Patch) (Booking, er
 			scheduled_for    = COALESCE($6, scheduled_for),
 			duration_minutes = COALESCE($7, duration_minutes),
 			address          = COALESCE($8, address),
-			assigned_cleaner = COALESCE($9, assigned_cleaner),
-			status           = COALESCE($10, status),
-			notes            = COALESCE($11, notes),
-			is_recurring     = COALESCE($12, is_recurring),
-			recurrence       = CASE WHEN $13::text = '' THEN NULL ELSE COALESCE($13, recurrence) END
+			area             = COALESCE($9, area),
+			assigned_cleaner = COALESCE($10, assigned_cleaner),
+			status           = COALESCE($11, status),
+			notes            = COALESCE($12, notes),
+			is_recurring     = COALESCE($13, is_recurring),
+			recurrence       = CASE WHEN $14::text = '' THEN NULL ELSE COALESCE($14, recurrence) END
 		 WHERE id = $1
 		 RETURNING `+bookingColumns,
 		id, p.CustomerName, p.CustomerEmail, p.CustomerID, serviceType, p.ScheduledFor, p.DurationMinutes,
-		p.Address, p.AssignedCleaner, status, p.Notes, p.IsRecurring, p.Recurrence))
+		p.Address, p.Area, p.AssignedCleaner, status, p.Notes, p.IsRecurring, p.Recurrence))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Booking{}, ErrNotFound
 	}
@@ -451,12 +474,101 @@ func (r *Repository) Delete(ctx context.Context, id int64) error {
 	return nil
 }
 
+// CleanerIdentity is the cleaner profile resolved for a login user.
+type CleanerIdentity struct {
+	ID   int64
+	Name string
+	Area string
+}
+
+// FindCleanerForUser resolves the cleaner profile for a login user, first by
+// the user_id link then by matching the user's email (same rule as the
+// cleaners module, duplicated here so bookings stays self-contained).
+func (r *Repository) FindCleanerForUser(ctx context.Context, userID int64) (CleanerIdentity, error) {
+	var c CleanerIdentity
+	err := r.pool.QueryRow(ctx,
+		`SELECT id, first_name || ' ' || last_name, COALESCE(area, '')
+		 FROM cleaners WHERE user_id = $1`, userID).Scan(&c.ID, &c.Name, &c.Area)
+	if err == nil {
+		return c, nil
+	}
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return CleanerIdentity{}, fmt.Errorf("find cleaner for user %d: %w", userID, err)
+	}
+	err = r.pool.QueryRow(ctx,
+		`SELECT c.id, c.first_name || ' ' || c.last_name, COALESCE(c.area, '')
+		 FROM cleaners c
+		 JOIN users u ON lower(c.email) = lower(u.email)
+		 WHERE u.id = $1 AND c.user_id IS NULL`, userID).Scan(&c.ID, &c.Name, &c.Area)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return CleanerIdentity{}, ErrUnknownCleaner
+	}
+	if err != nil {
+		return CleanerIdentity{}, fmt.Errorf("find cleaner by email for user %d: %w", userID, err)
+	}
+	return c, nil
+}
+
+// Accept assigns a pending, unassigned booking to the cleaner's profile
+// atomically: first tap wins, late tappers get ErrAlreadyAssigned.
+func (r *Repository) Accept(ctx context.Context, bookingID int64, cleaner CleanerIdentity) (Booking, error) {
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return Booking{}, fmt.Errorf("begin tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	var status string
+	var assignedCleaner *string
+	err = tx.QueryRow(ctx,
+		`SELECT status, assigned_cleaner FROM bookings WHERE id = $1 FOR UPDATE`, bookingID).
+		Scan(&status, &assignedCleaner)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Booking{}, ErrNotFound
+	}
+	if err != nil {
+		return Booking{}, fmt.Errorf("lock booking %d: %w", bookingID, err)
+	}
+	if status != "pending" || (assignedCleaner != nil && *assignedCleaner != "") {
+		return Booking{}, ErrAlreadyAssigned
+	}
+	var taken bool
+	if err := tx.QueryRow(ctx,
+		`SELECT EXISTS(SELECT 1 FROM booking_cleaners WHERE booking_id = $1)`, bookingID).Scan(&taken); err != nil {
+		return Booking{}, fmt.Errorf("check assignment for booking %d: %w", bookingID, err)
+	}
+	if taken {
+		return Booking{}, ErrAlreadyAssigned
+	}
+
+	if _, err := tx.Exec(ctx,
+		`UPDATE bookings SET status = 'confirmed', assigned_cleaner = $2 WHERE id = $1`,
+		bookingID, cleaner.Name); err != nil {
+		return Booking{}, fmt.Errorf("confirm booking %d: %w", bookingID, err)
+	}
+	if _, err := tx.Exec(ctx,
+		`INSERT INTO booking_cleaners (booking_id, cleaner_id, role) VALUES ($1, $2, 'primary')`,
+		bookingID, cleaner.ID); err != nil {
+		return Booking{}, fmt.Errorf("assign cleaner %d to booking %d: %w", cleaner.ID, bookingID, err)
+	}
+	updated, err := scanBooking(tx.QueryRow(ctx,
+		`SELECT `+bookingColumns+` FROM bookings WHERE id = $1`, bookingID))
+	if err != nil {
+		return Booking{}, fmt.Errorf("reload booking %d: %w", bookingID, err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return Booking{}, fmt.Errorf("commit accept booking %d: %w", bookingID, err)
+	}
+	updated.Cleaners = []CleanerBrief{{ID: cleaner.ID, Name: cleaner.Name, Role: "primary"}}
+	return updated, nil
+}
+
 // DueRecurring returns active recurring bookings whose scheduled time has
 // passed the cutoff. Each is a candidate for generating the next occurrence.
 func (r *Repository) DueRecurring(ctx context.Context, cutoff time.Time) ([]Booking, error) {
 	rows, err := r.pool.Query(ctx,
 		`SELECT `+bookingColumns+` FROM bookings
-		 WHERE is_recurring = true AND scheduled_for < $1`, cutoff)
+		 WHERE is_recurring = true AND status <> 'cancelled' AND scheduled_for < $1`, cutoff)
 	if err != nil {
 		return nil, fmt.Errorf("query due recurring bookings: %w", err)
 	}

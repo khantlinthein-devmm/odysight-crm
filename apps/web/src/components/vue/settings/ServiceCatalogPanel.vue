@@ -25,6 +25,7 @@ const newId = ref("");
 const newName = ref("");
 const newDuration = ref(120);
 const newPrice = ref(0);
+const newRate = ref(0);
 
 function slugify(s: string): string {
   return s.trim().toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
@@ -60,12 +61,14 @@ function addItem() {
     name: newName.value.trim(),
     durationMinutes: Number(newDuration.value) || 60,
     basePrice: Number(newPrice.value) || 0,
+    pricePerSqm: Number(newRate.value) || 0,
     active: true,
   });
   newId.value = "";
   newName.value = "";
   newDuration.value = 120;
   newPrice.value = 0;
+  newRate.value = 0;
 }
 
 function removeItem(id: string) {
@@ -98,19 +101,20 @@ const input =
   <div class="rounded-xl border border-gray-200 bg-white p-6">
     <h2 class="text-base font-semibold text-gray-900">Service catalog</h2>
     <p class="mt-1 text-sm text-gray-500">
-      Services offered, with default durations and base prices. The New Booking
-      form lists active ones — no deploy needed for price changes.
+      Services offered, with default durations, base prices and per-m² rates. The New Booking
+      form and the Calculator use them immediately — no deploy needed for price changes.
     </p>
     <div v-if="loading" class="mt-4 text-sm text-gray-500">Loading…</div>
     <template v-else>
       <div class="mt-4 overflow-x-auto">
-        <table class="w-full min-w-[640px] text-left text-sm">
+        <table class="w-full min-w-[760px] text-left text-sm">
           <thead>
             <tr class="border-b border-gray-100 text-xs uppercase tracking-wide text-gray-400">
               <th class="py-2 pr-2 font-medium">ID</th>
               <th class="py-2 pr-2 font-medium">Name</th>
               <th class="py-2 pr-2 font-medium">Duration (min)</th>
               <th class="py-2 pr-2 font-medium">Base price</th>
+              <th class="py-2 pr-2 font-medium">Per m²</th>
               <th class="py-2 pr-2 text-center font-medium">Active</th>
               <th v-if="editable" class="py-2 text-right font-medium">Actions</th>
             </tr>
@@ -127,6 +131,9 @@ const input =
               <td class="py-2 pr-2">
                 <input v-model.number="s.basePrice" type="number" min="0" step="0.01" :class="input + ' w-28'" :disabled="!editable" />
                 <span class="ml-1 text-xs text-gray-400">{{ formatMoney(s.basePrice) }}</span>
+              </td>
+              <td class="py-2 pr-2">
+                <input v-model.number="s.pricePerSqm" type="number" min="0" step="0.01" :class="input + ' w-24'" :disabled="!editable" />
               </td>
               <td class="py-2 pr-2 text-center">
                 <input v-model="s.active" type="checkbox" class="h-4 w-4 accent-navy-600" :disabled="!editable" />
@@ -147,11 +154,12 @@ const input =
 
       <div v-if="editable" class="mt-4 rounded-lg bg-gray-50 p-4">
         <p class="text-xs font-semibold uppercase tracking-wide text-gray-500">Add service</p>
-        <div class="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-5">
+        <div class="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-6">
           <input v-model="newName" placeholder="Display name" :class="input" />
           <input v-model="newId" placeholder="id (auto from name)" :class="input" />
           <input v-model.number="newDuration" type="number" min="15" placeholder="Minutes" :class="input" />
           <input v-model.number="newPrice" type="number" min="0" placeholder="Base price" :class="input" />
+          <input v-model.number="newRate" type="number" min="0" placeholder="Per m²" :class="input" />
           <button
             type="button"
             class="rounded-lg bg-navy-600 px-4 py-2 text-sm font-medium text-white hover:bg-navy-700"

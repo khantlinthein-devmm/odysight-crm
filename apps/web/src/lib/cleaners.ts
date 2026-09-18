@@ -160,7 +160,82 @@ export async function deleteCleaner(id: number): Promise<void> {
     const index = mockCleaners.findIndex((c) => c.id === id);
     if (index === -1) throw new ApiError(404, `Cleaner ${id} not found`);
     mockCleaners.splice(index, 1);
+    delete mockPhones[id];
     return;
   }
   await apiFetch<void>(`/api/v1/cleaners/${id}`, { method: "DELETE" });
+}
+
+export interface PhoneNumber {
+  id: number;
+  label: string;
+  phone: string;
+}
+
+let mockPhoneId = 810;
+
+const mockPhones: Record<number, PhoneNumber[]> = {
+  601: [
+    { id: 801, label: "Emergency", phone: "+66 89 999 0000" },
+    { id: 802, label: "Home", phone: "+66 2 123 4567" },
+  ],
+};
+
+function clonePhone(phone: PhoneNumber): PhoneNumber {
+  return { ...phone };
+}
+
+function requireMockCleaner(id: number): void {
+  if (!mockCleaners.some((c) => c.id === id)) {
+    throw new ApiError(404, `Cleaner ${id} not found`);
+  }
+}
+
+export async function getCleanerPhones(id: number): Promise<PhoneNumber[]> {
+  if (USE_MOCKS) {
+    await delay(200);
+    requireMockCleaner(id);
+    return (mockPhones[id] ?? []).map(clonePhone);
+  }
+  return apiFetch<PhoneNumber[]>(`/api/v1/cleaners/${id}/phones`);
+}
+
+export async function addCleanerPhone(
+  id: number,
+  input: { label: string; phone: string },
+): Promise<PhoneNumber> {
+  if (USE_MOCKS) {
+    await delay(300);
+    requireMockCleaner(id);
+    if (!input.phone.trim()) throw new ApiError(400, "Phone is required");
+    const record: PhoneNumber = {
+      id: ++mockPhoneId,
+      label: input.label,
+      phone: input.phone,
+    };
+    (mockPhones[id] ??= []).push(record);
+    return clonePhone(record);
+  }
+  return apiFetch<PhoneNumber>(`/api/v1/cleaners/${id}/phones`, {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+export async function removeCleanerPhone(
+  id: number,
+  phoneId: number,
+): Promise<void> {
+  if (USE_MOCKS) {
+    await delay(300);
+    requireMockCleaner(id);
+    const rows = mockPhones[id] ?? [];
+    const index = rows.findIndex((p) => p.id === phoneId);
+    if (index === -1) throw new ApiError(404, `Phone ${phoneId} not found`);
+    rows.splice(index, 1);
+    return;
+  }
+  await apiFetch<void>(`/api/v1/cleaners/${id}/phones/${phoneId}`, {
+    method: "DELETE",
+  });
 }

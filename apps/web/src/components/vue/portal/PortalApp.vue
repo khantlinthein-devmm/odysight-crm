@@ -154,22 +154,11 @@ const inputClass =
 <template>
   <div class="w-full max-w-3xl px-4">
     <div class="mb-8 flex flex-col items-center gap-3">
-      <div
-        class="flex h-12 w-12 items-center justify-center rounded-xl bg-navy-600"
-      >
-        <svg
-          class="h-6 w-6 text-white"
-          fill="none"
-          viewBox="0 0 24 24"
-          stroke="currentColor"
-          stroke-width="2"
-        >
-          <path
-            stroke-linecap="round"
-            stroke-linejoin="round"
-            d="M13 10V3L4 14h7v7l9-11h-7z"></path>
-        </svg>
-      </div>
+      <img
+        src="/logo/logo.png"
+        alt="Odysight logo"
+        class="h-16 w-16 rounded-2xl bg-white object-contain shadow-sm ring-1 ring-gray-200"
+      />
       <div class="text-center">
         <h1 class="text-2xl font-semibold text-gray-900">Customer Portal</h1>
         <p class="mt-1 text-sm text-gray-500">

@@ -24,6 +24,7 @@ type BookingDTO struct {
 	ScheduledFor    time.Time         `json:"scheduledFor"`
 	DurationMinutes int               `json:"durationMinutes"`
 	Address         string            `json:"address"`
+	Area            string            `json:"area"`
 	AssignedCleaner string            `json:"assignedCleaner"`
 	Status          string            `json:"status"`
 	Notes           string            `json:"notes"`
@@ -49,6 +50,7 @@ func toDTO(b Booking) BookingDTO {
 		ScheduledFor:    b.ScheduledFor,
 		DurationMinutes: b.DurationMinutes,
 		Address:         b.Address,
+		Area:            b.Area,
 		AssignedCleaner: b.AssignedCleaner,
 		Status:          string(b.Status),
 		Notes:           b.Notes,
@@ -68,6 +70,7 @@ type CreateBookingRequest struct {
 	ScheduledFor    string `json:"scheduledFor"`
 	DurationMinutes int    `json:"durationMinutes"`
 	Address         string `json:"address"`
+	Area            string `json:"area"`
 	AssignedCleaner string `json:"assignedCleaner"`
 	Status          string `json:"status"`
 	Notes           string `json:"notes"`
@@ -85,6 +88,7 @@ func (r *CreateBookingRequest) Validate() error {
 	r.CustomerEmail = strings.ToLower(strings.TrimSpace(r.CustomerEmail))
 	r.ServiceType = strings.TrimSpace(r.ServiceType)
 	r.Address = strings.TrimSpace(r.Address)
+	r.Area = strings.TrimSpace(r.Area)
 	r.AssignedCleaner = strings.TrimSpace(r.AssignedCleaner)
 	r.Notes = strings.TrimSpace(r.Notes)
 	r.ScheduledFor = strings.TrimSpace(r.ScheduledFor)
@@ -130,6 +134,7 @@ type UpdateBookingRequest struct {
 	ScheduledFor    *string `json:"scheduledFor"`
 	DurationMinutes *int    `json:"durationMinutes"`
 	Address         *string `json:"address"`
+	Area            *string `json:"area"`
 	AssignedCleaner *string `json:"assignedCleaner"`
 	Status          *string `json:"status"`
 	Notes           *string `json:"notes"`
@@ -182,7 +187,7 @@ func (r *UpdateBookingRequest) Validate() error {
 func (r *UpdateBookingRequest) IsEmpty() bool {
 	return r.CustomerName == nil && r.CustomerEmail == nil && r.CustomerID == nil &&
 		r.ServiceType == nil && r.ScheduledFor == nil &&
-		r.DurationMinutes == nil && r.Address == nil && r.AssignedCleaner == nil &&
+		r.DurationMinutes == nil && r.Address == nil && r.Area == nil && r.AssignedCleaner == nil &&
 		r.Status == nil && r.Notes == nil && r.CleanerIDs == nil &&
 		r.IsRecurring == nil && r.Recurrence == nil
 }

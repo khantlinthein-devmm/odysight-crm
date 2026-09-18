@@ -60,6 +60,7 @@ func (s *Service) Create(ctx context.Context, req CreateBookingRequest) (Booking
 		ScheduledFor:    scheduledFor,
 		DurationMinutes: req.DurationMinutes,
 		Address:         req.Address,
+		Area:            req.Area,
 		AssignedCleaner: req.AssignedCleaner,
 		Status:          Status(req.Status),
 		Notes:           req.Notes,
@@ -169,6 +170,10 @@ func (s *Service) Update(ctx context.Context, id int64, req UpdateBookingRequest
 	if req.Address != nil {
 		v := strings.TrimSpace(*req.Address)
 		patch.Address = &v
+	}
+	if req.Area != nil {
+		v := strings.TrimSpace(*req.Area)
+		patch.Area = &v
 	}
 	if req.AssignedCleaner != nil {
 		v := strings.TrimSpace(*req.AssignedCleaner)
@@ -313,6 +318,62 @@ func (s *Service) Delete(ctx context.Context, id int64) error {
 	return mapRepoError(err)
 }
 
+// Available lists the unassigned pool for the logged-in cleaner, scoped to
+// the cleaner's own area unless an explicit area filter is given. A cleaner
+// with no area set (or an explicit ?area=) sees across areas.
+func (s *Service) Available(ctx context.Context, userID int64, params pagination.Params) ([]Booking, int, string, error) {
+	cleaner, err := s.repo.FindCleanerForUser(ctx, userID)
+	if err != nil {
+		if err == ErrUnknownCleaner {
+			return nil, 0, "", response.NewAPIError(404, "no cleaner profile linked to this login; ask the office to link your account")
+		}
+		return nil, 0, "", err
+	}
+	area := strings.TrimSpace(params.Area)
+	if area == "" {
+		area = strings.TrimSpace(cleaner.Area)
+	}
+	params.Area = area
+	params.Available = true
+	params.Status = ""
+	items, total, err := s.repo.List(ctx, params)
+	if err != nil {
+		return nil, 0, "", err
+	}
+	return items, total, area, nil
+}
+
+// Accept lets the logged-in cleaner take a pending booking. First tap wins.
+func (s *Service) Accept(ctx context.Context, userID, bookingID int64) (Booking, error) {
+	cleaner, err := s.repo.FindCleanerForUser(ctx, userID)
+	if err != nil {
+		if err == ErrUnknownCleaner {
+			return Booking{}, response.NewAPIError(404, "no cleaner profile linked to this login; ask the office to link your account")
+		}
+		return Booking{}, err
+	}
+	existing, err := s.repo.GetByID(ctx, bookingID)
+	if err != nil {
+		return Booking{}, mapRepoError(err)
+	}
+	if existing.Area != "" && cleaner.Area != "" &&
+		!strings.EqualFold(strings.TrimSpace(existing.Area), strings.TrimSpace(cleaner.Area)) {
+		return Booking{}, response.NewAPIError(403, "booking is outside your area")
+	}
+	end := existing.ScheduledFor.Add(time.Duration(existing.DurationMinutes) * time.Minute)
+	if err := s.assertNoConflicts(ctx, []int64{cleaner.ID}, existing.ScheduledFor, end, bookingID); err != nil {
+		return Booking{}, err
+	}
+	b, err := s.repo.Accept(ctx, bookingID, cleaner)
+	if err != nil {
+		return Booking{}, mapRepoError(err)
+	}
+	return b, nil
+}
+
 func mapRepoError(err error) error {
+	if err == ErrAlreadyAssigned {
+		return response.NewAPIError(409, "booking is no longer available")
+	}
 	return dberror.Map(err, ErrNotFound, "booking not found")
 }

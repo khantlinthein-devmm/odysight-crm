@@ -112,8 +112,8 @@ func (s *Service) Convert(ctx context.Context, id int64, req ConvertLeadRequest)
 	if err != nil {
 		return customers.Customer{}, mapRepoError(err)
 	}
-	if lead.Status == StatusLost {
-		return customers.Customer{}, response.NewAPIError(400, "cannot convert a lost lead to a customer")
+	if lead.Status == StatusLost || lead.Status == StatusWon {
+		return customers.Customer{}, response.NewAPIError(400, "only open leads can be converted to a customer")
 	}
 
 	status := customers.Status(req.Status)

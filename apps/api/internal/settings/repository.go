@@ -41,7 +41,7 @@ func (r *Repository) GetAll(ctx context.Context) (map[string]json.RawMessage, er
 
 func (r *Repository) Upsert(ctx context.Context, key string, value json.RawMessage) error {
 	if _, err := r.pool.Exec(ctx,
-		`INSERT INTO settings (key, value, updated_at) VALUES ($1, $2, now())
+		`INSERT INTO settings (key, value, updated_at) VALUES ($1, $2::jsonb, now())
 		 ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()`,
 		key, value); err != nil {
 		return fmt.Errorf("upsert setting %s: %w", key, err)

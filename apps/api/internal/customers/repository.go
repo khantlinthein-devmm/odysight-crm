@@ -47,6 +47,10 @@ func (r *Repository) List(ctx context.Context, params pagination.Params) ([]Cust
 		args = append(args, params.Status)
 		conds = append(conds, "status = $"+itoa(len(args)))
 	}
+	if params.Area != "" {
+		args = append(args, params.Area)
+		conds = append(conds, "lower(area) = lower($"+itoa(len(args))+")")
+	}
 	where := ""
 	if len(conds) > 0 {
 		where = "WHERE " + joinAnd(conds)

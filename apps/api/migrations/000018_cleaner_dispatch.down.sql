@@ -1,0 +1,12 @@
+DROP INDEX IF EXISTS idx_bookings_area_status;
+DROP INDEX IF EXISTS idx_bookings_area;
+DROP INDEX IF EXISTS idx_cleaners_online_area;
+DROP INDEX IF EXISTS idx_cleaners_area;
+DROP INDEX IF EXISTS idx_cleaners_user_id;
+ALTER TABLE bookings DROP COLUMN IF EXISTS area;
+ALTER TABLE cleaners DROP COLUMN IF EXISTS last_seen_at;
+ALTER TABLE cleaners DROP COLUMN IF EXISTS is_online;
+ALTER TABLE cleaners DROP COLUMN IF EXISTS lng;
+ALTER TABLE cleaners DROP COLUMN IF EXISTS lat;
+ALTER TABLE cleaners DROP COLUMN IF EXISTS user_id;
+ALTER TABLE cleaners DROP COLUMN IF EXISTS area;

@@ -101,7 +101,7 @@ function durationHuman(minutes: number): string {
   >
     <div class="absolute inset-0 bg-black/50" @click="emit('close')"></div>
 
-    <div class="relative w-full max-w-lg rounded-xl bg-white shadow-xl">
+    <div class="relative w-full max-w-lg rounded-2xl bg-white shadow-xl ring-1 ring-gray-100">
       <div class="flex items-start justify-between gap-4 border-b border-gray-200 px-6 py-4">
         <div class="min-w-0">
           <div class="flex flex-wrap items-center gap-2">

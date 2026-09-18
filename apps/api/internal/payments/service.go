@@ -2,6 +2,7 @@ package payments
 
 import (
 	"context"
+	"log/slog"
 
 	"github.com/odysight/crm/pkg/dberror"
 	"github.com/odysight/crm/pkg/pagination"
@@ -53,8 +54,11 @@ func (s *Service) Create(ctx context.Context, req CreatePaymentRequest) (Payment
 		return Payment{}, mapRepoError(err)
 	}
 	if created.Status == StatusPaid && s.settles != nil {
+		// Best-effort: the payment row is the money truth and is already
+		// committed. A settle failure must not turn into a 500 that invites
+		// a client retry (which would record the payment twice).
 		if settleErr := s.settles.MarkPaidForBooking(ctx, created.BookingNumber); settleErr != nil {
-			return Payment{}, settleErr
+			slog.Warn("payment recorded but invoice settle failed", "payment", created.ID, "error", settleErr)
 		}
 	}
 	return created, nil
@@ -68,9 +72,18 @@ func (s *Service) Update(ctx context.Context, id int64, req UpdatePaymentRequest
 		return Payment{}, response.NewAPIError(400, errNoFields)
 	}
 
+	current, err := s.repo.GetByID(ctx, id)
+	if err != nil {
+		return Payment{}, mapRepoError(err)
+	}
+
 	var patch Patch
 	if req.Status != nil {
 		status := Status(*req.Status)
+		if status != current.Status && !allowedTransition(current.Status, status) {
+			return Payment{}, response.NewAPIError(422,
+				"cannot change payment from "+string(current.Status)+" to "+string(status))
+		}
 		patch.Status = &status
 	}
 	if req.Method != nil {
@@ -83,11 +96,27 @@ func (s *Service) Update(ctx context.Context, id int64, req UpdatePaymentRequest
 		return Payment{}, mapRepoError(err)
 	}
 	if updated.Status == StatusPaid && s.settles != nil {
+		// Best-effort, see Create: never fail the request after commit.
 		if settleErr := s.settles.MarkPaidForBooking(ctx, updated.BookingNumber); settleErr != nil {
-			return Payment{}, settleErr
+			slog.Warn("payment updated but invoice settle failed", "payment", updated.ID, "error", settleErr)
 		}
 	}
 	return updated, nil
+}
+
+// allowedTransition guards the money trail: paid money can only move to
+// refunded (never back to pending/failed), and refunded is terminal.
+func allowedTransition(from, to Status) bool {
+	switch from {
+	case StatusPending:
+		return to == StatusPaid || to == StatusFailed
+	case StatusFailed:
+		return to == StatusPending || to == StatusPaid
+	case StatusPaid:
+		return to == StatusRefunded
+	default:
+		return false
+	}
 }
 
 func mapRepoError(err error) error {

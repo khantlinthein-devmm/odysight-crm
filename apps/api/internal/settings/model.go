@@ -65,6 +65,7 @@ type ServiceItem struct {
 	Name            string  `json:"name"`
 	DurationMinutes int     `json:"durationMinutes"`
 	BasePrice       float64 `json:"basePrice"`
+	PricePerSqm     float64 `json:"pricePerSqm"`
 	Active          bool    `json:"active"`
 }
 
@@ -140,6 +141,9 @@ func (s ServiceItem) validate() error {
 	}
 	if s.BasePrice < 0 {
 		return response.NewAPIError(400, "services: basePrice must be >= 0")
+	}
+	if s.PricePerSqm < 0 {
+		return response.NewAPIError(400, "services: pricePerSqm must be >= 0")
 	}
 	return nil
 }

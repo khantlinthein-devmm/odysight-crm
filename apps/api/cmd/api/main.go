@@ -261,6 +261,10 @@ func auditLog(pool *pgxpool.Pool, timeout time.Duration) func(http.Handler) http
 			if r.Method != http.MethodPost && r.Method != http.MethodPatch && r.Method != http.MethodDelete {
 				return
 			}
+			// High-frequency GPS pings from the cleaner app must not flood audit_logs.
+			if r.URL.Path == "/api/v1/cleaners/me/location" {
+				return
+			}
 			id, _ := auth.IdentityFromContext(r.Context())
 			ctx, cancel := context.WithTimeout(context.Background(), timeout)
 			defer cancel()

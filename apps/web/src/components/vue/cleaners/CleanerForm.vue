@@ -1,10 +1,17 @@
 <script setup lang="ts">
-import { computed, reactive, ref, useId } from "vue";
+import { computed, onMounted, reactive, ref, useId } from "vue";
 import { useModalA11y } from "../ui/useModalA11y";
-import type {
-  Cleaner,
-  CleanerStatus,
-  CreateCleanerInput,
+import { getSessionUser } from "../../../lib/auth";
+import { hasPermission } from "../../../lib/roles";
+import { showToast } from "../../../lib/toast";
+import {
+  addCleanerPhone,
+  getCleanerPhones,
+  removeCleanerPhone,
+  type Cleaner,
+  type CleanerStatus,
+  type CreateCleanerInput,
+  type PhoneNumber,
 } from "../../../lib/cleaners";
 
 const props = defineProps<{
@@ -12,7 +19,7 @@ const props = defineProps<{
 }>();
 
 const emit = defineEmits<{
-  save: [input: CreateCleanerInput];
+  save: [input: CreateCleanerInput, extraPhones: { label: string; phone: string }[]];
   cancel: [];
 }>();
 
@@ -26,6 +33,15 @@ const statusOptions: { value: CleanerStatus; label: string }[] = [
   { value: "inactive", label: "Inactive" },
 ];
 
+const phoneLabelOptions = ["Mobile", "Home", "Emergency", "Office", "Other"];
+
+interface ExtraPhoneRow {
+  key: number;
+  id?: number;
+  label: string;
+  phone: string;
+}
+
 const form = reactive<CreateCleanerInput>({
   firstName: props.cleaner?.firstName ?? "",
   lastName: props.cleaner?.lastName ?? "",
@@ -34,6 +50,83 @@ const form = reactive<CreateCleanerInput>({
   skills: props.cleaner?.skills ?? "",
   status: props.cleaner?.status ?? "available",
 });
+
+let rowKey = 0;
+const extraPhones = ref<ExtraPhoneRow[]>([]);
+const originalPhones = ref<PhoneNumber[]>([]);
+const phonesLoading = ref(false);
+const phonesError = ref<string | null>(null);
+const syncingPhones = ref(false);
+
+const canEditPhones = computed(() =>
+  hasPermission(getSessionUser()?.role, "cleaners.update"),
+);
+
+async function loadPhones() {
+  if (!props.cleaner) return;
+  phonesLoading.value = true;
+  phonesError.value = null;
+  try {
+    const rows = await getCleanerPhones(props.cleaner.id);
+    originalPhones.value = rows;
+    extraPhones.value = rows.map((p) => ({
+      key: ++rowKey,
+      id: p.id,
+      label: p.label,
+      phone: p.phone,
+    }));
+  } catch (err) {
+    phonesError.value =
+      err instanceof Error && err.message
+        ? err.message
+        : "Failed to load phone numbers";
+  } finally {
+    phonesLoading.value = false;
+  }
+}
+
+onMounted(loadPhones);
+
+function addPhoneRow() {
+  if (!canEditPhones.value) return;
+  extraPhones.value.push({ key: ++rowKey, label: "Mobile", phone: "" });
+}
+
+function removePhoneRow(index: number) {
+  if (!canEditPhones.value) return;
+  extraPhones.value.splice(index, 1);
+}
+
+async function syncPhones(cleanerId: number): Promise<void> {
+  const current = extraPhones.value;
+  const original = originalPhones.value;
+  const removed = original.filter(
+    (p) => !current.some((r) => r.id === p.id),
+  );
+  for (const p of removed) {
+    await removeCleanerPhone(cleanerId, p.id);
+  }
+  for (const row of current) {
+    const phone = row.phone.trim();
+    if (!phone) continue;
+    const prev = original.find((p) => p.id === row.id);
+    if (row.id === undefined || !prev) {
+      const created = await addCleanerPhone(cleanerId, {
+        label: row.label,
+        phone,
+      });
+      row.id = created.id;
+    } else if (prev.label !== row.label || prev.phone !== phone) {
+      await removeCleanerPhone(cleanerId, row.id);
+      const created = await addCleanerPhone(cleanerId, {
+        label: row.label,
+        phone,
+      });
+      row.id = created.id;
+    }
+  }
+  originalPhones.value = await getCleanerPhones(cleanerId);
+}
 
 const submitted = ref(false);
 
@@ -50,10 +143,36 @@ const errors = computed(() => {
 
 const isValid = computed(() => Object.keys(errors.value).length === 0);
 
-function handleSubmit() {
+async function handleSubmit() {
   submitted.value = true;
   if (!isValid.value) return;
-  emit("save", { ...form });
+  phonesError.value = null;
+  const blankRow = extraPhones.value.some((r) => !r.phone.trim());
+  if (blankRow) {
+    phonesError.value = "Additional phone numbers cannot be empty";
+    return;
+  }
+  if (props.cleaner && canEditPhones.value) {
+    syncingPhones.value = true;
+    try {
+      await syncPhones(props.cleaner.id);
+    } catch (err) {
+      const message =
+        err instanceof Error && err.message
+          ? err.message
+          : "Failed to save phone numbers";
+      phonesError.value = message;
+      showToast(message, "error");
+      return;
+    } finally {
+      syncingPhones.value = false;
+    }
+  }
+  emit(
+    "save",
+    { ...form },
+    extraPhones.value.map((r) => ({ label: r.label, phone: r.phone.trim() })),
+  );
 }
 
 const inputClass =

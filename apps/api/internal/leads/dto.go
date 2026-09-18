@@ -101,6 +101,9 @@ func (r *UpdateLeadRequest) Validate() error {
 		}
 		r.Email = &email
 	}
+	if r.Phone != nil && !validate.Phone(*r.Phone) {
+		return response.NewAPIError(400, "a valid phone is required")
+	}
 	if r.Status != nil && !Status(*r.Status).Valid() {
 		return response.NewAPIError(400, "invalid status")
 	}

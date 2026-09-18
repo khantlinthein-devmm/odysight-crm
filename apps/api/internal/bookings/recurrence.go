@@ -76,7 +76,11 @@ func (r *RecurrenceRunner) generate(ctx context.Context) error {
 		child.Cleaners = append([]CleanerBrief(nil), src.Cleaners...)
 
 		if _, err := r.repo.Create(ctx, child); err != nil {
-			slog.Warn("recurring successor creation failed", "series", *src.SeriesID, "error", err)
+			series := ""
+			if src.SeriesID != nil {
+				series = *src.SeriesID
+			}
+			slog.Warn("recurring successor creation failed", "series", series, "id", src.ID, "error", err)
 			continue
 		}
 		if err := r.repo.DisableRecurring(ctx, src.ID); err != nil {

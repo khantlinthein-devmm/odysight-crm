@@ -93,6 +93,8 @@ function filterMocks(params: ListParams): Payment[] {
   const q = params.search?.trim().toLowerCase() ?? "";
   let rows = mockPayments.filter((p) => {
     if (params.status && p.status !== params.status) return false;
+    if (params.from && p.createdAt.slice(0, 10) < params.from) return false;
+    if (params.to && p.createdAt.slice(0, 10) > params.to) return false;
     if (!q) return true;
     return [p.customerName, p.invoiceNumber, p.bookingNumber]
       .join(" ")
@@ -105,7 +107,7 @@ function filterMocks(params: ListParams): Payment[] {
   return rows.map(clone);
 }
 
-export interface ListParams { search?: string; status?: string; limit?: number; offset?: number }
+export interface ListParams { search?: string; status?: string; from?: string; to?: string; limit?: number; offset?: number }
 
 export async function getPayments(params: ListParams = {}): Promise<Payment[]> {
   if (USE_MOCKS) {

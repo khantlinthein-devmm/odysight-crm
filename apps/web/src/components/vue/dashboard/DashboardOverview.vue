@@ -3,13 +3,17 @@ import { computed, onMounted, ref } from "vue";
 import { ApiError } from "../../../lib/api";
 import { clearSession } from "../../../lib/auth";
 import {
+  currencyCode,
   formatMoney,
   getWorkspaceSettings,
+  serviceLabel,
 } from "../../../lib/settings";
 import { getReportSummary, type ReportSummary } from "../../../lib/reports";
 import { getLeads, type Lead } from "../../../lib/leads";
 import { getBookings, type Booking } from "../../../lib/bookings";
 import { showToast } from "../../../lib/toast";
+import DonutChart from "../reports/DonutChart.vue";
+import TrendChart from "../reports/TrendChart.vue";
 
 const API_URL = import.meta.env.PUBLIC_API_URL as string | undefined;
 
@@ -22,61 +26,146 @@ const errorStatus = ref<number | null>(null);
 
 const isAuthError = computed(() => errorStatus.value === 401);
 
+const greeting = computed(() => {
+  const h = new Date().getHours();
+  if (h < 12) return "Good morning";
+  if (h < 17) return "Good afternoon";
+  return "Good evening";
+});
+
+const todayLine = computed(() =>
+  new Date().toLocaleDateString(undefined, {
+    weekday: "long",
+    month: "long",
+    day: "numeric",
+  }),
+);
+
 const kpis = computed(() => {
   if (!summary.value) return [];
   return [
     {
       label: "Total Leads",
       value: String(summary.value.totalLeads),
+      sub: "Across all stages",
       href: "/leads",
+      tile: "from-blue-500 to-navy-600",
+      icon: "M17 20h5v-2a4 4 0 00-3-3.87M9 20H4v-2a4 4 0 013-3.87m6-1.13a4 4 0 10-4-4 4 4 0 004 4zm6-4a3 3 0 11-3-3",
     },
     {
       label: "Active Customers",
       value: String(summary.value.activeCustomers),
+      sub: "In customer base",
       href: "/customers",
+      tile: "from-violet-500 to-purple-700",
+      icon: "M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197",
     },
     {
       label: "Upcoming Bookings",
       value: String(summary.value.upcomingBookings),
+      sub: "Scheduled ahead",
       href: "/bookings",
+      tile: "from-amber-400 to-orange-600",
+      icon: "M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z",
     },
     {
       label: "Revenue (Month)",
       value: formatMoney(summary.value.monthlyRevenue),
+      sub: "Collected this month",
       href: "/payments",
+      tile: "from-emerald-400 to-green-600",
+      icon: "M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z",
     },
   ];
 });
 
-const revenueMax = computed(() =>
-  Math.max(0, ...(summary.value?.revenueByMonth.map((m) => m.collected) ?? [])),
-);
-const bookingsMax = computed(() =>
-  Math.max(0, ...(summary.value?.bookingsByStatus.map((b) => b.count) ?? [])),
-);
-const leadsMax = computed(() =>
-  Math.max(0, ...(summary.value?.leadsByStatus.map((l) => l.count) ?? [])),
-);
-const cleanersMax = computed(() =>
-  Math.max(0, ...(summary.value?.cleanerProductivity.map((c) => c.completedBookings) ?? [])),
+const BOOKING_COLORS: Record<string, string> = {
+  Pending: "#f59e0b",
+  Confirmed: "#2563eb",
+  "In Progress": "#0ea5e9",
+  Completed: "#10b981",
+  Cancelled: "#94a3b8",
+  "No Show": "#f43f5e",
+  Rescheduled: "#8b5cf6",
+};
+
+const bookingSegments = computed(
+  () =>
+    summary.value?.bookingsByStatus.map((s) => ({
+      label: s.status,
+      value: s.count,
+      color: BOOKING_COLORS[s.status] ?? "#64748b",
+    })) ?? [],
 );
 
-const conversionRate = computed(() => summary.value?.leadConversionRate ?? null);
+const totalBookings = computed(() =>
+  bookingSegments.value.reduce((s, g) => s + g.value, 0),
+);
 
-function barPct(value: number, max: number): number {
-  if (value <= 0 || max <= 0) return 0;
-  return Math.min(100, Math.max(6, (value / max) * 100));
+const bookingPill: Record<string, string> = {
+  pending: "bg-amber-100 text-amber-700",
+  confirmed: "bg-blue-100 text-blue-700",
+  in_progress: "bg-sky-100 text-sky-700",
+  completed: "bg-emerald-100 text-emerald-700",
+  cancelled: "bg-gray-100 text-gray-500",
+  no_show: "bg-rose-100 text-rose-700",
+  rescheduled: "bg-violet-100 text-violet-700",
+};
+
+const leadPill: Record<string, string> = {
+  new: "bg-blue-100 text-blue-700",
+  contacted: "bg-sky-100 text-sky-700",
+  quote_sent: "bg-violet-100 text-violet-700",
+  booked: "bg-amber-100 text-amber-700",
+  won: "bg-emerald-100 text-emerald-700",
+  lost: "bg-gray-100 text-gray-500",
+};
+
+function statusText(s: string): string {
+  return s.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
-function formatDate(value: string): string {
+function initials(name: string): string {
+  return name
+    .split(" ")
+    .map((w) => w[0])
+    .filter(Boolean)
+    .slice(0, 2)
+    .join("")
+    .toUpperCase();
+}
+
+function bookingDay(value: string): string {
   try {
-    return new Date(value).toLocaleDateString(undefined, {
-      month: "short",
-      day: "numeric",
+    return String(new Date(value).getDate());
+  } catch {
+    return "–";
+  }
+}
+
+function bookingMonth(value: string): string {
+  try {
+    return new Date(value).toLocaleDateString(undefined, { month: "short" });
+  } catch {
+    return "";
+  }
+}
+
+function bookingTime(value: string): string {
+  try {
+    return new Date(value).toLocaleTimeString(undefined, {
+      hour: "2-digit",
+      minute: "2-digit",
     });
   } catch {
-    return value;
+    return "";
   }
+}
+
+function formatCompact(value: number): string {
+  const code = currencyCode();
+  if (value >= 1000) return `${code} ${(value / 1000).toFixed(0)}k`;
+  return `${code} ${value}`;
 }
 
 async function load() {
@@ -128,29 +217,28 @@ onMounted(load);
 <template>
   <div
     v-if="loading"
-    class="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4"
+    class="rounded-3xl bg-white p-8 shadow-sm ring-1 ring-gray-100"
   >
-    <div
-      v-for="i in 4"
-      :key="i"
-      class="animate-pulse rounded-xl border border-gray-200 bg-white p-6"
-    >
-      <div class="h-4 w-24 rounded bg-gray-100"></div>
-      <div class="mt-3 h-8 w-16 rounded bg-gray-100"></div>
+    <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      <div v-for="i in 4" :key="i" class="rounded-2xl bg-gray-50 p-6">
+        <div class="h-10 w-10 animate-pulse rounded-xl bg-gray-200"></div>
+        <div class="mt-4 h-7 w-24 animate-pulse rounded-lg bg-gray-200"></div>
+        <div class="mt-2 h-4 w-32 animate-pulse rounded-lg bg-gray-100"></div>
+      </div>
     </div>
   </div>
 
   <div
     v-else-if="error"
-    class="rounded-xl border p-6"
+    class="rounded-3xl p-7 shadow-sm ring-1"
     :class="
       isAuthError
-        ? 'border-amber-200 bg-amber-50'
-        : 'border-red-200 bg-red-50'
+        ? 'bg-amber-50 ring-amber-200'
+        : 'bg-red-50 ring-red-200'
     "
   >
     <h2
-      class="text-base font-semibold"
+      class="font-semibold tracking-tight"
       :class="isAuthError ? 'text-amber-900' : 'text-red-900'"
     >
       {{ isAuthError ? "Your session has expired" : "Couldn't reach the API" }}
@@ -179,17 +267,17 @@ onMounted(load);
       <button
         v-if="isAuthError"
         type="button"
-        class="rounded-lg bg-navy-600 px-4 py-2 text-sm font-semibold text-white hover:bg-navy-700"
+        class="rounded-xl bg-navy-600 px-4 py-2 text-sm font-semibold text-white hover:bg-navy-700"
         @click="signInAgain"
       >
         Sign in again
       </button>
       <button
         type="button"
-        class="rounded-lg px-4 py-2 text-sm font-semibold"
+        class="rounded-xl px-4 py-2 text-sm font-semibold"
         :class="
           isAuthError
-            ? 'border border-amber-300 bg-white text-amber-800 hover:bg-amber-100'
+            ? 'bg-white text-amber-800 ring-1 ring-amber-300 hover:bg-amber-100'
             : 'bg-red-600 text-white hover:bg-red-700'
         "
         @click="load"
@@ -200,227 +288,222 @@ onMounted(load);
   </div>
 
   <template v-else-if="summary">
-    <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+    <!-- Welcome hero -->
+    <div
+      class="relative overflow-hidden rounded-3xl bg-gradient-to-br from-navy-800 via-navy-600 to-blue-500 p-6 text-white shadow-lg sm:p-7"
+    >
+      <div
+        class="pointer-events-none absolute -right-16 -top-16 h-56 w-56 rounded-full bg-white/10 blur-2xl"
+      ></div>
+      <div
+        class="pointer-events-none absolute -bottom-20 left-1/3 h-48 w-48 rounded-full bg-blue-300/20 blur-2xl"
+      ></div>
+      <div class="relative flex flex-wrap items-center justify-between gap-4">
+        <div>
+          <p class="text-xs font-medium uppercase tracking-widest text-blue-100">
+            {{ todayLine }}
+          </p>
+          <h2 class="mt-1 text-2xl font-semibold tracking-tight">
+            {{ greeting }} 👋
+          </h2>
+          <p class="mt-1 text-sm text-blue-50/90">
+            {{ summary.upcomingBookings }} upcoming bookings ·
+            {{ summary.totalLeads }} open leads ·
+            {{ formatMoney(summary.monthlyRevenue) }} collected this month
+          </p>
+        </div>
+        <div class="flex flex-wrap gap-2">
+          <a
+            href="/bookings"
+            class="rounded-xl bg-white px-4 py-2 text-sm font-semibold text-navy-700 shadow transition hover:brightness-95"
+          >
+            + New booking
+          </a>
+          <a
+            href="/calculator"
+            class="rounded-xl bg-white/15 px-4 py-2 text-sm font-semibold text-white ring-1 ring-white/25 backdrop-blur transition hover:bg-white/25"
+          >
+            Calculator
+          </a>
+          <a
+            href="/reports"
+            class="rounded-xl bg-white/15 px-4 py-2 text-sm font-semibold text-white ring-1 ring-white/25 backdrop-blur transition hover:bg-white/25"
+          >
+            Reports
+          </a>
+        </div>
+      </div>
+    </div>
+
+    <!-- KPI cards -->
+    <div class="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
       <a
         v-for="kpi in kpis"
         :key="kpi.label"
         :href="kpi.href"
-        class="rounded-xl border border-gray-200 bg-white p-6 transition-shadow hover:shadow-md"
+        class="group rounded-3xl bg-white p-5 shadow-sm ring-1 ring-gray-100 transition hover:-translate-y-0.5 hover:shadow-md"
       >
-        <p class="text-sm font-medium text-gray-500">{{ kpi.label }}</p>
-        <p class="mt-2 text-3xl font-semibold text-gray-900">
+        <div class="flex items-center justify-between">
+          <span
+            :class="[
+              'flex h-11 w-11 items-center justify-center rounded-2xl bg-gradient-to-br text-white shadow-sm',
+              kpi.tile,
+            ]"
+          >
+            <svg
+              class="h-5 w-5"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+              stroke-width="2"
+            >
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                :d="kpi.icon"
+              />
+            </svg>
+          </span>
+          <span
+            class="text-gray-300 transition group-hover:translate-x-0.5 group-hover:text-navy-500"
+            >→</span
+          >
+        </div>
+        <p class="mt-4 text-[26px] font-semibold leading-none tracking-tight text-gray-900">
           {{ kpi.value }}
         </p>
+        <p class="mt-1.5 text-sm font-medium text-gray-700">{{ kpi.label }}</p>
+        <p class="text-xs text-gray-400">{{ kpi.sub }}</p>
       </a>
     </div>
 
-    <div class="mt-6 grid grid-cols-1 gap-4 xl:grid-cols-2">
-      <div class="rounded-xl border border-gray-200 bg-white p-6">
-        <div class="flex items-center justify-between">
-          <h2 class="text-base font-semibold text-gray-900">Recent Leads</h2>
-          <a
-            href="/leads"
-            class="text-sm font-medium text-navy-600 hover:text-navy-700"
-            >View all →</a
-          >
+    <!-- Operations -->
+    <div class="mt-4 grid grid-cols-1 gap-4 xl:grid-cols-3">
+      <section class="rounded-3xl bg-white p-6 shadow-sm ring-1 ring-gray-100 sm:p-7 xl:col-span-2">
+        <div class="flex items-baseline justify-between">
+          <div>
+            <h2 class="font-semibold tracking-tight text-gray-900">Upcoming bookings</h2>
+            <p class="text-xs text-gray-400">Next on the schedule</p>
+          </div>
+          <a href="/bookings" class="text-xs font-medium text-navy-600 hover:underline">
+            View all →
+          </a>
         </div>
-        <ul v-if="recentLeads.length" class="mt-4 divide-y divide-navy-100">
+        <ul v-if="recentBookings.length" class="mt-4 space-y-2.5">
+          <li
+            v-for="b in recentBookings"
+            :key="b.id"
+            class="flex items-center gap-3.5 rounded-2xl bg-gray-50/70 p-3 ring-1 ring-gray-100 transition hover:bg-gray-50"
+          >
+            <div
+              class="flex h-12 w-12 shrink-0 flex-col items-center justify-center rounded-xl bg-navy-600/5 ring-1 ring-navy-100"
+            >
+              <span class="text-base font-semibold leading-none text-navy-700">
+                {{ bookingDay(b.scheduledFor) }}
+              </span>
+              <span class="mt-0.5 text-[10px] font-medium uppercase leading-none text-navy-500">
+                {{ bookingMonth(b.scheduledFor) }}
+              </span>
+            </div>
+            <div class="min-w-0 flex-1">
+              <p class="truncate text-sm font-medium text-gray-900">{{ b.customerName }}</p>
+              <p class="truncate text-xs text-gray-500">
+                {{ b.bookingNumber }} · {{ serviceLabel(b.serviceType) }} · {{ bookingTime(b.scheduledFor) }}
+              </p>
+            </div>
+            <span
+              class="shrink-0 rounded-full px-2.5 py-1 text-[11px] font-semibold"
+              :class="bookingPill[b.status] ?? 'bg-gray-100 text-gray-600'"
+            >
+              {{ statusText(b.status) }}
+            </span>
+          </li>
+        </ul>
+        <div v-else class="mt-4 rounded-2xl bg-gray-50 p-5 text-sm text-gray-500 ring-1 ring-gray-100">
+          No bookings yet.
+          <a href="/bookings" class="font-medium text-navy-600">Create your first booking →</a>
+        </div>
+      </section>
+
+      <section class="rounded-3xl bg-white p-6 shadow-sm ring-1 ring-gray-100 sm:p-7">
+        <div class="flex items-baseline justify-between">
+          <div>
+            <h2 class="font-semibold tracking-tight text-gray-900">Latest leads</h2>
+            <p class="text-xs text-gray-400">Fresh opportunities</p>
+          </div>
+          <a href="/leads" class="text-xs font-medium text-navy-600 hover:underline">
+            View all →
+          </a>
+        </div>
+        <ul v-if="recentLeads.length" class="mt-4 space-y-2.5">
           <li
             v-for="lead in recentLeads"
             :key="lead.id"
-            class="flex items-center justify-between gap-3 py-2.5"
+            class="flex items-center gap-3 rounded-2xl bg-gray-50/70 p-3 ring-1 ring-gray-100 transition hover:bg-gray-50"
           >
-            <div class="min-w-0">
+            <span
+              class="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-navy-500 to-blue-600 text-[11px] font-semibold text-white"
+            >
+              {{ initials(`${lead.firstName} ${lead.lastName}`) }}
+            </span>
+            <div class="min-w-0 flex-1">
               <p class="truncate text-sm font-medium text-gray-900">
                 {{ lead.firstName }} {{ lead.lastName }}
               </p>
               <p class="truncate text-xs text-gray-500">{{ lead.email }}</p>
             </div>
             <span
-              class="shrink-0 rounded-full bg-gray-100 px-2.5 py-1 text-xs font-medium text-gray-600"
-              >{{ lead.status }}</span
+              class="shrink-0 rounded-full px-2.5 py-1 text-[11px] font-semibold"
+              :class="leadPill[lead.status] ?? 'bg-gray-100 text-gray-600'"
             >
+              {{ statusText(lead.status) }}
+            </span>
           </li>
         </ul>
-        <div v-else class="mt-4 rounded-lg bg-gray-50 p-4 text-sm text-gray-500">
+        <div v-else class="mt-4 rounded-2xl bg-gray-50 p-5 text-sm text-gray-500 ring-1 ring-gray-100">
           No leads yet.
           <a href="/leads" class="font-medium text-navy-600">Create your first lead →</a>
         </div>
-      </div>
-
-      <div class="rounded-xl border border-gray-200 bg-white p-6">
-        <div class="flex items-center justify-between">
-          <h2 class="text-base font-semibold text-gray-900">
-            Upcoming Bookings
-          </h2>
-          <a
-            href="/bookings"
-            class="text-sm font-medium text-navy-600 hover:text-navy-700"
-            >View all →</a
-          >
-        </div>
-        <ul v-if="recentBookings.length" class="mt-4 divide-y divide-navy-100">
-          <li
-            v-for="b in recentBookings"
-            :key="b.id"
-            class="flex items-center justify-between gap-3 py-2.5"
-          >
-            <div class="min-w-0">
-              <p class="truncate text-sm font-medium text-gray-900">
-                {{ b.customerName }}
-              </p>
-              <p class="truncate text-xs text-gray-500">
-                {{ b.bookingNumber }} · {{ formatDate(b.scheduledFor) }} ·
-                {{ b.status }}
-              </p>
-            </div>
-            <span
-              class="shrink-0 rounded-full bg-gray-100 px-2.5 py-1 text-xs font-medium text-gray-600"
-              >{{ b.serviceType }}</span
-            >
-          </li>
-        </ul>
-        <div v-else class="mt-4 rounded-lg bg-gray-50 p-4 text-sm text-gray-500">
-          No bookings yet.
-          <a href="/bookings" class="font-medium text-navy-600">Create your first booking →</a>
-        </div>
-      </div>
+      </section>
     </div>
 
-    <div class="mt-6">
-      <h2 class="text-base font-semibold text-gray-900">Reporting</h2>
-      <div class="mt-3 grid grid-cols-1 gap-4 xl:grid-cols-2">
-        <div class="rounded-xl border border-gray-200 bg-white p-6">
-          <h3 class="text-sm font-semibold text-gray-900">Revenue (6 months)</h3>
-          <div v-if="summary.revenueByMonth.length" class="mt-4 flex">
-            <div
-              v-for="m in summary.revenueByMonth"
-              :key="m.month"
-              class="flex flex-1 flex-col items-center gap-1.5"
-            >
-              <div class="flex h-36 w-full items-end">
-                <div
-                  class="w-full rounded-t-md bg-emerald-500"
-                  :style="{ height: barPct(m.collected, revenueMax) + '%' }"
-                  :title="`${m.month}: ${formatMoney(m.collected)}`"
-                ></div>
-              </div>
-              <span class="text-[11px] font-medium text-gray-500">{{
-                m.month
-              }}</span>
-            </div>
+    <!-- Analytics -->
+    <div class="mt-4 grid grid-cols-1 gap-4 xl:grid-cols-3">
+      <section class="rounded-3xl bg-white p-6 shadow-sm ring-1 ring-gray-100 sm:p-7 xl:col-span-2">
+        <div class="flex items-baseline justify-between">
+          <div>
+            <h2 class="font-semibold tracking-tight text-gray-900">Revenue trend</h2>
+            <p class="text-xs text-gray-400">Collected payments per month</p>
           </div>
-          <div
-            v-else
-            class="mt-4 rounded-lg bg-gray-50 p-4 text-sm text-gray-500"
-          >
-            No paid revenue yet.
-          </div>
+          <a href="/reports" class="text-xs font-medium text-navy-600 hover:underline">
+            Full reports →
+          </a>
         </div>
+        <TrendChart
+          class="mt-4"
+          :values="summary.revenueByMonth.map((m) => m.collected)"
+          :labels="summary.revenueByMonth.map((m) => m.month)"
+          :format-value="formatCompact"
+          line-color="#10b981"
+        />
+      </section>
 
-        <div class="rounded-xl border border-gray-200 bg-white p-6">
-          <h3 class="text-sm font-semibold text-gray-900">Bookings by status</h3>
-          <ul v-if="summary.bookingsByStatus.length" class="mt-4 space-y-2.5">
-            <li
-              v-for="b in summary.bookingsByStatus"
-              :key="b.status"
-              class="flex items-center gap-3"
-            >
-              <span class="w-28 shrink-0 text-xs text-gray-600">{{
-                b.status
-              }}</span>
-              <div class="h-2.5 flex-1 rounded-full bg-gray-100">
-                <div
-                  class="h-full rounded-full bg-navy-600"
-                  :style="{ width: barPct(b.count, bookingsMax) + '%' }"
-                ></div>
-              </div>
-              <span class="w-8 shrink-0 text-right text-xs font-semibold text-gray-700">{{
-                b.count
-              }}</span>
-            </li>
-          </ul>
-          <div
-            v-else
-            class="mt-4 rounded-lg bg-gray-50 p-4 text-sm text-gray-500"
-          >
-            No bookings yet.
+      <section class="rounded-3xl bg-white p-6 shadow-sm ring-1 ring-gray-100 sm:p-7">
+        <div class="flex items-baseline justify-between">
+          <div>
+            <h2 class="font-semibold tracking-tight text-gray-900">Bookings mix</h2>
+            <p class="text-xs text-gray-400">By status</p>
           </div>
         </div>
-
-        <div class="rounded-xl border border-gray-200 bg-white p-6">
-          <div class="flex items-center justify-between">
-            <h3 class="text-sm font-semibold text-gray-900">Leads pipeline</h3>
-            <span
-              v-if="conversionRate !== null"
-              class="rounded-full bg-sky-50 px-2.5 py-1 text-xs font-semibold text-sky-700"
-              >{{ conversionRate.toFixed(1) }}% won</span
-            >
-          </div>
-          <ul v-if="summary.leadsByStatus.length" class="mt-4 space-y-2.5">
-            <li
-              v-for="l in summary.leadsByStatus"
-              :key="l.status"
-              class="flex items-center gap-3"
-            >
-              <span class="w-28 shrink-0 text-xs text-gray-600">{{
-                l.status
-              }}</span>
-              <div class="h-2.5 flex-1 rounded-full bg-gray-100">
-                <div
-                  class="h-full rounded-full bg-sky-500"
-                  :style="{ width: barPct(l.count, leadsMax) + '%' }"
-                ></div>
-              </div>
-              <span class="w-8 shrink-0 text-right text-xs font-semibold text-gray-700">{{
-                l.count
-              }}</span>
-            </li>
-          </ul>
-          <div
-            v-else
-            class="mt-4 rounded-lg bg-gray-50 p-4 text-sm text-gray-500"
-          >
-            No leads yet.
-          </div>
-        </div>
-
-        <div class="rounded-xl border border-gray-200 bg-white p-6">
-          <h3 class="text-sm font-semibold text-gray-900">
-            Cleaner productivity
-          </h3>
-          <ul
-            v-if="summary.cleanerProductivity.length"
-            class="mt-4 divide-y divide-gray-100"
-          >
-            <li v-for="c in summary.cleanerProductivity" :key="c.cleanerName" class="py-2">
-              <div class="flex items-center justify-between gap-3">
-                <p class="truncate text-sm font-medium text-gray-900">
-                  {{ c.cleanerName }}
-                </p>
-                <p class="shrink-0 text-xs text-gray-500">
-                  {{ c.completedBookings }} completed
-                  <template v-if="c.upcomingBookings > 0">
-                    · {{ c.upcomingBookings }} upcoming
-                  </template>
-                </p>
-              </div>
-              <div class="mt-1.5 h-2 rounded-full bg-gray-100">
-                <div
-                  class="h-full rounded-full bg-navy-600"
-                  :style="{ width: barPct(c.completedBookings, cleanersMax) + '%' }"
-                ></div>
-              </div>
-            </li>
-          </ul>
-          <div
-            v-else
-            class="mt-4 rounded-lg bg-gray-50 p-4 text-sm text-gray-500"
-          >
-            No cleaner assignments yet.
-          </div>
-        </div>
-      </div>
+        <DonutChart
+          class="mt-5"
+          compact
+          :segments="bookingSegments"
+          :size="170"
+          :center-top="String(totalBookings)"
+          center-bottom="total bookings"
+        />
+      </section>
     </div>
 
     <p class="mt-4 text-xs text-gray-400">
