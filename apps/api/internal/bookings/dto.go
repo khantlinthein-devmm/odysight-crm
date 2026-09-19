@@ -20,6 +20,7 @@ type BookingDTO struct {
 	CustomerName    string            `json:"customerName"`
 	CustomerEmail   string            `json:"customerEmail"`
 	CustomerID      *int64            `json:"customerId"`
+	SiteID          *int64            `json:"siteId"`
 	ServiceType     string            `json:"serviceType"`
 	ScheduledFor    time.Time         `json:"scheduledFor"`
 	DurationMinutes int               `json:"durationMinutes"`
@@ -46,6 +47,7 @@ func toDTO(b Booking) BookingDTO {
 		CustomerName:    b.CustomerName,
 		CustomerEmail:   b.CustomerEmail,
 		CustomerID:      b.CustomerID,
+		SiteID:          b.SiteID,
 		ServiceType:     string(b.ServiceType),
 		ScheduledFor:    b.ScheduledFor,
 		DurationMinutes: b.DurationMinutes,
@@ -66,6 +68,7 @@ type CreateBookingRequest struct {
 	CustomerName    string `json:"customerName"`
 	CustomerEmail   string `json:"customerEmail"`
 	CustomerID      *int64 `json:"customerId"`
+	SiteID          *int64 `json:"siteId"`
 	ServiceType     string `json:"serviceType"`
 	ScheduledFor    string `json:"scheduledFor"`
 	DurationMinutes int    `json:"durationMinutes"`
@@ -130,6 +133,7 @@ type UpdateBookingRequest struct {
 	CustomerName    *string `json:"customerName"`
 	CustomerEmail   *string `json:"customerEmail"`
 	CustomerID      *int64  `json:"customerId"`
+	SiteID          *int64  `json:"siteId"`
 	ServiceType     *string `json:"serviceType"`
 	ScheduledFor    *string `json:"scheduledFor"`
 	DurationMinutes *int    `json:"durationMinutes"`
@@ -186,6 +190,7 @@ func (r *UpdateBookingRequest) Validate() error {
 
 func (r *UpdateBookingRequest) IsEmpty() bool {
 	return r.CustomerName == nil && r.CustomerEmail == nil && r.CustomerID == nil &&
+		r.SiteID == nil &&
 		r.ServiceType == nil && r.ScheduledFor == nil &&
 		r.DurationMinutes == nil && r.Address == nil && r.Area == nil && r.AssignedCleaner == nil &&
 		r.Status == nil && r.Notes == nil && r.CleanerIDs == nil &&

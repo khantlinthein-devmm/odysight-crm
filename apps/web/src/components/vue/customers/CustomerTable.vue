@@ -12,8 +12,15 @@ import {
 } from "../../../lib/customers";
 import { showToast } from "../../../lib/toast";
 import { updateLead } from "../../../lib/leads";
+import { getSessionUser } from "../../../lib/auth";
+import { hasPermission } from "../../../lib/roles";
 import CustomerForm from "./CustomerForm.vue";
 import ConfirmDialog from "../ui/ConfirmDialog.vue";
+import SitesManager from "../sites/SitesManager.vue";
+
+const role = getSessionUser()?.role;
+const canViewSites = hasPermission(role, "sites.read");
+const sitesTarget = ref<Customer | null>(null);
 
 const statusLabels: Record<CustomerStatus, string> = {
   active: "Active",
@@ -314,6 +321,14 @@ onMounted(fetchCustomers);
             </td>
             <td class="px-6 py-4 text-right whitespace-nowrap">
               <button
+                v-if="canViewSites"
+                type="button"
+                class="rounded-lg px-2 py-1 text-sm font-medium text-gray-600 hover:bg-gray-100 hover:text-gray-900"
+                @click="sitesTarget = customer"
+              >
+                Sites
+              </button>
+              <button
                 type="button"
                 class="rounded-lg px-2 py-1 text-sm font-medium text-gray-600 hover:bg-gray-100 hover:text-gray-900"
                 @click="openEdit(customer)"
@@ -447,4 +462,11 @@ onMounted(fetchCustomers);
       </div>
     </div>
   </div>
+
+  <SitesManager
+    v-if="sitesTarget"
+    :customer-id="sitesTarget.id"
+    :customer-name="`${sitesTarget.firstName} ${sitesTarget.lastName}`.trim()"
+    @close="sitesTarget = null"
+  />
 </template>

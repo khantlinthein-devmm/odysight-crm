@@ -34,6 +34,7 @@ import (
 	"github.com/odysight/crm/internal/reports"
 	"github.com/odysight/crm/internal/servicerecords"
 	"github.com/odysight/crm/internal/settings"
+	"github.com/odysight/crm/internal/sites"
 	"github.com/odysight/crm/internal/users"
 	"github.com/odysight/crm/pkg/database"
 	"github.com/odysight/crm/pkg/mailer"
@@ -159,7 +160,11 @@ func run() error {
 	notifService := notifications.NewService(notifRepo, settingsService, newNotificationMailer)
 	notifHandler := notifications.NewHandler(notifService)
 
-	bookingService := bookings.NewService(bookingRepo, notifService)
+	siteRepo := sites.NewRepository(pool)
+	siteService := sites.NewService(siteRepo)
+	siteHandler := sites.NewHandler(siteService)
+
+	bookingService := bookings.NewService(bookingRepo, notifService, siteService)
 	bookingHandler := bookings.NewHandler(bookingService)
 
 	portalRepo := portal.NewRepository(pool)
@@ -233,6 +238,7 @@ func run() error {
 			r.Mount("/notifications", notifications.Routes(notifHandler, authorizer))
 			r.Mount("/attendance", attendance.Routes(attendanceHandler, authorizer))
 			r.Mount("/expenses", expenses.Routes(expenseHandler, authorizer))
+			r.Mount("/sites", sites.Routes(siteHandler, authorizer))
 		})
 	})
 

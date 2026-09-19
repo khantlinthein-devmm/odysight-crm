@@ -35,6 +35,15 @@ export const PERMISSION_MATRIX: PermissionGroup[] = [
     ],
   },
   {
+    resource: "Sites",
+    permissions: [
+      { key: "sites.read", label: "View", roles: ["SUPER_ADMIN", "ADMIN", "MANAGER", "DISPATCH", "ACCOUNTANT", "CLEANER"] },
+      { key: "sites.create", label: "Add", roles: ["SUPER_ADMIN", "ADMIN", "MANAGER"] },
+      { key: "sites.update", label: "Edit", roles: ["SUPER_ADMIN", "ADMIN", "MANAGER"] },
+      { key: "sites.delete", label: "Delete", roles: ["SUPER_ADMIN", "ADMIN"] },
+    ],
+  },
+  {
     resource: "Bookings",
     permissions: [
       { key: "bookings.read", label: "View", roles: ["SUPER_ADMIN", "ADMIN", "MANAGER", "DISPATCH", "ACCOUNTANT", "CLEANER"] },

@@ -53,11 +53,14 @@ type CleanerBrief struct {
 }
 
 type Booking struct {
-	ID              int64
-	BookingNumber   string
-	CustomerName    string
-	CustomerEmail   string
-	CustomerID      *int64
+	ID            int64
+	BookingNumber string
+	CustomerName  string
+	CustomerEmail string
+	CustomerID    *int64
+	// SiteID is the customer's site this booking is for. Nil for the quick
+	// one-off flow, which needs neither a customer nor a site.
+	SiteID          *int64
 	ServiceType     ServiceType
 	ScheduledFor    time.Time
 	DurationMinutes int

@@ -27,6 +27,9 @@ export interface Booking {
   customerName: string;
   customerEmail: string;
   customerId?: number | null;
+  // The customer's site this booking is for. Optional: the quick one-off
+  // flow needs neither a customer nor a site.
+  siteId?: number | null;
   serviceType: ServiceType;
   scheduledFor: string;
   durationMinutes: number;

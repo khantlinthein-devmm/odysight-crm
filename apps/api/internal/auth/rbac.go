@@ -43,6 +43,10 @@ const (
 	PermAttendanceManage     Permission = "attendance.manage"
 	PermExpensesRead         Permission = "expenses.read"
 	PermExpensesManage       Permission = "expenses.manage"
+	PermSitesRead            Permission = "sites.read"
+	PermSitesCreate          Permission = "sites.create"
+	PermSitesUpdate          Permission = "sites.update"
+	PermSitesDelete          Permission = "sites.delete"
 )
 
 func perms(list ...Permission) map[Permission]struct{} {
@@ -70,6 +74,7 @@ var rolePermissions = map[Role]map[Permission]struct{}{
 		PermNotificationsRead,
 		PermAttendanceRead, PermAttendanceManage,
 		PermExpensesRead, PermExpensesManage,
+		PermSitesRead, PermSitesCreate, PermSitesUpdate, PermSitesDelete,
 	),
 	RoleAdmin: perms(
 		PermLeadsRead, PermLeadsCreate, PermLeadsUpdate, PermLeadsDelete,
@@ -86,6 +91,7 @@ var rolePermissions = map[Role]map[Permission]struct{}{
 		PermNotificationsRead,
 		PermAttendanceRead, PermAttendanceManage,
 		PermExpensesRead, PermExpensesManage,
+		PermSitesRead, PermSitesCreate, PermSitesUpdate, PermSitesDelete,
 	),
 	RoleManager: perms(
 		PermLeadsRead, PermLeadsCreate, PermLeadsUpdate,
@@ -102,6 +108,7 @@ var rolePermissions = map[Role]map[Permission]struct{}{
 		PermNotificationsRead,
 		PermAttendanceRead, PermAttendanceManage,
 		PermExpensesRead,
+		PermSitesRead, PermSitesCreate, PermSitesUpdate,
 	),
 	RoleDispatch: perms(
 		PermLeadsRead, PermLeadsUpdate,
@@ -111,6 +118,7 @@ var rolePermissions = map[Role]map[Permission]struct{}{
 		PermServiceRecordsRead, PermServiceRecordsCreate, PermServiceRecordsUpdate,
 		PermSettingsRead,
 		PermAttendanceRead, PermAttendanceManage,
+		PermSitesRead,
 	),
 	RoleAccountant: perms(
 		PermLeadsRead,
@@ -124,8 +132,10 @@ var rolePermissions = map[Role]map[Permission]struct{}{
 		PermSettingsRead,
 		PermAttendanceRead,
 		PermExpensesRead, PermExpensesManage,
+		PermSitesRead,
 	),
 	RoleCleaner: perms(
+		PermSitesRead,
 		PermBookingsRead, PermBookingsUpdate,
 		PermServiceRecordsRead, PermServiceRecordsCreate, PermServiceRecordsUpdate,
 		PermCustomersRead,

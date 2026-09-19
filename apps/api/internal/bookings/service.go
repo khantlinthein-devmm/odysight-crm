@@ -12,13 +12,36 @@ import (
 	"github.com/odysight/crm/pkg/response"
 )
 
+// SiteOwnership verifies that a site belongs to a given customer. Implemented
+// by sites.Service; kept as an interface so bookings does not depend on the
+// sites package.
+type SiteOwnership interface {
+	EnsureOwnedBy(ctx context.Context, siteID, customerID int64) error
+}
+
 type Service struct {
 	repo     *Repository
 	notifier *notifications.Service
+	sites    SiteOwnership
 }
 
-func NewService(repo *Repository, notifier *notifications.Service) *Service {
-	return &Service{repo: repo, notifier: notifier}
+func NewService(repo *Repository, notifier *notifications.Service, siteGuard SiteOwnership) *Service {
+	return &Service{repo: repo, notifier: notifier, sites: siteGuard}
+}
+
+// assertSiteAllowed rejects a site that belongs to someone else. A site always
+// hangs off a customer, so a booking naming a site must name that customer too.
+func (s *Service) assertSiteAllowed(ctx context.Context, siteID *int64, customerID *int64) error {
+	if siteID == nil {
+		return nil
+	}
+	if customerID == nil {
+		return response.NewAPIError(422, "siteId requires customerId")
+	}
+	if s.sites == nil {
+		return nil
+	}
+	return s.sites.EnsureOwnedBy(ctx, *siteID, *customerID)
 }
 
 func (s *Service) List(ctx context.Context, params pagination.Params) ([]Booking, int, error) {
@@ -43,6 +66,10 @@ func (s *Service) Create(ctx context.Context, req CreateBookingRequest) (Booking
 		return Booking{}, response.NewAPIError(400, "scheduledFor must be a valid RFC3339 timestamp")
 	}
 
+	if err := s.assertSiteAllowed(ctx, req.SiteID, req.CustomerID); err != nil {
+		return Booking{}, err
+	}
+
 	endTime := scheduledFor.Add(time.Duration(req.DurationMinutes) * time.Minute)
 	cleaners, err := s.resolveCleaners(ctx, validateCleanerIDs(req.CleanerIDs))
 	if err != nil {
@@ -56,6 +83,7 @@ func (s *Service) Create(ctx context.Context, req CreateBookingRequest) (Booking
 		CustomerName:    req.CustomerName,
 		CustomerEmail:   req.CustomerEmail,
 		CustomerID:      req.CustomerID,
+		SiteID:          req.SiteID,
 		ServiceType:     ServiceType(req.ServiceType),
 		ScheduledFor:    scheduledFor,
 		DurationMinutes: req.DurationMinutes,
@@ -153,6 +181,9 @@ func (s *Service) Update(ctx context.Context, id int64, req UpdateBookingRequest
 	if req.CustomerID != nil {
 		patch.CustomerID = req.CustomerID
 	}
+	if req.SiteID != nil {
+		patch.SiteID = req.SiteID
+	}
 	if req.ServiceType != nil {
 		st := ServiceType(*req.ServiceType)
 		patch.ServiceType = &st
@@ -207,12 +238,25 @@ func (s *Service) Update(ctx context.Context, id int64, req UpdateBookingRequest
 
 	// Resolve the resulting schedule + cleaners and surface conflicts BEFORE
 	// persisting anything, so a rejected change leaves no partial write behind.
+	// A site change also needs the current row: assertSiteAllowed must check
+	// against the booking's customer even when this request doesn't touch it.
 	changedSchedule := req.ScheduledFor != nil || req.DurationMinutes != nil
-	if req.CleanerIDs != nil || changedSchedule {
+	if req.CleanerIDs != nil || changedSchedule || req.SiteID != nil {
 		current, err := s.repo.GetByID(ctx, id)
 		if err != nil {
 			return Booking{}, mapRepoError(err)
 		}
+
+		if req.SiteID != nil {
+			effectiveCustomerID := current.CustomerID
+			if req.CustomerID != nil {
+				effectiveCustomerID = req.CustomerID
+			}
+			if err := s.assertSiteAllowed(ctx, req.SiteID, effectiveCustomerID); err != nil {
+				return Booking{}, err
+			}
+		}
+
 		start := current.ScheduledFor
 		duration := current.DurationMinutes
 		if req.ScheduledFor != nil {
@@ -229,8 +273,10 @@ func (s *Service) Update(ctx context.Context, id int64, req UpdateBookingRequest
 		if req.CleanerIDs != nil {
 			checking = cleanerIDs(patch.Cleaners)
 		}
-		if err := s.assertNoConflicts(ctx, checking, start, start.Add(time.Duration(duration)*time.Minute), id); err != nil {
-			return Booking{}, err
+		if changedSchedule || req.CleanerIDs != nil {
+			if err := s.assertNoConflicts(ctx, checking, start, start.Add(time.Duration(duration)*time.Minute), id); err != nil {
+				return Booking{}, err
+			}
 		}
 	}
 

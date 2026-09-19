@@ -2,6 +2,7 @@
 import { computed, onMounted, reactive, ref, useId } from "vue";
 import { useModalA11y } from "../ui/useModalA11y";
 import { getCustomers, type Customer } from "../../../lib/customers";
+import { getSites, type Site } from "../../../lib/sites";
 import type { Cleaner } from "../../../lib/cleaners";
 import { getCleaners } from "../../../lib/cleaners";
 import type {
@@ -103,19 +104,50 @@ const customers = ref<Customer[]>([]);
 const customersLoading = ref(false);
 const selectedCustomerId = ref<number | null>(props.booking?.customerId ?? null);
 
+const sites = ref<Site[]>([]);
+const sitesLoading = ref(false);
+const selectedSiteId = ref<number | null>(props.booking?.siteId ?? null);
+
 function customerFullName(c: Customer): string {
   return `${c.firstName} ${c.lastName}`.trim();
+}
+
+async function loadSitesFor(customerId: number | null): Promise<void> {
+  sites.value = [];
+  if (!customerId) return;
+  sitesLoading.value = true;
+  try {
+    sites.value = await getSites({ customer: customerId, status: "active", limit: 200 });
+  } catch {
+    /* keep empty list; site stays optional */
+  } finally {
+    sitesLoading.value = false;
+  }
 }
 
 function applyCustomer(customerId: number | string) {
   const raw = typeof customerId === "string" ? Number(customerId) : customerId;
   selectedCustomerId.value = raw || null;
   form.customerId = selectedCustomerId.value;
+  // A site only ever belongs to one customer, so switching customers must
+  // drop any site picked for the previous one.
+  selectedSiteId.value = null;
+  form.siteId = null;
+  void loadSitesFor(selectedCustomerId.value);
   const customer = customers.value.find((c) => c.id === raw);
   if (!customer) return;
   form.customerName = customerFullName(customer);
   form.customerEmail = customer.email;
   form.address = form.address || customer.address || "";
+}
+
+function applySite(siteId: number | string) {
+  const raw = typeof siteId === "string" ? Number(siteId) : siteId;
+  selectedSiteId.value = raw || null;
+  form.siteId = selectedSiteId.value;
+  const site = sites.value.find((s) => s.id === raw);
+  if (!site) return;
+  form.address = site.address || form.address;
 }
 
 onMounted(async () => {
@@ -142,6 +174,9 @@ onMounted(async () => {
     /* keep empty list so the input falls back to free-text behavior */
   } finally {
     customersLoading.value = false;
+  }
+  if (selectedCustomerId.value) {
+    await loadSitesFor(selectedCustomerId.value);
   }
   try {
     cleaners.value = await getCleaners({ limit: 100 });
@@ -192,6 +227,7 @@ const form = reactive<CreateBookingInput>({
   customerName: props.booking?.customerName ?? "",
   customerEmail: props.booking?.customerEmail ?? "",
   customerId: props.booking?.customerId ?? null,
+  siteId: props.booking?.siteId ?? null,
   serviceType: props.booking?.serviceType ?? "house_cleaning",
   scheduledFor: props.booking?.scheduledFor
     ? toDatetimeLocal(props.booking.scheduledFor)
@@ -309,6 +345,31 @@ function inputClassFor(field: keyof CreateBookingInput) {
             <p class="mt-1 text-xs text-gray-500">
               Pick a customer to pre-fill the name, or leave empty to enter
               manually.
+            </p>
+          </div>
+
+          <div v-if="selectedCustomerId" class="sm:col-span-2">
+            <label
+              class="mb-1 block text-sm font-medium text-gray-700"
+              for="b-siteId"
+              >Site <span class="font-normal text-gray-400">(optional)</span></label
+            >
+            <select
+              id="b-siteId"
+              :value="selectedSiteId ?? ''"
+              :disabled="sitesLoading"
+              @change="applySite(($event.target as HTMLSelectElement).value)"
+              class="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-900 focus:border-gray-500 focus:outline-none focus:ring-1 focus:ring-navy-500"
+            >
+              <option value="">
+                {{ sitesLoading ? "Loading sites…" : "No specific site" }}
+              </option>
+              <option v-for="s in sites" :key="s.id" :value="s.id">
+                {{ s.name }}<template v-if="s.area"> — {{ s.area }}</template>
+              </option>
+            </select>
+            <p v-if="!sitesLoading && sites.length === 0" class="mt-1 text-xs text-gray-500">
+              This customer has no sites yet.
             </p>
           </div>
 

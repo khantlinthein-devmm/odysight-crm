@@ -40,14 +40,14 @@ func NewRepository(pool *pgxpool.Pool) *Repository {
 	return &Repository{pool: pool}
 }
 
-const bookingColumns = `id, booking_number, customer_name, customer_email, customer_id, service_type, scheduled_for, duration_minutes, address, area, assigned_cleaner, status, notes, is_recurring, recurrence, series_id, created_at`
+const bookingColumns = `id, booking_number, customer_name, customer_email, customer_id, site_id, service_type, scheduled_for, duration_minutes, address, area, assigned_cleaner, status, notes, is_recurring, recurrence, series_id, created_at`
 
 const bookingNumberExpr = `'BK-' || to_char(created_at, 'YYYY') || '-' || lpad(id::text, 4, '0')`
 
 func scanBooking(row pgx.Row) (Booking, error) {
 	var b Booking
 	var recurrence *string
-	err := row.Scan(&b.ID, &b.BookingNumber, &b.CustomerName, &b.CustomerEmail, &b.CustomerID, &b.ServiceType,
+	err := row.Scan(&b.ID, &b.BookingNumber, &b.CustomerName, &b.CustomerEmail, &b.CustomerID, &b.SiteID, &b.ServiceType,
 		&b.ScheduledFor, &b.DurationMinutes, &b.Address, &b.Area, &b.AssignedCleaner,
 		&b.Status, &b.Notes, &b.IsRecurring, &recurrence, &b.SeriesID, &b.CreatedAt)
 	if recurrence != nil {
@@ -375,10 +375,10 @@ func (r *Repository) insertBooking(ctx context.Context, tx pgx.Tx, b Booking) (B
 	temp := "TMP-" + fmt.Sprintf("%d", time.Now().UnixNano())
 	var id int64
 	if err := tx.QueryRow(ctx,
-		`INSERT INTO bookings (booking_number, customer_name, customer_email, customer_id, service_type, scheduled_for, duration_minutes, address, area, assigned_cleaner, status, notes, is_recurring, recurrence, series_id)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+		`INSERT INTO bookings (booking_number, customer_name, customer_email, customer_id, site_id, service_type, scheduled_for, duration_minutes, address, area, assigned_cleaner, status, notes, is_recurring, recurrence, series_id)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
 		 RETURNING id`,
-		temp, b.CustomerName, b.CustomerEmail, b.CustomerID, b.ServiceType, b.ScheduledFor, b.DurationMinutes,
+		temp, b.CustomerName, b.CustomerEmail, b.CustomerID, b.SiteID, b.ServiceType, b.ScheduledFor, b.DurationMinutes,
 		b.Address, b.Area, b.AssignedCleaner, b.Status, b.Notes, b.IsRecurring, recurrenceValue(b), b.SeriesID).Scan(&id); err != nil {
 		return Booking{}, fmt.Errorf("create booking: %w", err)
 	}
@@ -439,6 +439,7 @@ type Patch struct {
 	CustomerName    *string
 	CustomerEmail   *string
 	CustomerID      *int64
+	SiteID          *int64
 	ServiceType     *ServiceType
 	ScheduledFor    *time.Time
 	DurationMinutes *int
@@ -474,19 +475,20 @@ func (r *Repository) Update(ctx context.Context, id int64, p Patch) (Booking, er
 			customer_name    = COALESCE($2, customer_name),
 			customer_email   = COALESCE($3, customer_email),
 			customer_id      = COALESCE($4, customer_id),
-			service_type     = COALESCE($5, service_type),
-			scheduled_for    = COALESCE($6, scheduled_for),
-			duration_minutes = COALESCE($7, duration_minutes),
-			address          = COALESCE($8, address),
-			area             = COALESCE($9, area),
-			assigned_cleaner = COALESCE($10, assigned_cleaner),
-			status           = COALESCE($11, status),
-			notes            = COALESCE($12, notes),
-			is_recurring     = COALESCE($13, is_recurring),
-			recurrence       = CASE WHEN $14::text = '' THEN NULL ELSE COALESCE($14, recurrence) END
+			site_id          = COALESCE($5, site_id),
+			service_type     = COALESCE($6, service_type),
+			scheduled_for    = COALESCE($7, scheduled_for),
+			duration_minutes = COALESCE($8, duration_minutes),
+			address          = COALESCE($9, address),
+			area             = COALESCE($10, area),
+			assigned_cleaner = COALESCE($11, assigned_cleaner),
+			status           = COALESCE($12, status),
+			notes            = COALESCE($13, notes),
+			is_recurring     = COALESCE($14, is_recurring),
+			recurrence       = CASE WHEN $15::text = '' THEN NULL ELSE COALESCE($15, recurrence) END
 		 WHERE id = $1
 		 RETURNING `+bookingColumns,
-		id, p.CustomerName, p.CustomerEmail, p.CustomerID, serviceType, p.ScheduledFor, p.DurationMinutes,
+		id, p.CustomerName, p.CustomerEmail, p.CustomerID, p.SiteID, serviceType, p.ScheduledFor, p.DurationMinutes,
 		p.Address, p.Area, p.AssignedCleaner, status, p.Notes, p.IsRecurring, p.Recurrence))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Booking{}, ErrNotFound
