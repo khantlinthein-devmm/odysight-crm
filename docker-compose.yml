@@ -34,6 +34,9 @@ services:
     environment:
       APP_ENV: ${APP_ENV:?APP_ENV is required (development|staging|production)}
       PORT: ${API_INTERNAL_PORT:?API_INTERNAL_PORT is required}
+      # Decides the attendance work-date rollover hour; keep it on the
+      # operating region's zone or check-ins land on the wrong day.
+      TZ: ${TZ:-Asia/Bangkok}
       DATABASE_URL: postgres://${POSTGRES_USER:?POSTGRES_USER is required}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/${POSTGRES_DB:?POSTGRES_DB is required}
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required (min 32 chars, e.g. openssl rand -hex 32)}
       JWT_TTL: ${JWT_TTL:?JWT_TTL is required (e.g. 8h)}

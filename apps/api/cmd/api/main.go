@@ -18,11 +18,13 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/odysight/crm/config"
+	"github.com/odysight/crm/internal/attendance"
 	"github.com/odysight/crm/internal/audit"
 	"github.com/odysight/crm/internal/auth"
 	"github.com/odysight/crm/internal/bookings"
 	"github.com/odysight/crm/internal/cleaners"
 	"github.com/odysight/crm/internal/customers"
+	"github.com/odysight/crm/internal/expenses"
 	"github.com/odysight/crm/internal/feedback"
 	"github.com/odysight/crm/internal/invoices"
 	"github.com/odysight/crm/internal/leads"
@@ -178,6 +180,14 @@ func run() error {
 	paymentService := payments.NewService(paymentRepo, invoiceService)
 	paymentHandler := payments.NewHandler(paymentService)
 
+	attendanceRepo := attendance.NewRepository(pool)
+	attendanceService := attendance.NewService(attendanceRepo)
+	attendanceHandler := attendance.NewHandler(attendanceService)
+
+	expenseRepo := expenses.NewRepository(pool)
+	expenseService := expenses.NewService(expenseRepo)
+	expenseHandler := expenses.NewHandler(expenseService)
+
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID)
 	r.Use(middleware.RealIP)
@@ -221,6 +231,8 @@ func run() error {
 			r.Mount("/settings", settings.Routes(settingsHandler, authorizer))
 			r.Mount("/feedback", feedback.Routes(feedbackHandler, authorizer))
 			r.Mount("/notifications", notifications.Routes(notifHandler, authorizer))
+			r.Mount("/attendance", attendance.Routes(attendanceHandler, authorizer))
+			r.Mount("/expenses", expenses.Routes(expenseHandler, authorizer))
 		})
 	})
 
