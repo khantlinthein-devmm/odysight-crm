@@ -12,8 +12,9 @@ import (
 // booking. A recurring booking keeps ONE current occurrence; once its
 // scheduled time is more than a day in the past, the runner creates the next
 // occurrence (same series_id, shifted schedule) and marks the old row as
-// non-recurring so it can never fire again. This yields an open-ended forward
-// chain and is fully idempotent across restarts.
+// non-recurring so it can never fire again, both in one transaction. Together
+// with the uq_bookings_series_slot index this yields an open-ended forward
+// chain that is idempotent across restarts, retries and partial failures.
 type RecurrenceRunner struct {
 	repo     *Repository
 	interval time.Duration
@@ -75,19 +76,18 @@ func (r *RecurrenceRunner) generate(ctx context.Context) error {
 		child.CreatedAt = time.Time{}
 		child.Cleaners = append([]CleanerBrief(nil), src.Cleaners...)
 
-		if _, err := r.repo.Create(ctx, child); err != nil {
+		_, wrote, err := r.repo.RollForwardRecurring(ctx, src.ID, child)
+		if err != nil {
 			series := ""
 			if src.SeriesID != nil {
 				series = *src.SeriesID
 			}
-			slog.Warn("recurring successor creation failed", "series", series, "id", src.ID, "error", err)
+			slog.Warn("recurring roll-forward failed", "series", series, "id", src.ID, "error", err)
 			continue
 		}
-		if err := r.repo.DisableRecurring(ctx, src.ID); err != nil {
-			slog.Warn("recurring source disable failed", "id", src.ID, "error", err)
-			continue
+		if wrote {
+			created++
 		}
-		created++
 	}
 	if created > 0 {
 		slog.Info("recurring booking generation complete", "due", len(due), "created", created)
