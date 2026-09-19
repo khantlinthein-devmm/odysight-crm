@@ -1,0 +1,8 @@
+---
+import DashboardLayout from "../../layouts/DashboardLayout.astro";
+import FinanceOverview from "../../components/vue/finance/FinanceOverview.vue";
+---
+
+<DashboardLayout title="Finance">
+  <FinanceOverview client:load />
+</DashboardLayout>

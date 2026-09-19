@@ -39,6 +39,10 @@ const (
 	PermFeedbackUpdate       Permission = "feedback.update"
 	PermFeedbackDelete       Permission = "feedback.delete"
 	PermNotificationsRead    Permission = "notifications.read"
+	PermAttendanceRead       Permission = "attendance.read"
+	PermAttendanceManage     Permission = "attendance.manage"
+	PermExpensesRead         Permission = "expenses.read"
+	PermExpensesManage       Permission = "expenses.manage"
 )
 
 func perms(list ...Permission) map[Permission]struct{} {
@@ -64,6 +68,8 @@ var rolePermissions = map[Role]map[Permission]struct{}{
 		PermSettingsRead, PermSettingsManage,
 		PermFeedbackRead, PermFeedbackCreate, PermFeedbackUpdate, PermFeedbackDelete,
 		PermNotificationsRead,
+		PermAttendanceRead, PermAttendanceManage,
+		PermExpensesRead, PermExpensesManage,
 	),
 	RoleAdmin: perms(
 		PermLeadsRead, PermLeadsCreate, PermLeadsUpdate, PermLeadsDelete,
@@ -78,6 +84,8 @@ var rolePermissions = map[Role]map[Permission]struct{}{
 		PermSettingsRead, PermSettingsManage,
 		PermFeedbackRead, PermFeedbackCreate, PermFeedbackUpdate, PermFeedbackDelete,
 		PermNotificationsRead,
+		PermAttendanceRead, PermAttendanceManage,
+		PermExpensesRead, PermExpensesManage,
 	),
 	RoleManager: perms(
 		PermLeadsRead, PermLeadsCreate, PermLeadsUpdate,
@@ -92,6 +100,8 @@ var rolePermissions = map[Role]map[Permission]struct{}{
 		PermSettingsRead,
 		PermFeedbackRead,
 		PermNotificationsRead,
+		PermAttendanceRead, PermAttendanceManage,
+		PermExpensesRead,
 	),
 	RoleDispatch: perms(
 		PermLeadsRead, PermLeadsUpdate,
@@ -100,6 +110,7 @@ var rolePermissions = map[Role]map[Permission]struct{}{
 		PermCleanersRead, PermCleanersUpdate,
 		PermServiceRecordsRead, PermServiceRecordsCreate, PermServiceRecordsUpdate,
 		PermSettingsRead,
+		PermAttendanceRead, PermAttendanceManage,
 	),
 	RoleAccountant: perms(
 		PermLeadsRead,
@@ -111,6 +122,8 @@ var rolePermissions = map[Role]map[Permission]struct{}{
 		PermInvoicesRead, PermInvoicesCreate, PermInvoicesUpdate,
 		PermReportsRead,
 		PermSettingsRead,
+		PermAttendanceRead,
+		PermExpensesRead, PermExpensesManage,
 	),
 	RoleCleaner: perms(
 		PermBookingsRead, PermBookingsUpdate,

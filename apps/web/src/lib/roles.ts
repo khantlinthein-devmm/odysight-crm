@@ -53,6 +53,13 @@ export const PERMISSION_MATRIX: PermissionGroup[] = [
     ],
   },
   {
+    resource: "Attendance",
+    permissions: [
+      { key: "attendance.read", label: "View", roles: ["SUPER_ADMIN", "ADMIN", "MANAGER", "DISPATCH", "ACCOUNTANT"] },
+      { key: "attendance.manage", label: "Check in / out", roles: ["SUPER_ADMIN", "ADMIN", "MANAGER", "DISPATCH"] },
+    ],
+  },
+  {
     resource: "Service records",
     permissions: [
       { key: "service_records.read", label: "View", roles: ["SUPER_ADMIN", "ADMIN", "MANAGER", "DISPATCH", "ACCOUNTANT", "CLEANER"] },
@@ -75,6 +82,13 @@ export const PERMISSION_MATRIX: PermissionGroup[] = [
       { key: "invoices.read", label: "View", roles: ["SUPER_ADMIN", "ADMIN", "MANAGER", "ACCOUNTANT"] },
       { key: "invoices.create", label: "Create from booking", roles: ["SUPER_ADMIN", "ADMIN", "ACCOUNTANT"] },
       { key: "invoices.update", label: "Mark paid / void", roles: ["SUPER_ADMIN", "ADMIN", "ACCOUNTANT"] },
+    ],
+  },
+  {
+    resource: "Expenses",
+    permissions: [
+      { key: "expenses.read", label: "View", roles: ["SUPER_ADMIN", "ADMIN", "MANAGER", "ACCOUNTANT"] },
+      { key: "expenses.manage", label: "Add / edit / delete", roles: ["SUPER_ADMIN", "ADMIN", "ACCOUNTANT"] },
     ],
   },
   {
