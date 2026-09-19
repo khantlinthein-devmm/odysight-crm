@@ -6,11 +6,13 @@ import {
   checkOut,
   getAttendance,
   type AttendanceRecord,
+  type PersonType,
 } from "../../../lib/attendance";
 import { getSessionUser } from "../../../lib/auth";
-import { getCleaners, type Cleaner } from "../../../lib/cleaners";
+import { getCleaners } from "../../../lib/cleaners";
 import { hasPermission } from "../../../lib/roles";
 import { showToast } from "../../../lib/toast";
+import { getUsers } from "../../../lib/users";
 
 function todayStr(): string {
   return new Date().toISOString().slice(0, 10);
@@ -52,15 +54,26 @@ function initials(name: string): string {
 
 type DayStatus = "checked-out" | "checked-in" | "not-in";
 
+// One row per person on the board, whichever workforce is being shown.
+interface Person {
+  id: number;
+  name: string;
+  subtitle: string;
+}
+
 const role = getSessionUser()?.role;
 const canManage = computed(() => hasPermission(role, "attendance.manage"));
+// The staff roster comes from /users, so the tab needs that permission too.
+const canSeeStaff = computed(() => hasPermission(role, "users.read"));
 
+const activeTab = ref<PersonType>("cleaner");
 const selectedDate = ref(todayStr());
-const cleaners = ref<Cleaner[]>([]);
+const cleaners = ref<Person[]>([]);
+const staff = ref<Person[]>([]);
 const dayRecords = ref<AttendanceRecord[]>([]);
 const loadingDay = ref(true);
 
-const histCleaner = ref<string>("");
+const histPerson = ref<string>("");
 const histFrom = ref<string>("");
 const histTo = ref<string>("");
 const history = ref<AttendanceRecord[]>([]);
@@ -68,16 +81,19 @@ const loadingHistory = ref(true);
 
 const actingId = ref<number | null>(null);
 
-const recordByCleaner = computed(() => {
+const people = computed(() => (activeTab.value === "staff" ? staff.value : cleaners.value));
+
+const recordByPerson = computed(() => {
   const map = new Map<number, AttendanceRecord>();
   for (const r of dayRecords.value) {
-    if (!map.has(r.cleanerId)) map.set(r.cleanerId, r);
+    if (r.personType !== activeTab.value) continue;
+    if (!map.has(r.personId)) map.set(r.personId, r);
   }
   return map;
 });
 
-function statusFor(cleanerId: number): DayStatus {
-  const r = recordByCleaner.value.get(cleanerId);
+function statusFor(personId: number): DayStatus {
+  const r = recordByPerson.value.get(personId);
   if (!r?.checkInAt) return "not-in";
   if (r.checkOutAt) return "checked-out";
   return "checked-in";
@@ -96,33 +112,56 @@ function statusPill(s: DayStatus): string {
 }
 
 const checkedInCount = computed(
-  () => cleaners.value.filter((c) => statusFor(c.id) === "checked-in").length,
+  () => people.value.filter((p) => statusFor(p.id) === "checked-in").length,
 );
 const checkedOutCount = computed(
-  () => cleaners.value.filter((c) => statusFor(c.id) === "checked-out").length,
+  () => people.value.filter((p) => statusFor(p.id) === "checked-out").length,
 );
 const notInCount = computed(
-  () => cleaners.value.filter((c) => statusFor(c.id) === "not-in").length,
+  () => people.value.filter((p) => statusFor(p.id) === "not-in").length,
 );
 
 const isToday = computed(() => selectedDate.value === todayStr());
 
-function fullName(c: Cleaner): string {
-  return `${c.firstName} ${c.lastName}`;
+const emptyLabel = computed(() =>
+  activeTab.value === "staff" ? "No team staff found." : "No cleaners found.",
+);
+
+async function loadPeople(): Promise<void> {
+  const jobs: Promise<void>[] = [
+    getCleaners({ limit: 200 }).then((rows) => {
+      cleaners.value = rows.map((c) => ({
+        id: c.id,
+        name: `${c.firstName} ${c.lastName}`,
+        subtitle: c.phone,
+      }));
+    }),
+  ];
+  if (canSeeStaff.value) {
+    jobs.push(
+      getUsers({ limit: 200 }).then((rows) => {
+        // Field cleaners are tracked on the Cleaners tab from their cleaner
+        // profile, so a CLEANER login would otherwise appear twice.
+        staff.value = rows
+          .filter((u) => u.role !== "CLEANER")
+          .map((u) => ({ id: u.id, name: u.name, subtitle: u.role.replace("_", " ") }));
+      }),
+    );
+  }
+  await Promise.all(jobs);
 }
 
 async function loadDay(): Promise<void> {
   loadingDay.value = true;
   try {
-    const [cleanerRows, records] = await Promise.all([
-      getCleaners({ limit: 200 }),
+    const [, records] = await Promise.all([
+      loadPeople(),
       getAttendance({
         from: selectedDate.value,
         to: selectedDate.value,
-        limit: 200,
+        limit: 400,
       }),
     ]);
-    cleaners.value = cleanerRows;
     dayRecords.value = records;
   } catch {
     showToast("Failed to load attendance", "error");
@@ -135,7 +174,8 @@ async function loadHistory(): Promise<void> {
   loadingHistory.value = true;
   try {
     history.value = await getAttendance({
-      cleaner: histCleaner.value ? Number(histCleaner.value) : undefined,
+      type: activeTab.value,
+      person: histPerson.value ? Number(histPerson.value) : undefined,
       from: histFrom.value || undefined,
       to: histTo.value || undefined,
       limit: 50,
@@ -159,16 +199,23 @@ function goToday(): void {
   selectedDate.value = todayStr();
 }
 
+function switchTab(tab: PersonType): void {
+  if (activeTab.value === tab) return;
+  activeTab.value = tab;
+  histPerson.value = "";
+  void loadHistory();
+}
+
 function errorMessage(err: unknown, fallback: string): string {
   if (err instanceof ApiError) return err.message || fallback;
   if (err instanceof Error && err.message) return err.message;
   return fallback;
 }
 
-async function doCheckIn(cleanerId: number): Promise<void> {
-  actingId.value = cleanerId;
+async function doCheckIn(personId: number): Promise<void> {
+  actingId.value = personId;
   try {
-    await checkIn(cleanerId);
+    await checkIn(activeTab.value, personId);
     showToast("Checked in", "success");
     await Promise.all([loadDay(), loadHistory()]);
   } catch (err) {
@@ -178,10 +225,10 @@ async function doCheckIn(cleanerId: number): Promise<void> {
   }
 }
 
-async function doCheckOut(cleanerId: number): Promise<void> {
-  actingId.value = cleanerId;
+async function doCheckOut(personId: number): Promise<void> {
+  actingId.value = personId;
   try {
-    await checkOut(cleanerId);
+    await checkOut(activeTab.value, personId);
     showToast("Checked out", "success");
     await Promise.all([loadDay(), loadHistory()]);
   } catch (err) {
@@ -240,6 +287,44 @@ onMounted(async () => {
           />
         </div>
       </div>
+
+      <!-- Workforce tabs -->
+      <div
+        v-if="canSeeStaff"
+        class="mt-4 inline-flex rounded-2xl bg-gray-100 p-1"
+        role="tablist"
+        aria-label="Workforce"
+      >
+        <button
+          type="button"
+          role="tab"
+          :aria-selected="activeTab === 'cleaner'"
+          :class="[
+            'rounded-xl px-4 py-2 text-sm font-semibold transition',
+            activeTab === 'cleaner'
+              ? 'bg-white text-navy-700 shadow-sm'
+              : 'text-gray-500 hover:text-gray-700',
+          ]"
+          @click="switchTab('cleaner')"
+        >
+          Cleaners
+        </button>
+        <button
+          type="button"
+          role="tab"
+          :aria-selected="activeTab === 'staff'"
+          :class="[
+            'rounded-xl px-4 py-2 text-sm font-semibold transition',
+            activeTab === 'staff'
+              ? 'bg-white text-navy-700 shadow-sm'
+              : 'text-gray-500 hover:text-gray-700',
+          ]"
+          @click="switchTab('staff')"
+        >
+          Team staff
+        </button>
+      </div>
+
       <div class="mt-4 flex flex-wrap gap-2 text-xs font-medium">
         <span class="rounded-full bg-emerald-100 px-3 py-1 text-emerald-700">
           {{ checkedInCount }} checked-in
@@ -259,7 +344,7 @@ onMounted(async () => {
       </p>
     </section>
 
-    <!-- Per-cleaner day cards -->
+    <!-- Per-person day cards -->
     <div v-if="loadingDay" class="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
       <div
         v-for="i in 6"
@@ -274,27 +359,27 @@ onMounted(async () => {
 
     <div v-else class="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
       <article
-        v-for="cleaner in cleaners"
-        :key="cleaner.id"
+        v-for="person in people"
+        :key="person.id"
         class="rounded-3xl bg-white p-5 shadow-sm ring-1 ring-gray-100 transition hover:-translate-y-0.5 hover:shadow-md"
       >
         <div class="flex items-center gap-3">
           <span
             class="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-navy-500 to-blue-600 text-xs font-semibold text-white shadow-sm"
           >
-            {{ initials(fullName(cleaner)) }}
+            {{ initials(person.name) }}
           </span>
           <div class="min-w-0 flex-1">
-            <p class="truncate text-sm font-medium text-gray-900">{{ fullName(cleaner) }}</p>
-            <p class="truncate text-xs text-gray-400">{{ cleaner.phone }}</p>
+            <p class="truncate text-sm font-medium text-gray-900">{{ person.name }}</p>
+            <p class="truncate text-xs text-gray-400">{{ person.subtitle }}</p>
           </div>
           <span
             :class="[
               'shrink-0 rounded-full px-2.5 py-1 text-[11px] font-semibold',
-              statusPill(statusFor(cleaner.id)),
+              statusPill(statusFor(person.id)),
             ]"
           >
-            {{ statusLabel(statusFor(cleaner.id)) }}
+            {{ statusLabel(statusFor(person.id)) }}
           </span>
         </div>
 
@@ -302,13 +387,13 @@ onMounted(async () => {
           <div>
             <p class="text-[11px] font-medium uppercase tracking-wider text-gray-400">In</p>
             <p class="font-semibold text-gray-900">
-              {{ formatTime(recordByCleaner.get(cleaner.id)?.checkInAt ?? null) }}
+              {{ formatTime(recordByPerson.get(person.id)?.checkInAt ?? null) }}
             </p>
           </div>
           <div>
             <p class="text-[11px] font-medium uppercase tracking-wider text-gray-400">Out</p>
             <p class="font-semibold text-gray-900">
-              {{ formatTime(recordByCleaner.get(cleaner.id)?.checkOutAt ?? null) }}
+              {{ formatTime(recordByPerson.get(person.id)?.checkOutAt ?? null) }}
             </p>
           </div>
         </div>
@@ -317,31 +402,31 @@ onMounted(async () => {
           <button
             type="button"
             :disabled="
-              !canManage || actingId === cleaner.id || statusFor(cleaner.id) !== 'not-in'
+              !canManage || actingId === person.id || statusFor(person.id) !== 'not-in'
             "
             class="flex-1 rounded-xl bg-gradient-to-r from-emerald-400 to-green-600 px-3 py-2 text-xs font-semibold text-white shadow-sm transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
-            @click="doCheckIn(cleaner.id)"
+            @click="doCheckIn(person.id)"
           >
-            {{ actingId === cleaner.id ? "Working…" : "Check in" }}
+            {{ actingId === person.id ? "Working…" : "Check in" }}
           </button>
           <button
             type="button"
             :disabled="
               !canManage ||
-              actingId === cleaner.id ||
-              statusFor(cleaner.id) !== 'checked-in'
+              actingId === person.id ||
+              statusFor(person.id) !== 'checked-in'
             "
             class="flex-1 rounded-xl bg-gradient-to-r from-navy-500 to-blue-600 px-3 py-2 text-xs font-semibold text-white shadow-sm transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
-            @click="doCheckOut(cleaner.id)"
+            @click="doCheckOut(person.id)"
           >
-            {{ actingId === cleaner.id ? "Working…" : "Check out" }}
+            {{ actingId === person.id ? "Working…" : "Check out" }}
           </button>
         </div>
       </article>
     </div>
 
-    <p v-if="!loadingDay && cleaners.length === 0" class="text-sm text-gray-400">
-      No cleaners found.
+    <p v-if="!loadingDay && people.length === 0" class="text-sm text-gray-400">
+      {{ emptyLabel }}
     </p>
 
     <!-- History -->
@@ -349,7 +434,10 @@ onMounted(async () => {
       <div class="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h2 class="font-semibold tracking-tight text-gray-900">History</h2>
-          <p class="text-xs text-gray-400">Recent check-in / check-out records</p>
+          <p class="text-xs text-gray-400">
+            Recent check-in / check-out records ·
+            {{ activeTab === "staff" ? "Team staff" : "Cleaners" }}
+          </p>
         </div>
         <button
           type="button"
@@ -362,13 +450,16 @@ onMounted(async () => {
 
       <div class="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-4">
         <select
-          v-model="histCleaner"
+          v-model="histPerson"
           class="rounded-xl px-3 py-2 text-sm text-gray-700 ring-1 ring-gray-200"
+          :aria-label="activeTab === 'staff' ? 'Filter by staff member' : 'Filter by cleaner'"
           @change="loadHistory"
         >
-          <option value="">All cleaners</option>
-          <option v-for="c in cleaners" :key="c.id" :value="String(c.id)">
-            {{ fullName(c) }}
+          <option value="">
+            {{ activeTab === "staff" ? "All team staff" : "All cleaners" }}
+          </option>
+          <option v-for="p in people" :key="p.id" :value="String(p.id)">
+            {{ p.name }}
           </option>
         </select>
         <input
@@ -388,7 +479,7 @@ onMounted(async () => {
         <button
           type="button"
           class="rounded-xl bg-gray-950 px-3 py-2 text-xs font-semibold text-white transition hover:bg-gray-800"
-          @click="histCleaner = ''; histFrom = ''; histTo = ''; loadHistory();"
+          @click="histPerson = ''; histFrom = ''; histTo = ''; loadHistory();"
         >
           Clear filters
         </button>
@@ -407,10 +498,10 @@ onMounted(async () => {
           <span
             class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-navy-500 to-blue-600 text-xs font-semibold text-white"
           >
-            {{ initials(r.cleanerName) }}
+            {{ initials(r.personName) }}
           </span>
           <div class="min-w-0 flex-1">
-            <p class="truncate text-sm font-medium text-gray-900">{{ r.cleanerName }}</p>
+            <p class="truncate text-sm font-medium text-gray-900">{{ r.personName }}</p>
             <p class="text-xs tabular-nums text-gray-500">
               {{ r.workDate }} · In {{ formatTime(r.checkInAt) }} · Out
               {{ formatTime(r.checkOutAt) }}

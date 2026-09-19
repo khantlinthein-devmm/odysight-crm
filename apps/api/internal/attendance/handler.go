@@ -3,6 +3,7 @@ package attendance
 import (
 	"encoding/json"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -18,9 +19,10 @@ func NewHandler(service *Service) *Handler {
 	return &Handler{service: service}
 }
 
-// List handles GET /api/v1/attendance?cleaner=&from=&to=&limit=&offset=.
-// from/to are work dates (YYYY-MM-DD); pagination.Parse only accepts RFC3339
-// timestamps, so they are read off the query string here instead.
+// List handles GET /api/v1/attendance?type=&person=&from=&to=&limit=&offset=.
+// type is cleaner or staff (omitted means both) and person is that workforce's
+// id. from/to are work dates (YYYY-MM-DD); pagination.Parse only accepts
+// RFC3339 timestamps, so they are read off the query string here instead.
 func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 	params := pagination.Parse(r, 50, nil)
 	from, ok := parseDateParam(w, r, "from")
@@ -31,7 +33,17 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	items, total, err := h.service.List(r.Context(), params.CleanerID, from, to, params)
+	personType, ok := parsePersonType(w, r)
+	if !ok {
+		return
+	}
+	filters := Filters{
+		PersonType: personType,
+		PersonID:   parsePersonID(r),
+		From:       from,
+		To:         to,
+	}
+	items, total, err := h.service.List(r.Context(), filters, params)
 	if err != nil {
 		response.HandleError(w, r, err)
 		return
@@ -69,6 +81,33 @@ func (h *Handler) CheckOut(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	response.JSON(w, http.StatusOK, toDTO(rec))
+}
+
+// parsePersonType reads ?type=cleaner|staff. An empty value means both.
+func parsePersonType(w http.ResponseWriter, r *http.Request) (PersonType, bool) {
+	raw := strings.TrimSpace(r.URL.Query().Get("type"))
+	if raw == "" {
+		return "", true
+	}
+	pt := PersonType(raw)
+	if !pt.Valid() {
+		response.Error(w, http.StatusBadRequest, "type must be cleaner or staff")
+		return "", false
+	}
+	return pt, true
+}
+
+// parsePersonID reads ?person=, falling back to the legacy ?cleaner= filter.
+func parsePersonID(r *http.Request) int64 {
+	raw := strings.TrimSpace(r.URL.Query().Get("person"))
+	if raw == "" {
+		raw = strings.TrimSpace(r.URL.Query().Get("cleaner"))
+	}
+	id, err := strconv.ParseInt(raw, 10, 64)
+	if err != nil || id < 1 {
+		return 0
+	}
+	return id
 }
 
 func parseDateParam(w http.ResponseWriter, r *http.Request, key string) (string, bool) {
