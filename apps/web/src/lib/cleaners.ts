@@ -12,12 +12,16 @@ export interface Cleaner {
   lastName: string;
   phone: string;
   email: string;
+  lineId: string;
   skills: string;
   status: CleanerStatus;
   createdAt: string;
 }
 
-export type CreateCleanerInput = Omit<Cleaner, "id" | "createdAt">;
+export type CreateCleanerInput = Omit<
+  Cleaner,
+  "id" | "createdAt" | "lastName" | "email" | "lineId"
+> & { lastName?: string; email?: string; lineId?: string };
 
 export type UpdateCleanerInput = Partial<CreateCleanerInput>;
 
@@ -30,6 +34,7 @@ const mockCleaners: Cleaner[] = [
     lastName: "Srisuwan",
     phone: "+66 81 111 2233",
     email: "nok.s@smileclean.com",
+    lineId: "nok_clean",
     skills: "Deep Cleaning, Condo",
     status: "available",
     createdAt: "2026-08-15T09:00:00Z",
@@ -40,6 +45,7 @@ const mockCleaners: Cleaner[] = [
     lastName: "Jiraroj",
     phone: "+66 82 222 3344",
     email: "pim.j@smileclean.com",
+    lineId: "pimjira",
     skills: "House Cleaning, Aircon",
     status: "assigned",
     createdAt: "2026-08-15T09:05:00Z",
@@ -50,6 +56,7 @@ const mockCleaners: Cleaner[] = [
     lastName: "Chaiya",
     phone: "+66 83 333 4455",
     email: "daeng.c@smileclean.com",
+    lineId: "",
     skills: "Office Cleaning, Deep Cleaning",
     status: "available",
     createdAt: "2026-08-15T09:10:00Z",
@@ -60,6 +67,7 @@ const mockCleaners: Cleaner[] = [
     lastName: "Kongdee",
     phone: "+66 84 444 5566",
     email: "mali.k@smileclean.com",
+    lineId: "mali.k",
     skills: "Move In/Out, Junk Removal",
     status: "on_leave",
     createdAt: "2026-08-15T09:15:00Z",
@@ -70,6 +78,7 @@ const mockCleaners: Cleaner[] = [
     lastName: "Intarakamhaeng",
     phone: "+66 85 555 6677",
     email: "som.i@smileclean.com",
+    lineId: "",
     skills: "General Cleaning",
     status: "available",
     createdAt: "2026-08-15T09:20:00Z",
@@ -85,7 +94,7 @@ function filterMocks(params: ListParams): Cleaner[] {
   let rows = mockCleaners.filter((c) => {
     if (params.status && c.status !== params.status) return false;
     if (!q) return true;
-    return [c.firstName, c.lastName, c.email, c.phone, c.skills]
+    return [c.firstName, c.lastName, c.email, c.lineId, c.phone, c.skills]
       .join(" ")
       .toLowerCase()
       .includes(q);
@@ -124,6 +133,9 @@ export async function createCleaner(
     await delay(400);
     const cleaner: Cleaner = {
       ...input,
+      lastName: input.lastName ?? "",
+      email: input.email ?? "",
+      lineId: input.lineId ?? "",
       id: ++mockId,
       createdAt: new Date().toISOString(),
     };

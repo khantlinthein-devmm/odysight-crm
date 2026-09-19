@@ -28,7 +28,7 @@ func NewRepository(pool *pgxpool.Pool) *Repository {
 const attendanceColumns = `a.id,
 	CASE WHEN a.cleaner_id IS NOT NULL THEN 'cleaner' ELSE 'staff' END,
 	COALESCE(a.cleaner_id, a.user_id),
-	COALESCE(c.first_name || ' ' || c.last_name, u.name, ''),
+	COALESCE(trim(c.first_name || ' ' || c.last_name), u.name, ''),
 	a.work_date, a.check_in_at, a.check_out_at, COALESCE(a.note, ''), a.created_at`
 
 const attendanceFrom = `FROM attendance a
@@ -84,7 +84,7 @@ func (r *Repository) List(ctx context.Context, f Filters, params pagination.Para
 		like := "%" + params.Search + "%"
 		start := len(args) + 1
 		args = append(args, like, like)
-		conds = append(conds, "(c.first_name || ' ' || c.last_name ILIKE $"+itoa(start)+" OR u.name ILIKE $"+itoa(start+1)+")")
+		conds = append(conds, "(trim(c.first_name || ' ' || c.last_name) ILIKE $"+itoa(start)+" OR u.name ILIKE $"+itoa(start+1)+")")
 	}
 	where := ""
 	if len(conds) > 0 {

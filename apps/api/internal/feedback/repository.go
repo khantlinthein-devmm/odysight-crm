@@ -21,7 +21,7 @@ func NewRepository(pool *pgxpool.Pool) *Repository {
 }
 
 const feedbackColumns = `f.id, f.booking_id, b.booking_number, f.customer_id,
-	COALESCE(c.first_name || ' ' || c.last_name, b.customer_name),
+	COALESCE(trim(c.first_name || ' ' || c.last_name), b.customer_name),
 	f.rating, f.comment, f.created_at`
 
 const feedbackFrom = `FROM feedback f

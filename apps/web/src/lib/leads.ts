@@ -27,7 +27,10 @@ export interface Lead {
   createdAt: string;
 }
 
-export type CreateLeadInput = Omit<Lead, "id" | "createdAt">;
+export type CreateLeadInput = Omit<
+  Lead,
+  "id" | "createdAt" | "lastName" | "email"
+> & { lastName?: string; email?: string };
 
 export type UpdateLeadInput = Partial<CreateLeadInput>;
 
@@ -142,6 +145,8 @@ export async function createLead(input: CreateLeadInput): Promise<Lead> {
     await delay(400);
     const lead: Lead = {
       ...input,
+      lastName: input.lastName ?? "",
+      email: input.email ?? "",
       id: ++mockId,
       createdAt: new Date().toISOString(),
     };

@@ -444,7 +444,7 @@ onMounted(load);
             <span
               class="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-navy-500 to-blue-600 text-[11px] font-semibold text-white"
             >
-              {{ initials(`${lead.firstName} ${lead.lastName}`) }}
+              {{ initials(`${lead.firstName} ${lead.lastName}`.trim()) }}
             </span>
             <div class="min-w-0 flex-1">
               <p class="truncate text-sm font-medium text-gray-900">

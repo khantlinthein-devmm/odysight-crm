@@ -215,6 +215,15 @@ onMounted(load);
               />
             </div>
             <div>
+              <label class="block text-xs font-medium uppercase tracking-wide text-gray-500">LINE ID</label>
+              <input
+                v-model="edited.lineId"
+                :disabled="!canEdit"
+                placeholder="—"
+                class="mt-1 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm disabled:bg-gray-50 disabled:text-gray-500 focus:border-gray-500 focus:outline-none focus:ring-1 focus:ring-navy-500"
+              />
+            </div>
+            <div>
               <label class="block text-xs font-medium uppercase tracking-wide text-gray-500">Skills</label>
               <textarea
                 v-model="edited.skills"

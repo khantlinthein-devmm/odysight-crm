@@ -57,7 +57,7 @@ func scanBooking(row pgx.Row) (Booking, error) {
 }
 
 const assignmentQuery = `
-	SELECT c.id, c.first_name || ' ' || c.last_name, bc.role
+	SELECT c.id, trim(c.first_name || ' ' || c.last_name), bc.role
 	FROM booking_cleaners bc
 	JOIN cleaners c ON c.id = bc.cleaner_id
 	WHERE bc.booking_id = $1
@@ -120,7 +120,7 @@ func (r *Repository) CleanerNames(ctx context.Context, ids []int64) ([]CleanerBr
 		return nil, nil
 	}
 	rows, err := r.pool.Query(ctx,
-		`SELECT id, first_name || ' ' || last_name FROM cleaners WHERE id = ANY($1) ORDER BY id`, ids)
+		`SELECT id, trim(first_name || ' ' || last_name) FROM cleaners WHERE id = ANY($1) ORDER BY id`, ids)
 	if err != nil {
 		return nil, fmt.Errorf("query cleaner names: %w", err)
 	}
@@ -154,7 +154,7 @@ func (r *Repository) FindConflicts(ctx context.Context, cleanerIDs []int64, star
 		return nil, nil
 	}
 	rows, err := r.pool.Query(ctx, `
-		SELECT DISTINCT bc.cleaner_id, c.first_name || ' ' || c.last_name,
+		SELECT DISTINCT bc.cleaner_id, trim(c.first_name || ' ' || c.last_name),
 		       b.id, b.booking_number, b.customer_name, b.scheduled_for, b.duration_minutes
 		FROM booking_cleaners bc
 		JOIN bookings b ON b.id = bc.booking_id
@@ -219,7 +219,7 @@ func (r *Repository) List(ctx context.Context, params pagination.Params) ([]Book
 		args = append(args, params.CleanerID)
 		conds = append(conds,
 			"(EXISTS (SELECT 1 FROM booking_cleaners bc WHERE bc.booking_id = bookings.id AND bc.cleaner_id = $"+itoa(len(args))+") "+
-				"OR assigned_cleaner = (SELECT first_name || ' ' || last_name FROM cleaners WHERE id = $"+itoa(len(args))+"))")
+				"OR assigned_cleaner = (SELECT trim(first_name || ' ' || last_name) FROM cleaners WHERE id = $"+itoa(len(args))+"))")
 	}
 	where := ""
 	if len(conds) > 0 {
@@ -487,7 +487,7 @@ type CleanerIdentity struct {
 func (r *Repository) FindCleanerForUser(ctx context.Context, userID int64) (CleanerIdentity, error) {
 	var c CleanerIdentity
 	err := r.pool.QueryRow(ctx,
-		`SELECT id, first_name || ' ' || last_name, COALESCE(area, '')
+		`SELECT id, trim(first_name || ' ' || last_name), COALESCE(area, '')
 		 FROM cleaners WHERE user_id = $1`, userID).Scan(&c.ID, &c.Name, &c.Area)
 	if err == nil {
 		return c, nil
@@ -496,7 +496,7 @@ func (r *Repository) FindCleanerForUser(ctx context.Context, userID int64) (Clea
 		return CleanerIdentity{}, fmt.Errorf("find cleaner for user %d: %w", userID, err)
 	}
 	err = r.pool.QueryRow(ctx,
-		`SELECT c.id, c.first_name || ' ' || c.last_name, COALESCE(c.area, '')
+		`SELECT c.id, trim(c.first_name || ' ' || c.last_name), COALESCE(c.area, '')
 		 FROM cleaners c
 		 JOIN users u ON lower(c.email) = lower(u.email)
 		 WHERE u.id = $1 AND c.user_id IS NULL`, userID).Scan(&c.ID, &c.Name, &c.Area)

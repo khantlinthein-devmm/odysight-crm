@@ -132,7 +132,7 @@ async function loadPeople(): Promise<void> {
     getCleaners({ limit: 200 }).then((rows) => {
       cleaners.value = rows.map((c) => ({
         id: c.id,
-        name: `${c.firstName} ${c.lastName}`,
+        name: `${c.firstName} ${c.lastName}`.trim(),
         subtitle: c.phone,
       }));
     }),

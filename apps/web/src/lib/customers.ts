@@ -26,8 +26,8 @@ export interface Customer {
 
 export type CreateCustomerInput = Omit<
   Customer,
-  "id" | "createdAt" | "portalEnabled"
-> & { portalEnabled?: false };
+  "id" | "createdAt" | "portalEnabled" | "lastName" | "email"
+> & { portalEnabled?: false; lastName?: string; email?: string };
 
 export type UpdateCustomerInput = Partial<CreateCustomerInput>;
 
@@ -157,6 +157,8 @@ export async function createCustomer(
     await delay(400);
     const customer: Customer = {
       ...input,
+      lastName: input.lastName ?? "",
+      email: input.email ?? "",
       id: ++mockId,
       leadId: input.leadId ?? null,
       portalEnabled: input.portalEnabled ?? false,

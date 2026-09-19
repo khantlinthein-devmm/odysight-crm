@@ -25,8 +25,11 @@ type Cleaner struct {
 	LastName  string
 	Phone     string
 	Email     string
-	Skills    string
-	Status    Status
+	// LineID is the cleaner's LINE messenger handle, the usual contact
+	// channel in Thailand. Blank when not collected.
+	LineID string
+	Skills string
+	Status Status
 	// Area is the dispatch zone (e.g. "Bang Na"). Used to match cleaners
 	// with bookings in the same area for the mobile app.
 	Area string

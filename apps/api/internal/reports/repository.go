@@ -229,7 +229,7 @@ func defaultTaxRate(currency string) float64 {
 func (r *Repository) loadCleanerProductivity(ctx context.Context) ([]CleanerProductivity, error) {
 	rows, err := r.pool.Query(ctx,
 		`SELECT CASE
-		           WHEN cl.first_name IS NOT NULL THEN cl.first_name || ' ' || cl.last_name
+		           WHEN cl.first_name IS NOT NULL THEN trim(cl.first_name || ' ' || cl.last_name)
 		           WHEN NULLIF(b.assigned_cleaner, '') IS NOT NULL THEN b.assigned_cleaner
 		           ELSE 'Unassigned'
 		       END AS cleaner_name,
