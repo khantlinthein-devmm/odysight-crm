@@ -20,11 +20,11 @@ func NewRepository(pool *pgxpool.Pool) *Repository {
 	return &Repository{pool: pool}
 }
 
-const cleanerColumns = `id, first_name, last_name, phone, email, skills, status, area, user_id, lat, lng, is_online, last_seen_at, created_at`
+const cleanerColumns = `id, first_name, last_name, phone, email, COALESCE(line_id, ''), skills, status, area, user_id, lat, lng, is_online, last_seen_at, created_at`
 
 func scanCleaner(row pgx.Row) (Cleaner, error) {
 	var c Cleaner
-	err := row.Scan(&c.ID, &c.FirstName, &c.LastName, &c.Phone, &c.Email, &c.Skills, &c.Status,
+	err := row.Scan(&c.ID, &c.FirstName, &c.LastName, &c.Phone, &c.Email, &c.LineID, &c.Skills, &c.Status,
 		&c.Area, &c.UserID, &c.Lat, &c.Lng, &c.IsOnline, &c.LastSeenAt, &c.CreatedAt)
 	return c, err
 }
@@ -109,10 +109,10 @@ func (r *Repository) GetByID(ctx context.Context, id int64) (Cleaner, error) {
 
 func (r *Repository) Create(ctx context.Context, c Cleaner) (Cleaner, error) {
 	created, err := scanCleaner(r.pool.QueryRow(ctx,
-		`INSERT INTO cleaners (first_name, last_name, phone, email, skills, status, area, user_id)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+		`INSERT INTO cleaners (first_name, last_name, phone, email, line_id, skills, status, area, user_id)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 		 RETURNING `+cleanerColumns,
-		c.FirstName, c.LastName, c.Phone, c.Email, c.Skills, c.Status, c.Area, c.UserID))
+		c.FirstName, c.LastName, c.Phone, c.Email, c.LineID, c.Skills, c.Status, c.Area, c.UserID))
 	if err != nil {
 		return Cleaner{}, fmt.Errorf("create cleaner: %w", err)
 	}
@@ -124,6 +124,7 @@ type Patch struct {
 	LastName  *string
 	Phone     *string
 	Email     *string
+	LineID    *string
 	Skills    *string
 	Status    *Status
 	Area      *string
@@ -143,14 +144,15 @@ func (r *Repository) Update(ctx context.Context, id int64, p Patch) (Cleaner, er
 			last_name  = COALESCE($3, last_name),
 			phone      = COALESCE($4, phone),
 			email      = COALESCE($5, email),
-			skills     = COALESCE($6, skills),
-			status     = COALESCE($7, status),
-			area       = COALESCE($8, area),
-			user_id    = COALESCE($9, user_id),
-			is_online  = COALESCE($10, is_online)
+			line_id    = COALESCE($6, line_id),
+			skills     = COALESCE($7, skills),
+			status     = COALESCE($8, status),
+			area       = COALESCE($9, area),
+			user_id    = COALESCE($10, user_id),
+			is_online  = COALESCE($11, is_online)
 		 WHERE id = $1
 		 RETURNING `+cleanerColumns,
-		id, p.FirstName, p.LastName, p.Phone, p.Email, p.Skills, status, p.Area, p.UserID, p.IsOnline))
+		id, p.FirstName, p.LastName, p.Phone, p.Email, p.LineID, p.Skills, status, p.Area, p.UserID, p.IsOnline))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Cleaner{}, ErrNotFound
 	}
@@ -180,7 +182,7 @@ func (r *Repository) FindForUser(ctx context.Context, userID int64) (Cleaner, er
 		return Cleaner{}, fmt.Errorf("find user %d email: %w", userID, err)
 	}
 	c, err = scanCleaner(r.pool.QueryRow(ctx,
-		`SELECT `+cleanerColumns+` FROM cleaners WHERE lower(email) = lower($1) AND user_id IS NULL`, email))
+		`SELECT `+cleanerColumns+` FROM cleaners WHERE email <> '' AND lower(email) = lower($1) AND user_id IS NULL`, email))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Cleaner{}, ErrNotFound
 	}

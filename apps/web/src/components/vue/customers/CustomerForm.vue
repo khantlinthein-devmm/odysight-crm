@@ -54,7 +54,7 @@ const selectedLeadId = ref<number | null>(props.customer?.leadId ?? null);
 const isCreating = computed(() => !props.customer);
 
 function leadLabel(lead: Lead): string {
-  return `${lead.firstName} ${lead.lastName} — ${lead.email}`;
+  return [`${lead.firstName} ${lead.lastName}`.trim(), lead.email].filter(Boolean).join(" — ");
 }
 
 async function loadLeads() {
@@ -86,9 +86,7 @@ const submitted = ref(false);
 const errors = computed(() => {
   const e: Partial<Record<keyof CreateCustomerInput, string>> = {};
   if (!form.firstName.trim()) e.firstName = "First name is required";
-  if (!form.lastName.trim()) e.lastName = "Last name is required";
-  if (!form.email.trim()) e.email = "Email is required";
-  else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email))
+  if (form.email.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email))
     e.email = "Email is invalid";
   if (!form.phone.trim()) e.phone = "Phone is required";
   if (!form.address.trim()) e.address = "Address is required";
@@ -190,7 +188,7 @@ onMounted(loadLeads);
             <label
               class="mb-1 block text-sm font-medium text-gray-700"
               for="c-lastName"
-              >Last name</label
+              >Last name <span class="font-normal text-gray-400">(optional)</span></label
             >
             <input
               id="c-lastName"
@@ -210,7 +208,7 @@ onMounted(loadLeads);
             <label
               class="mb-1 block text-sm font-medium text-gray-700"
               for="c-email"
-              >Email</label
+              >Email <span class="font-normal text-gray-400">(optional)</span></label
             >
             <input
               id="c-email"

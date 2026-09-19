@@ -25,16 +25,24 @@ func NewRepository(pool *pgxpool.Pool) *Repository {
 	return &Repository{pool: pool}
 }
 
-const attendanceColumns = `a.id, a.cleaner_id,
-	COALESCE(c.first_name || ' ' || c.last_name, ''),
+const attendanceColumns = `a.id,
+	CASE WHEN a.cleaner_id IS NOT NULL THEN 'cleaner' ELSE 'staff' END,
+	COALESCE(a.cleaner_id, a.user_id),
+	COALESCE(trim(c.first_name || ' ' || c.last_name), u.name, ''),
 	a.work_date, a.check_in_at, a.check_out_at, COALESCE(a.note, ''), a.created_at`
 
-const attendanceFrom = `FROM attendance a JOIN cleaners c ON c.id = a.cleaner_id`
+const attendanceFrom = `FROM attendance a
+	LEFT JOIN cleaners c ON c.id = a.cleaner_id
+	LEFT JOIN users u ON u.id = a.user_id`
+
+// personMatch selects the row for exactly one person. IS NOT DISTINCT FROM
+// makes the NULL side of the pair match, so one clause serves both types.
+const personMatch = `a.cleaner_id IS NOT DISTINCT FROM $1 AND a.user_id IS NOT DISTINCT FROM $2`
 
 func scanRecord(row pgx.Row) (Record, error) {
 	var rec Record
 	var workDate time.Time
-	err := row.Scan(&rec.ID, &rec.CleanerID, &rec.CleanerName, &workDate,
+	err := row.Scan(&rec.ID, &rec.PersonType, &rec.PersonID, &rec.PersonName, &workDate,
 		&rec.CheckInAt, &rec.CheckOutAt, &rec.Note, &rec.CreatedAt)
 	if err != nil {
 		return Record{}, err
@@ -43,25 +51,40 @@ func scanRecord(row pgx.Row) (Record, error) {
 	return rec, nil
 }
 
-func (r *Repository) List(ctx context.Context, cleanerID int64, from, to string, params pagination.Params) ([]Record, int, error) {
+// Filters narrows a List query. A zero PersonType means both workforces.
+type Filters struct {
+	PersonType PersonType
+	PersonID   int64
+	From       string // YYYY-MM-DD inclusive
+	To         string // YYYY-MM-DD inclusive
+}
+
+func (r *Repository) List(ctx context.Context, f Filters, params pagination.Params) ([]Record, int, error) {
 	args := []any{}
 	conds := []string{}
-	if cleanerID > 0 {
-		args = append(args, cleanerID)
-		conds = append(conds, "a.cleaner_id = $"+itoa(len(args)))
+	switch f.PersonType {
+	case PersonCleaner:
+		conds = append(conds, "a.cleaner_id IS NOT NULL")
+	case PersonStaff:
+		conds = append(conds, "a.user_id IS NOT NULL")
 	}
-	if from != "" {
-		args = append(args, from)
+	if f.PersonID > 0 {
+		args = append(args, f.PersonID)
+		conds = append(conds, "COALESCE(a.cleaner_id, a.user_id) = $"+itoa(len(args)))
+	}
+	if f.From != "" {
+		args = append(args, f.From)
 		conds = append(conds, "a.work_date >= $"+itoa(len(args))+"::date")
 	}
-	if to != "" {
-		args = append(args, to)
+	if f.To != "" {
+		args = append(args, f.To)
 		conds = append(conds, "a.work_date <= $"+itoa(len(args))+"::date")
 	}
 	if params.Search != "" {
 		like := "%" + params.Search + "%"
-		args = append(args, like)
-		conds = append(conds, "(c.first_name || ' ' || c.last_name ILIKE $"+itoa(len(args))+")")
+		start := len(args) + 1
+		args = append(args, like, like)
+		conds = append(conds, "(trim(c.first_name || ' ' || c.last_name) ILIKE $"+itoa(start)+" OR u.name ILIKE $"+itoa(start+1)+")")
 	}
 	where := ""
 	if len(conds) > 0 {
@@ -91,16 +114,16 @@ func (r *Repository) List(ctx context.Context, cleanerID int64, from, to string,
 	return items, total, rows.Err()
 }
 
-// FindToday returns the record for one cleaner on one YYYY-MM-DD date.
-func (r *Repository) FindToday(ctx context.Context, cleanerID int64, date string) (Record, error) {
+// FindDay returns one person's record for one YYYY-MM-DD date.
+func (r *Repository) FindDay(ctx context.Context, p Person, date string) (Record, error) {
 	rec, err := scanRecord(r.pool.QueryRow(ctx,
-		`SELECT `+attendanceColumns+` `+attendanceFrom+` WHERE a.cleaner_id = $1 AND a.work_date = $2::date`,
-		cleanerID, date))
+		`SELECT `+attendanceColumns+` `+attendanceFrom+` WHERE `+personMatch+` AND a.work_date = $3::date`,
+		p.CleanerID(), p.UserID(), date))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Record{}, ErrNotFound
 	}
 	if err != nil {
-		return Record{}, fmt.Errorf("get attendance for cleaner %d on %s: %w", cleanerID, date, err)
+		return Record{}, fmt.Errorf("get attendance for %s %d on %s: %w", p.Type, p.ID, date, err)
 	}
 	return rec, nil
 }
@@ -117,54 +140,63 @@ func (r *Repository) getByID(ctx context.Context, id int64) (Record, error) {
 	return rec, nil
 }
 
-// CheckIn stamps check_in_at for one cleaner on one YYYY-MM-DD date. A row
-// that already has check_in_at set yields ErrAlreadyCheckedIn; otherwise the
-// row is upserted so a checkout-first row is completed rather than rejected.
-func (r *Repository) CheckIn(ctx context.Context, cleanerID int64, date string) (Record, error) {
+// conflictTarget names the partial unique index for this person type so an
+// upsert infers the right one.
+func conflictTarget(p Person) string {
+	if p.Type == PersonStaff {
+		return "(user_id, work_date) WHERE user_id IS NOT NULL"
+	}
+	return "(cleaner_id, work_date) WHERE cleaner_id IS NOT NULL"
+}
+
+// CheckIn stamps check_in_at for one person on one YYYY-MM-DD date. A row that
+// already has check_in_at set yields ErrAlreadyCheckedIn; otherwise the row is
+// upserted so a checkout-first row is completed rather than rejected.
+func (r *Repository) CheckIn(ctx context.Context, p Person, date string) (Record, error) {
 	var id int64
 	var checkInAt *time.Time
 	err := r.pool.QueryRow(ctx,
-		`SELECT id, check_in_at FROM attendance WHERE cleaner_id = $1 AND work_date = $2::date`,
-		cleanerID, date).Scan(&id, &checkInAt)
+		`SELECT a.id, a.check_in_at FROM attendance a WHERE `+personMatch+` AND a.work_date = $3::date`,
+		p.CleanerID(), p.UserID(), date).Scan(&id, &checkInAt)
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
-		return Record{}, fmt.Errorf("lookup attendance for cleaner %d on %s: %w", cleanerID, date, err)
+		return Record{}, fmt.Errorf("lookup attendance for %s %d on %s: %w", p.Type, p.ID, date, err)
 	}
 	if err == nil && checkInAt != nil {
 		return Record{}, ErrAlreadyCheckedIn
 	}
 	err = r.pool.QueryRow(ctx,
-		`INSERT INTO attendance (cleaner_id, work_date, check_in_at)
-		 VALUES ($1, $2::date, now())
-		 ON CONFLICT (cleaner_id, work_date)
+		`INSERT INTO attendance (cleaner_id, user_id, work_date, check_in_at)
+		 VALUES ($1, $2, $3::date, now())
+		 ON CONFLICT `+conflictTarget(p)+`
 		 DO UPDATE SET check_in_at = now(), updated_at = now()
 		 RETURNING id`,
-		cleanerID, date).Scan(&id)
+		p.CleanerID(), p.UserID(), date).Scan(&id)
 	if err != nil {
-		return Record{}, fmt.Errorf("check in cleaner %d on %s: %w", cleanerID, date, err)
+		return Record{}, fmt.Errorf("check in %s %d on %s: %w", p.Type, p.ID, date, err)
 	}
 	return r.getByID(ctx, id)
 }
 
-// CheckOut stamps check_out_at for one cleaner on one YYYY-MM-DD date. With
-// no row yet (checkin-first flow missing), it inserts a checkout-only row; a
-// row that already has check_out_at set yields ErrAlreadyCheckedOut.
-func (r *Repository) CheckOut(ctx context.Context, cleanerID int64, date string) (Record, error) {
+// CheckOut stamps check_out_at for one person on one YYYY-MM-DD date. With no
+// row yet (checkin-first flow missing), it inserts a checkout-only row; a row
+// that already has check_out_at set yields ErrAlreadyCheckedOut.
+func (r *Repository) CheckOut(ctx context.Context, p Person, date string) (Record, error) {
 	var id int64
 	var checkOutAt *time.Time
 	err := r.pool.QueryRow(ctx,
-		`SELECT id, check_out_at FROM attendance WHERE cleaner_id = $1 AND work_date = $2::date`,
-		cleanerID, date).Scan(&id, &checkOutAt)
+		`SELECT a.id, a.check_out_at FROM attendance a WHERE `+personMatch+` AND a.work_date = $3::date`,
+		p.CleanerID(), p.UserID(), date).Scan(&id, &checkOutAt)
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
-		return Record{}, fmt.Errorf("lookup attendance for cleaner %d on %s: %w", cleanerID, date, err)
+		return Record{}, fmt.Errorf("lookup attendance for %s %d on %s: %w", p.Type, p.ID, date, err)
 	}
 	if errors.Is(err, pgx.ErrNoRows) {
 		err = r.pool.QueryRow(ctx,
-			`INSERT INTO attendance (cleaner_id, work_date, check_out_at)
-			 VALUES ($1, $2::date, now())
+			`INSERT INTO attendance (cleaner_id, user_id, work_date, check_out_at)
+			 VALUES ($1, $2, $3::date, now())
 			 RETURNING id`,
-			cleanerID, date).Scan(&id)
+			p.CleanerID(), p.UserID(), date).Scan(&id)
 		if err != nil {
-			return Record{}, fmt.Errorf("check out cleaner %d on %s: %w", cleanerID, date, err)
+			return Record{}, fmt.Errorf("check out %s %d on %s: %w", p.Type, p.ID, date, err)
 		}
 		return r.getByID(ctx, id)
 	}

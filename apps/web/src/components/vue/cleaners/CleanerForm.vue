@@ -47,6 +47,7 @@ const form = reactive<CreateCleanerInput>({
   lastName: props.cleaner?.lastName ?? "",
   phone: props.cleaner?.phone ?? "",
   email: props.cleaner?.email ?? "",
+  lineId: props.cleaner?.lineId ?? "",
   skills: props.cleaner?.skills ?? "",
   status: props.cleaner?.status ?? "available",
 });
@@ -133,10 +134,8 @@ const submitted = ref(false);
 const errors = computed(() => {
   const e: Partial<Record<keyof CreateCleanerInput, string>> = {};
   if (!form.firstName.trim()) e.firstName = "First name is required";
-  if (!form.lastName.trim()) e.lastName = "Last name is required";
   if (!form.phone.trim()) e.phone = "Phone is required";
-  if (!form.email.trim()) e.email = "Email is required";
-  else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email))
+  if (form.email.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email))
     e.email = "Email is invalid";
   return e;
 });
@@ -231,7 +230,7 @@ function inputClassFor(field: keyof CreateCleanerInput) {
             <label
               class="mb-1 block text-sm font-medium text-gray-700"
               for="cl-lastName"
-              >Last name</label
+              >Last name <span class="font-normal text-gray-400">(optional)</span></label
             >
             <input
               id="cl-lastName"
@@ -271,7 +270,7 @@ function inputClassFor(field: keyof CreateCleanerInput) {
             <label
               class="mb-1 block text-sm font-medium text-gray-700"
               for="cl-email"
-              >Email</label
+              >Email <span class="font-normal text-gray-400">(optional)</span></label
             >
             <input
               id="cl-email"
@@ -286,6 +285,20 @@ function inputClassFor(field: keyof CreateCleanerInput) {
             >
               {{ errors.email }}
             </p>
+          </div>
+
+          <div>
+            <label
+              class="mb-1 block text-sm font-medium text-gray-700"
+              for="cl-line-id"
+              >LINE ID <span class="font-normal text-gray-400">(optional)</span></label
+            >
+            <input
+              id="cl-line-id"
+              v-model="form.lineId"
+              :class="inputClass"
+              placeholder="@smileclean or nok_clean"
+            />
           </div>
 
           <div class="sm:col-span-2">

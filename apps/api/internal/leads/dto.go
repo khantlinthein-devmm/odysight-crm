@@ -53,11 +53,9 @@ func (r *CreateLeadRequest) Validate() error {
 	if r.FirstName == "" {
 		return response.NewAPIError(400, "firstName is required")
 	}
-	if r.LastName == "" {
-		return response.NewAPIError(400, "lastName is required")
-	}
-	if !validate.Email(r.Email) {
-		return response.NewAPIError(400, "a valid email is required")
+	// Last name and email are optional: walk-in customers often have neither.
+	if r.Email != "" && !validate.Email(r.Email) {
+		return response.NewAPIError(400, "email must be a valid address")
 	}
 	if !validate.Phone(r.Phone) {
 		return response.NewAPIError(400, "a valid phone is required")
@@ -91,13 +89,15 @@ func (r *UpdateLeadRequest) Validate() error {
 	if r.FirstName != nil && strings.TrimSpace(*r.FirstName) == "" {
 		return response.NewAPIError(400, "firstName cannot be empty")
 	}
-	if r.LastName != nil && strings.TrimSpace(*r.LastName) == "" {
-		return response.NewAPIError(400, "lastName cannot be empty")
+	// Last name and email may be cleared: both are optional.
+	if r.LastName != nil {
+		lastName := strings.TrimSpace(*r.LastName)
+		r.LastName = &lastName
 	}
 	if r.Email != nil {
 		email := strings.ToLower(strings.TrimSpace(*r.Email))
-		if !validate.Email(email) {
-			return response.NewAPIError(400, "a valid email is required")
+		if email != "" && !validate.Email(email) {
+			return response.NewAPIError(400, "email must be a valid address")
 		}
 		r.Email = &email
 	}

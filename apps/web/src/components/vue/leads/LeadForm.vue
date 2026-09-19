@@ -51,9 +51,7 @@ const submitted = ref(false);
 const errors = computed(() => {
   const e: Partial<Record<keyof CreateLeadInput, string>> = {};
   if (!form.firstName.trim()) e.firstName = "First name is required";
-  if (!form.lastName.trim()) e.lastName = "Last name is required";
-  if (!form.email.trim()) e.email = "Email is required";
-  else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email))
+  if (form.email.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email))
     e.email = "Email is invalid";
   return e;
 });
@@ -122,7 +120,7 @@ function inputClassFor(field: keyof CreateLeadInput) {
             <label
               class="mb-1 block text-sm font-medium text-gray-700"
               for="lastName"
-              >Last name</label
+              >Last name <span class="font-normal text-gray-400">(optional)</span></label
             >
             <input
               id="lastName"
@@ -142,7 +140,7 @@ function inputClassFor(field: keyof CreateLeadInput) {
             <label
               class="mb-1 block text-sm font-medium text-gray-700"
               for="email"
-              >Email</label
+              >Email <span class="font-normal text-gray-400">(optional)</span></label
             >
             <input
               id="email"

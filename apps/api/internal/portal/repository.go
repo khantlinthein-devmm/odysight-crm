@@ -51,7 +51,7 @@ func (r *Repository) FindByEmail(ctx context.Context, email string) (customerWit
 	c, err := scanCustomer(r.pool.QueryRow(ctx,
 		`SELECT `+portalCustomerColumns+`, password_hash, portal_enabled, status
 		 FROM customers
-		 WHERE lower(email) = lower($1)`, strings.TrimSpace(email)))
+		 WHERE email <> '' AND lower(email) = lower($1)`, strings.TrimSpace(email)))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return customerWithHash{}, ErrInvalidCredentials
 	}
@@ -65,7 +65,7 @@ func (r *Repository) FindByEmail(ctx context.Context, email string) (customerWit
 func (r *Repository) GetByID(ctx context.Context, id int64) (Customer, error) {
 	var c Customer
 	err := r.pool.QueryRow(ctx,
-		`SELECT id, first_name || ' ' || last_name, email, phone, address, area
+		`SELECT id, trim(first_name || ' ' || last_name), email, phone, address, area
 		 FROM customers WHERE id = $1`, id).
 		Scan(&c.ID, &c.Name, &c.Email, &c.Phone, &c.Address, &c.Area)
 	if errors.Is(err, pgx.ErrNoRows) {

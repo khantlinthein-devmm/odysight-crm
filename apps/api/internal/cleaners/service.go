@@ -39,6 +39,7 @@ func (s *Service) Create(ctx context.Context, req CreateCleanerRequest) (Cleaner
 		LastName:  req.LastName,
 		Phone:     req.Phone,
 		Email:     req.Email,
+		LineID:    req.LineID,
 		Skills:    req.Skills,
 		Status:    Status(req.Status),
 		Area:      req.Area,
@@ -75,6 +76,9 @@ func (s *Service) Update(ctx context.Context, id int64, req UpdateCleanerRequest
 	}
 	if req.Email != nil {
 		patch.Email = req.Email
+	}
+	if req.LineID != nil {
+		patch.LineID = req.LineID
 	}
 	if req.Skills != nil {
 		v := strings.TrimSpace(*req.Skills)

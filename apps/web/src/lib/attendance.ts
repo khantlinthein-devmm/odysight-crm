@@ -1,9 +1,13 @@
 import { ApiError, USE_MOCKS, apiFetch, delay, toQuery, unwrapPage, type Page } from "./api";
 
+// Attendance is kept for two workforces: field cleaners and office/team staff.
+export type PersonType = "cleaner" | "staff";
+
 export interface AttendanceRecord {
   id: number;
-  cleanerId: number;
-  cleanerName: string;
+  personType: PersonType;
+  personId: number;
+  personName: string;
   workDate: string;
   checkInAt: string | null;
   checkOutAt: string | null;
@@ -12,7 +16,8 @@ export interface AttendanceRecord {
 }
 
 export interface ListParams {
-  cleaner?: number;
+  type?: PersonType;
+  person?: number;
   from?: string;
   to?: string;
   limit?: number;
@@ -38,8 +43,9 @@ let mockId = 900;
 const mockAttendance: AttendanceRecord[] = [
   {
     id: 801,
-    cleanerId: 601,
-    cleanerName: "Nok Srisuwan",
+    personType: "cleaner",
+    personId: 601,
+    personName: "Nok Srisuwan",
     workDate: dayOffset(0),
     checkInAt: atTime(dayOffset(0), "08:30"),
     checkOutAt: null,
@@ -48,8 +54,9 @@ const mockAttendance: AttendanceRecord[] = [
   },
   {
     id: 802,
-    cleanerId: 602,
-    cleanerName: "Pim Jiraroj",
+    personType: "cleaner",
+    personId: 602,
+    personName: "Pim Jiraroj",
     workDate: dayOffset(0),
     checkInAt: atTime(dayOffset(0), "08:15"),
     checkOutAt: atTime(dayOffset(0), "17:05"),
@@ -58,8 +65,9 @@ const mockAttendance: AttendanceRecord[] = [
   },
   {
     id: 803,
-    cleanerId: 604,
-    cleanerName: "Mali Kongdee",
+    personType: "cleaner",
+    personId: 604,
+    personName: "Mali Kongdee",
     workDate: dayOffset(0),
     checkInAt: atTime(dayOffset(0), "09:02"),
     checkOutAt: null,
@@ -68,8 +76,9 @@ const mockAttendance: AttendanceRecord[] = [
   },
   {
     id: 804,
-    cleanerId: 603,
-    cleanerName: "Daeng Chaiya",
+    personType: "cleaner",
+    personId: 603,
+    personName: "Daeng Chaiya",
     workDate: dayOffset(-1),
     checkInAt: atTime(dayOffset(-1), "08:45"),
     checkOutAt: atTime(dayOffset(-1), "17:10"),
@@ -78,8 +87,9 @@ const mockAttendance: AttendanceRecord[] = [
   },
   {
     id: 805,
-    cleanerId: 601,
-    cleanerName: "Nok Srisuwan",
+    personType: "cleaner",
+    personId: 601,
+    personName: "Nok Srisuwan",
     workDate: dayOffset(-1),
     checkInAt: atTime(dayOffset(-1), "08:20"),
     checkOutAt: atTime(dayOffset(-1), "16:55"),
@@ -88,33 +98,27 @@ const mockAttendance: AttendanceRecord[] = [
   },
   {
     id: 806,
-    cleanerId: 605,
-    cleanerName: "Som Intarakamhaeng",
-    workDate: dayOffset(-2),
-    checkInAt: atTime(dayOffset(-2), "08:35"),
-    checkOutAt: atTime(dayOffset(-2), "17:00"),
+    personType: "staff",
+    personId: 1,
+    personName: "Admin User",
+    workDate: dayOffset(0),
+    checkInAt: atTime(dayOffset(0), "08:55"),
+    checkOutAt: null,
     note: "",
-    createdAt: atTime(dayOffset(-2), "08:35"),
+    createdAt: atTime(dayOffset(0), "08:55"),
   },
   {
     id: 807,
-    cleanerId: 602,
-    cleanerName: "Pim Jiraroj",
-    workDate: dayOffset(-2),
-    checkInAt: atTime(dayOffset(-2), "08:10"),
-    checkOutAt: atTime(dayOffset(-2), "17:15"),
+    personType: "staff",
+    personId: 2,
+    personName: "Dispatcher",
+    workDate: dayOffset(-1),
+    checkInAt: atTime(dayOffset(-1), "08:40"),
+    checkOutAt: atTime(dayOffset(-1), "17:30"),
     note: "",
-    createdAt: atTime(dayOffset(-2), "08:10"),
+    createdAt: atTime(dayOffset(-1), "08:40"),
   },
 ];
-
-const mockCleanerNames: Record<number, string> = {
-  601: "Nok Srisuwan",
-  602: "Pim Jiraroj",
-  603: "Daeng Chaiya",
-  604: "Mali Kongdee",
-  605: "Som Intarakamhaeng",
-};
 
 function clone(record: AttendanceRecord): AttendanceRecord {
   return { ...record };
@@ -122,7 +126,8 @@ function clone(record: AttendanceRecord): AttendanceRecord {
 
 function filterMocks(params: ListParams): AttendanceRecord[] {
   let rows = mockAttendance.filter((r) => {
-    if (params.cleaner !== undefined && r.cleanerId !== params.cleaner) return false;
+    if (params.type !== undefined && r.personType !== params.type) return false;
+    if (params.person !== undefined && r.personId !== params.person) return false;
     if (params.from && r.workDate < params.from) return false;
     if (params.to && r.workDate > params.to) return false;
     return true;
@@ -149,12 +154,23 @@ export async function getAttendance(params: ListParams = {}): Promise<Attendance
   return unwrapPage(json);
 }
 
-export async function checkIn(cleanerId: number): Promise<AttendanceRecord> {
+function mockPerson(personType: PersonType, personId: number): string {
+  const known = mockAttendance.find(
+    (r) => r.personType === personType && r.personId === personId,
+  );
+  if (known) return known.personName;
+  return personType === "staff" ? `Staff ${personId}` : `Cleaner ${personId}`;
+}
+
+export async function checkIn(
+  personType: PersonType,
+  personId: number,
+): Promise<AttendanceRecord> {
   if (USE_MOCKS) {
     await delay(300);
     const today = dayOffset(0);
     const existing = mockAttendance.find(
-      (r) => r.cleanerId === cleanerId && r.workDate === today,
+      (r) => r.personType === personType && r.personId === personId && r.workDate === today,
     );
     if (existing?.checkInAt) {
       throw new ApiError(409, "Already checked in for today");
@@ -166,8 +182,9 @@ export async function checkIn(cleanerId: number): Promise<AttendanceRecord> {
     }
     const record: AttendanceRecord = {
       id: ++mockId,
-      cleanerId,
-      cleanerName: mockCleanerNames[cleanerId] ?? `Cleaner ${cleanerId}`,
+      personType,
+      personId,
+      personName: mockPerson(personType, personId),
       workDate: today,
       checkInAt: now,
       checkOutAt: null,
@@ -179,16 +196,19 @@ export async function checkIn(cleanerId: number): Promise<AttendanceRecord> {
   }
   return apiFetch<AttendanceRecord>("/api/v1/attendance/check-in", {
     method: "POST",
-    body: JSON.stringify({ cleanerId }),
+    body: JSON.stringify({ personType, personId }),
   });
 }
 
-export async function checkOut(cleanerId: number): Promise<AttendanceRecord> {
+export async function checkOut(
+  personType: PersonType,
+  personId: number,
+): Promise<AttendanceRecord> {
   if (USE_MOCKS) {
     await delay(300);
     const today = dayOffset(0);
     const existing = mockAttendance.find(
-      (r) => r.cleanerId === cleanerId && r.workDate === today,
+      (r) => r.personType === personType && r.personId === personId && r.workDate === today,
     );
     if (!existing?.checkInAt) {
       throw new ApiError(409, "Not checked in yet");
@@ -201,6 +221,6 @@ export async function checkOut(cleanerId: number): Promise<AttendanceRecord> {
   }
   return apiFetch<AttendanceRecord>("/api/v1/attendance/check-out", {
     method: "POST",
-    body: JSON.stringify({ cleanerId }),
+    body: JSON.stringify({ personType, personId }),
   });
 }

@@ -57,11 +57,58 @@ func scanBooking(row pgx.Row) (Booking, error) {
 }
 
 const assignmentQuery = `
-	SELECT c.id, c.first_name || ' ' || c.last_name, bc.role
+	SELECT c.id, trim(c.first_name || ' ' || c.last_name), bc.role
 	FROM booking_cleaners bc
 	JOIN cleaners c ON c.id = bc.cleaner_id
 	WHERE bc.booking_id = $1
 	ORDER BY (bc.role = 'primary') DESC, bc.id`
+
+// assignmentBatchQuery loads the crew for many bookings at once. Listing
+// endpoints use it instead of one loadAssignments call per row: the dispatch
+// board fetches up to 200 bookings at a time and is reloaded on every week
+// shift and search keystroke.
+const assignmentBatchQuery = `
+	SELECT bc.booking_id, c.id, trim(c.first_name || ' ' || c.last_name), bc.role
+	FROM booking_cleaners bc
+	JOIN cleaners c ON c.id = bc.cleaner_id
+	WHERE bc.booking_id = ANY($1)
+	ORDER BY bc.booking_id, (bc.role = 'primary') DESC, bc.id`
+
+// loadAssignmentsBatch fills Cleaners on every booking in one round trip.
+func (r *Repository) loadAssignmentsBatch(ctx context.Context, items []Booking) error {
+	if len(items) == 0 {
+		return nil
+	}
+	ids := make([]int64, 0, len(items))
+	for i := range items {
+		ids = append(ids, items[i].ID)
+		items[i].Cleaners = []CleanerBrief{}
+	}
+	rows, err := r.pool.Query(ctx, assignmentBatchQuery, ids)
+	if err != nil {
+		return fmt.Errorf("load assignments for %d bookings: %w", len(ids), err)
+	}
+	defer rows.Close()
+
+	byID := make(map[int64]*Booking, len(items))
+	for i := range items {
+		byID[items[i].ID] = &items[i]
+	}
+	for rows.Next() {
+		var bookingID int64
+		var c CleanerBrief
+		if err := rows.Scan(&bookingID, &c.ID, &c.Name, &c.Role); err != nil {
+			return fmt.Errorf("scan assignment: %w", err)
+		}
+		if b, ok := byID[bookingID]; ok {
+			b.Cleaners = append(b.Cleaners, c)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("iterate assignments: %w", err)
+	}
+	return nil
+}
 
 // loadAssignments fills b.Cleaners (and the primary display name) in place.
 func (r *Repository) loadAssignments(ctx context.Context, b *Booking) error {
@@ -120,7 +167,7 @@ func (r *Repository) CleanerNames(ctx context.Context, ids []int64) ([]CleanerBr
 		return nil, nil
 	}
 	rows, err := r.pool.Query(ctx,
-		`SELECT id, first_name || ' ' || last_name FROM cleaners WHERE id = ANY($1) ORDER BY id`, ids)
+		`SELECT id, trim(first_name || ' ' || last_name) FROM cleaners WHERE id = ANY($1) ORDER BY id`, ids)
 	if err != nil {
 		return nil, fmt.Errorf("query cleaner names: %w", err)
 	}
@@ -154,7 +201,7 @@ func (r *Repository) FindConflicts(ctx context.Context, cleanerIDs []int64, star
 		return nil, nil
 	}
 	rows, err := r.pool.Query(ctx, `
-		SELECT DISTINCT bc.cleaner_id, c.first_name || ' ' || c.last_name,
+		SELECT DISTINCT bc.cleaner_id, trim(c.first_name || ' ' || c.last_name),
 		       b.id, b.booking_number, b.customer_name, b.scheduled_for, b.duration_minutes
 		FROM booking_cleaners bc
 		JOIN bookings b ON b.id = bc.booking_id
@@ -219,7 +266,7 @@ func (r *Repository) List(ctx context.Context, params pagination.Params) ([]Book
 		args = append(args, params.CleanerID)
 		conds = append(conds,
 			"(EXISTS (SELECT 1 FROM booking_cleaners bc WHERE bc.booking_id = bookings.id AND bc.cleaner_id = $"+itoa(len(args))+") "+
-				"OR assigned_cleaner = (SELECT first_name || ' ' || last_name FROM cleaners WHERE id = $"+itoa(len(args))+"))")
+				"OR assigned_cleaner = (SELECT trim(first_name || ' ' || last_name) FROM cleaners WHERE id = $"+itoa(len(args))+"))")
 	}
 	where := ""
 	if len(conds) > 0 {
@@ -248,10 +295,8 @@ func (r *Repository) List(ctx context.Context, params pagination.Params) ([]Book
 	if err := rows.Err(); err != nil {
 		return nil, 0, fmt.Errorf("iterate bookings: %w", err)
 	}
-	for i := range items {
-		if err := r.loadAssignments(ctx, &items[i]); err != nil {
-			return nil, 0, err
-		}
+	if err := r.loadAssignmentsBatch(ctx, items); err != nil {
+		return nil, 0, err
 	}
 	return items, total, nil
 }
@@ -305,6 +350,19 @@ func (r *Repository) Create(ctx context.Context, b Booking) (Booking, error) {
 		return Booking{}, fmt.Errorf("begin tx: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+	created, err := r.insertBooking(ctx, tx, b)
+	if err != nil {
+		return Booking{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return Booking{}, fmt.Errorf("commit booking %d: %w", created.ID, err)
+	}
+	return created, nil
+}
+
+// insertBooking writes one booking (and its crew assignments) inside an
+// existing transaction, leaving the commit to the caller.
+func (r *Repository) insertBooking(ctx context.Context, tx pgx.Tx, b Booking) (Booking, error) {
 	// Older office clients do not send an area yet: fall back to the linked
 	// customer's area so the booking still matches cleaners by zone.
 	if b.Area == "" && b.CustomerID != nil {
@@ -350,9 +408,6 @@ func (r *Repository) Create(ctx context.Context, b Booking) (Booking, error) {
 	}
 	b.Cleaners = normalizeOrder(b.Cleaners)
 	created.Cleaners = b.Cleaners
-	if err := tx.Commit(ctx); err != nil {
-		return Booking{}, fmt.Errorf("commit booking %d: %w", id, err)
-	}
 	return created, nil
 }
 
@@ -487,7 +542,7 @@ type CleanerIdentity struct {
 func (r *Repository) FindCleanerForUser(ctx context.Context, userID int64) (CleanerIdentity, error) {
 	var c CleanerIdentity
 	err := r.pool.QueryRow(ctx,
-		`SELECT id, first_name || ' ' || last_name, COALESCE(area, '')
+		`SELECT id, trim(first_name || ' ' || last_name), COALESCE(area, '')
 		 FROM cleaners WHERE user_id = $1`, userID).Scan(&c.ID, &c.Name, &c.Area)
 	if err == nil {
 		return c, nil
@@ -496,7 +551,7 @@ func (r *Repository) FindCleanerForUser(ctx context.Context, userID int64) (Clea
 		return CleanerIdentity{}, fmt.Errorf("find cleaner for user %d: %w", userID, err)
 	}
 	err = r.pool.QueryRow(ctx,
-		`SELECT c.id, c.first_name || ' ' || c.last_name, COALESCE(c.area, '')
+		`SELECT c.id, trim(c.first_name || ' ' || c.last_name), COALESCE(c.area, '')
 		 FROM cleaners c
 		 JOIN users u ON lower(c.email) = lower(u.email)
 		 WHERE u.id = $1 AND c.user_id IS NULL`, userID).Scan(&c.ID, &c.Name, &c.Area)
@@ -585,10 +640,8 @@ func (r *Repository) DueRecurring(ctx context.Context, cutoff time.Time) ([]Book
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("iterate recurring bookings: %w", err)
 	}
-	for i := range items {
-		if err := r.loadAssignments(ctx, &items[i]); err != nil {
-			return nil, err
-		}
+	if err := r.loadAssignmentsBatch(ctx, items); err != nil {
+		return nil, err
 	}
 	return items, nil
 }
@@ -605,7 +658,11 @@ func recurrenceValue(b Booking) any {
 // DisableRecurring clears the recurring flags on a booking so the generator
 // never processes it again (used after a successor has been created).
 func (r *Repository) DisableRecurring(ctx context.Context, id int64) error {
-	tag, err := r.pool.Exec(ctx,
+	return disableRecurring(ctx, r.pool, id)
+}
+
+func disableRecurring(ctx context.Context, q pgxQuerier, id int64) error {
+	tag, err := q.Exec(ctx,
 		`UPDATE bookings SET is_recurring = false, recurrence = NULL WHERE id = $1`, id)
 	if err != nil {
 		return fmt.Errorf("disable recurring on booking %d: %w", id, err)
@@ -614,4 +671,58 @@ func (r *Repository) DisableRecurring(ctx context.Context, id int64) error {
 		return ErrNotFound
 	}
 	return nil
+}
+
+// RollForwardRecurring advances a recurring schedule by one occurrence: it
+// inserts the successor and retires the source in a single transaction, so a
+// failure at either step leaves the source untouched and due for a clean retry
+// rather than spawning a duplicate on every subsequent run.
+//
+// If the successor already exists (an earlier run inserted it but could not
+// commit the retirement), uq_bookings_series_slot rejects the insert; that is
+// treated as success and only the source is retired. The reported bool says
+// whether a new occurrence was actually written.
+func (r *Repository) RollForwardRecurring(ctx context.Context, sourceID int64, child Booking) (Booking, bool, error) {
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return Booking{}, false, fmt.Errorf("begin tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	// The insert runs inside a savepoint: a duplicate-slot violation aborts
+	// only the nested block, leaving the outer transaction usable so the source
+	// can still be retired. Without it Postgres refuses every later statement
+	// in the transaction (SQLSTATE 25P02).
+	nested, err := tx.Begin(ctx)
+	if err != nil {
+		return Booking{}, false, fmt.Errorf("begin savepoint: %w", err)
+	}
+	created, insertErr := r.insertBooking(ctx, nested, child)
+	if insertErr != nil {
+		_ = nested.Rollback(ctx)
+		if !isDuplicateSeriesSlot(insertErr) {
+			return Booking{}, false, insertErr
+		}
+	} else if err := nested.Commit(ctx); err != nil {
+		return Booking{}, false, fmt.Errorf("release savepoint: %w", err)
+	}
+
+	// Retire the source either way: on a duplicate the successor already
+	// exists, so the series is already one step ahead.
+	if err := disableRecurring(ctx, tx, sourceID); err != nil {
+		return Booking{}, false, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return Booking{}, false, fmt.Errorf("commit recurring roll-forward for booking %d: %w", sourceID, err)
+	}
+	return created, insertErr == nil, nil
+}
+
+// isDuplicateSeriesSlot reports whether err is the unique violation raised when
+// an occurrence already exists for this series at this time.
+func isDuplicateSeriesSlot(err error) bool {
+	var pgErr *pgconn.PgError
+	return errors.As(err, &pgErr) &&
+		pgErr.Code == "23505" &&
+		pgErr.ConstraintName == "uq_bookings_series_slot"
 }

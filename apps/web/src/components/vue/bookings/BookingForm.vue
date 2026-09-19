@@ -53,7 +53,7 @@ const serviceTypeOptions = computed(() => {
 });
 
 function fullName(c: Cleaner): string {
-  return `${c.firstName} ${c.lastName}`;
+  return `${c.firstName} ${c.lastName}`.trim();
 }
 
 function applyServiceDuration(fallback?: number) {
@@ -104,7 +104,7 @@ const customersLoading = ref(false);
 const selectedCustomerId = ref<number | null>(props.booking?.customerId ?? null);
 
 function customerFullName(c: Customer): string {
-  return `${c.firstName} ${c.lastName}`;
+  return `${c.firstName} ${c.lastName}`.trim();
 }
 
 function applyCustomer(customerId: number | string) {
@@ -179,7 +179,7 @@ function builderCleanerIds(): number[] {
 function primaryCleanerName(): string {
   if (typeof primaryCleanerId.value !== "number") return "";
   const c = cleaners.value.find((x) => x.id === primaryCleanerId.value);
-  return c ? `${c.firstName} ${c.lastName}` : "";
+  return c ? `${c.firstName} ${c.lastName}`.trim() : "";
 }
 
 function toDatetimeLocal(iso: string): string {
