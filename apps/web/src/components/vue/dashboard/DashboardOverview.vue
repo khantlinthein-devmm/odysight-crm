@@ -12,14 +12,14 @@ import { getReportSummary, type ReportSummary } from "../../../lib/reports";
 import { getLeads, type Lead } from "../../../lib/leads";
 import { getBookings, type Booking } from "../../../lib/bookings";
 import { showToast } from "../../../lib/toast";
-import DonutChart from "../reports/DonutChart.vue";
-import TrendChart from "../reports/TrendChart.vue";
 
 const API_URL = import.meta.env.PUBLIC_API_URL as string | undefined;
 
 const summary = ref<ReportSummary | null>(null);
 const recentLeads = ref<Lead[]>([]);
 const recentBookings = ref<Booking[]>([]);
+const allBookings = ref<Booking[]>([]);
+const allLeads = ref<Lead[]>([]);
 const loading = ref(true);
 const error = ref<string | null>(null);
 const errorStatus = ref<number | null>(null);
@@ -45,38 +45,84 @@ const kpis = computed(() => {
   if (!summary.value) return [];
   return [
     {
-      label: "Total Leads",
-      value: String(summary.value.totalLeads),
-      sub: "Across all stages",
+      label: "Today's Jobs",
+      value: String(todayJobs.value.length),
+      sub: `${completedToday.value} done · ${remainingToday.value} left`,
+      href: "/dispatch",
+      tile: "from-amber-400 to-orange-600",
+      icon: "M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z",
+    },
+    {
+      label: "Needs Crew",
+      value: String(unassignedJobs.value.length),
+      sub: "Unassigned bookings",
+      href: "/dispatch",
+      tile: "from-rose-400 to-red-600",
+      icon: "M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z",
+    },
+    {
+      label: "New Leads",
+      value: String(newLeadsCount.value),
+      sub: "Waiting for contact",
       href: "/leads",
       tile: "from-blue-500 to-navy-600",
       icon: "M17 20h5v-2a4 4 0 00-3-3.87M9 20H4v-2a4 4 0 013-3.87m6-1.13a4 4 0 10-4-4 4 4 0 004 4zm6-4a3 3 0 11-3-3",
     },
     {
-      label: "Active Customers",
-      value: String(summary.value.activeCustomers),
-      sub: "In customer base",
-      href: "/customers",
-      tile: "from-violet-500 to-purple-700",
-      icon: "M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197",
-    },
-    {
-      label: "Upcoming Bookings",
+      label: "Upcoming",
       value: String(summary.value.upcomingBookings),
       sub: "Scheduled ahead",
       href: "/bookings",
-      tile: "from-amber-400 to-orange-600",
-      icon: "M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z",
-    },
-    {
-      label: "Revenue (Month)",
-      value: formatMoney(summary.value.monthlyRevenue),
-      sub: "Collected this month",
-      href: "/payments",
       tile: "from-emerald-400 to-green-600",
-      icon: "M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z",
+      icon: "M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z",
     },
   ];
+});
+
+function isToday(iso: string): boolean {
+  try {
+    const d = new Date(iso);
+    const now = new Date();
+    return (
+      d.getFullYear() === now.getFullYear() &&
+      d.getMonth() === now.getMonth() &&
+      d.getDate() === now.getDate()
+    );
+  } catch {
+    return false;
+  }
+}
+
+function isUnassigned(b: Booking): boolean {
+  return (b.cleaners ?? []).length === 0 && !b.assignedCleaner;
+}
+
+const todayJobs = computed(() => allBookings.value.filter((b) => isToday(b.scheduledFor)));
+const completedToday = computed(() => todayJobs.value.filter((b) => b.status === "completed").length);
+const remainingToday = computed(() => todayJobs.value.length - completedToday.value);
+const unassignedJobs = computed(() => allBookings.value.filter((b) => isUnassigned(b) && (b.status === "pending" || b.status === "confirmed")));
+const newLeadsCount = computed(() => allLeads.value.filter((l) => l.status === "new").length);
+
+// Actionable queues — what needs a human right now.
+const needsAttention = computed(() => {
+  const items: { label: string; detail: string; href: string; tone: string }[] = [];
+  for (const b of unassignedJobs.value.slice(0, 3)) {
+    items.push({
+      label: `Assign crew: ${b.customerName}`,
+      detail: `${b.bookingNumber} · ${bookingTime(b.scheduledFor)}`,
+      href: "/dispatch",
+      tone: "bg-rose-50 text-rose-700 ring-rose-200",
+    });
+  }
+  for (const l of allLeads.value.filter((x) => x.status === "new").slice(0, 3)) {
+    items.push({
+      label: `Contact lead: ${l.firstName} ${l.lastName}`,
+      detail: l.phone || l.email || "New inquiry",
+      href: `/leads/${l.id}`,
+      tone: "bg-blue-50 text-blue-700 ring-blue-200",
+    });
+  }
+  return items.slice(0, 5);
 });
 
 const BOOKING_COLORS: Record<string, string> = {
@@ -175,14 +221,18 @@ async function load() {
   try {
     // Warm the workspace settings cache (currency, catalog) first.
     await getWorkspaceSettings();
-    const [s, leads, bookings] = await Promise.all([
+    const [s, leads, bookings, opsLeads, opsBookings] = await Promise.all([
       getReportSummary(),
       getLeads({ limit: 5 }),
       getBookings({ limit: 5 }),
+      getLeads({ limit: 100 }),
+      getBookings({ limit: 100 }),
     ]);
     summary.value = s;
     recentLeads.value = leads.slice(0, 5);
     recentBookings.value = bookings.slice(0, 5);
+    allLeads.value = opsLeads;
+    allBookings.value = opsBookings;
   } catch (e) {
     const status = e instanceof ApiError ? e.status : null;
     errorStatus.value = status;
@@ -307,9 +357,9 @@ onMounted(load);
             {{ greeting }} 👋
           </h2>
           <p class="mt-1 text-sm text-blue-50/90">
-            {{ summary.upcomingBookings }} upcoming bookings ·
-            {{ summary.totalLeads }} open leads ·
-            {{ formatMoney(summary.monthlyRevenue) }} collected this month
+            {{ todayJobs.length }} jobs today ·
+            {{ unassignedJobs.length }} need crew ·
+            {{ newLeadsCount }} new leads waiting
           </p>
         </div>
         <div class="flex flex-wrap gap-2">
@@ -467,42 +517,84 @@ onMounted(load);
       </section>
     </div>
 
-    <!-- Analytics -->
+    <!-- Operations focus: needs attention + quick actions (analytics lives in Reports) -->
     <div class="mt-4 grid grid-cols-1 gap-4 xl:grid-cols-3">
       <section class="rounded-3xl bg-white p-6 shadow-sm ring-1 ring-gray-100 sm:p-7 xl:col-span-2">
         <div class="flex items-baseline justify-between">
           <div>
-            <h2 class="font-semibold tracking-tight text-gray-900">Revenue trend</h2>
-            <p class="text-xs text-gray-400">Collected payments per month</p>
+            <h2 class="font-semibold tracking-tight text-gray-900">⚡ Needs attention</h2>
+            <p class="text-xs text-gray-400">Unassigned jobs & new leads — act now</p>
           </div>
-          <a href="/reports" class="text-xs font-medium text-navy-600 hover:underline">
-            Full reports →
+          <a href="/dispatch" class="text-xs font-medium text-navy-600 hover:underline">
+            Open dispatch →
           </a>
         </div>
-        <TrendChart
-          class="mt-4"
-          :values="summary.revenueByMonth.map((m) => m.collected)"
-          :labels="summary.revenueByMonth.map((m) => m.month)"
-          :format-value="formatCompact"
-          line-color="#10b981"
-        />
+        <ul v-if="needsAttention.length" class="mt-4 space-y-2.5">
+          <li
+            v-for="(item, i) in needsAttention"
+            :key="i"
+            class="flex items-center gap-3 rounded-2xl bg-gray-50/70 p-3 ring-1 ring-gray-100 transition hover:bg-gray-50"
+          >
+            <span :class="['shrink-0 rounded-full px-2.5 py-1 text-[11px] font-bold ring-1', item.tone]">
+              {{ i + 1 }}
+            </span>
+            <div class="min-w-0 flex-1">
+              <p class="truncate text-sm font-semibold text-gray-900">{{ item.label }}</p>
+              <p class="truncate text-xs text-gray-500">{{ item.detail }}</p>
+            </div>
+            <a :href="item.href" class="shrink-0 rounded-lg bg-navy-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-navy-700">
+              Handle
+            </a>
+          </li>
+        </ul>
+        <div v-else class="mt-4 rounded-2xl bg-emerald-50 p-5 text-sm text-emerald-700 ring-1 ring-emerald-200">
+          ✅ All clear — every job has a crew and every lead has been contacted.
+        </div>
       </section>
 
       <section class="rounded-3xl bg-white p-6 shadow-sm ring-1 ring-gray-100 sm:p-7">
-        <div class="flex items-baseline justify-between">
-          <div>
-            <h2 class="font-semibold tracking-tight text-gray-900">Bookings mix</h2>
-            <p class="text-xs text-gray-400">By status</p>
-          </div>
+        <div>
+          <h2 class="font-semibold tracking-tight text-gray-900">Quick actions</h2>
+          <p class="text-xs text-gray-400">Daily workflows</p>
         </div>
-        <DonutChart
-          class="mt-5"
-          compact
-          :segments="bookingSegments"
-          :size="170"
-          :center-top="String(totalBookings)"
-          center-bottom="total bookings"
-        />
+        <div class="mt-4 grid grid-cols-2 gap-2.5">
+          <a href="/bookings" class="rounded-2xl bg-navy-600 p-4 text-white shadow-sm transition hover:brightness-110">
+            <svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+            </svg>
+            <p class="mt-2 text-sm font-semibold">New booking</p>
+          </a>
+          <a href="/dispatch" class="rounded-2xl bg-amber-400 p-4 text-slate-950 shadow-sm transition hover:brightness-105">
+            <svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7" />
+            </svg>
+            <p class="mt-2 text-sm font-semibold">Dispatch</p>
+          </a>
+          <a href="/leads" class="rounded-2xl bg-blue-100 p-4 text-blue-900 ring-1 ring-blue-200 transition hover:bg-blue-200">
+            <svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z" />
+            </svg>
+            <p class="mt-2 text-sm font-semibold">New lead</p>
+          </a>
+          <a href="/calculator" class="rounded-2xl bg-emerald-100 p-4 text-emerald-900 ring-1 ring-emerald-200 transition hover:bg-emerald-200">
+            <svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M9 7h6m-5 4h4M5 3h14a2 2 0 012 2v14a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2zm3 16h.01M9 19h.01M12 19h.01M15 19h.01M18 19h.01M6 19h.01" />
+            </svg>
+            <p class="mt-2 text-sm font-semibold">Calculator</p>
+          </a>
+          <a href="/checklists" class="rounded-2xl bg-violet-100 p-4 text-violet-900 ring-1 ring-violet-200 transition hover:bg-violet-200">
+            <svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
+            </svg>
+            <p class="mt-2 text-sm font-semibold">Checklists</p>
+          </a>
+          <a href="/reports" class="rounded-2xl bg-slate-900 p-4 text-amber-300 ring-1 ring-slate-700 transition hover:bg-slate-800">
+            <svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+            </svg>
+            <p class="mt-2 text-sm font-semibold">Reports</p>
+          </a>
+        </div>
       </section>
     </div>
 

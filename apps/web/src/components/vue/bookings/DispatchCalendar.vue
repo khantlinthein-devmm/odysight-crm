@@ -256,11 +256,11 @@ const gridCols = "grid-template-columns: 3.5rem repeat(7, minmax(8.5rem, 1fr));"
 <template>
   <div class="space-y-4">
     <!-- Toolbar -->
-    <div class="rounded-3xl bg-white p-4 shadow-sm ring-1 ring-gray-100 sm:p-5">
+    <div class="rounded-3xl border border-amber-200/70 bg-orange-50/70 p-4 shadow-sm sm:p-5">
       <div class="flex flex-wrap items-center justify-between gap-3">
         <div class="flex items-center gap-3">
           <span
-            class="flex h-11 w-11 items-center justify-center rounded-2xl bg-gradient-to-br from-navy-600 to-blue-500 text-white shadow-sm"
+            class="flex h-11 w-11 items-center justify-center rounded-2xl bg-gradient-to-br from-amber-500 to-orange-400 text-white shadow-sm"
           >
             <svg
               class="h-5 w-5"
@@ -281,7 +281,7 @@ const gridCols = "grid-template-columns: 3.5rem repeat(7, minmax(8.5rem, 1fr));"
             <p class="text-xs text-gray-400">{{ weekLabel }}</p>
           </div>
           <div class="ml-2 hidden items-center gap-2 lg:flex">
-            <span class="inline-flex items-center gap-1.5 rounded-full bg-navy-50 px-3 py-1 text-xs font-semibold text-navy-700 ring-1 ring-navy-100">
+            <span class="inline-flex items-center gap-1.5 rounded-full bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-800 ring-1 ring-amber-200">
               {{ stats.jobs }} jobs
             </span>
             <span
@@ -298,10 +298,10 @@ const gridCols = "grid-template-columns: 3.5rem repeat(7, minmax(8.5rem, 1fr));"
           </div>
         </div>
         <div class="flex flex-wrap items-center gap-2">
-          <div class="flex overflow-hidden rounded-xl ring-1 ring-gray-200">
+          <div class="flex overflow-hidden rounded-xl ring-1 ring-amber-200">
             <button
               type="button"
-              class="bg-white px-3 py-2 text-sm font-medium text-gray-600 transition hover:bg-gray-50"
+              class="bg-white px-3 py-2 text-sm font-medium text-amber-700 transition hover:bg-amber-50"
               @click="shiftWeek(-1)"
               aria-label="Previous week"
             >
@@ -309,14 +309,14 @@ const gridCols = "grid-template-columns: 3.5rem repeat(7, minmax(8.5rem, 1fr));"
             </button>
             <button
               type="button"
-              class="border-x border-gray-200 bg-white px-3 py-2 text-xs font-semibold text-navy-700 transition hover:bg-navy-50"
+              class="border-x border-amber-200 bg-amber-100 px-3 py-2 text-xs font-semibold text-amber-800 transition hover:bg-amber-200"
               @click="goToday"
             >
               Today
             </button>
             <button
               type="button"
-              class="bg-white px-3 py-2 text-sm font-medium text-gray-600 transition hover:bg-gray-50"
+              class="bg-white px-3 py-2 text-sm font-medium text-amber-700 transition hover:bg-amber-50"
               @click="shiftWeek(1)"
               aria-label="Next week"
             >
@@ -327,11 +327,11 @@ const gridCols = "grid-template-columns: 3.5rem repeat(7, minmax(8.5rem, 1fr));"
             v-model="search"
             type="search"
             placeholder="Search week…"
-            class="w-40 rounded-xl bg-white px-3.5 py-2 text-sm text-gray-900 shadow-sm ring-1 ring-gray-200 transition focus:outline-none focus:ring-2 focus:ring-navy-500"
+            class="w-40 rounded-xl bg-white px-3.5 py-2 text-sm text-gray-900 shadow-sm ring-1 ring-amber-200 transition focus:outline-none focus:ring-2 focus:ring-amber-500"
           />
           <select
             v-model="statusFilter"
-            class="rounded-xl bg-white py-2 pl-3.5 text-sm shadow-sm ring-1 ring-gray-200 transition focus:outline-none focus:ring-2 focus:ring-navy-500"
+            class="rounded-xl bg-white py-2 pl-3.5 text-sm shadow-sm ring-1 ring-amber-200 transition focus:outline-none focus:ring-2 focus:ring-amber-500"
           >
             <option value="">All statuses</option>
             <option v-for="(label, value) in statusLabels" :key="value" :value="value">
@@ -340,14 +340,14 @@ const gridCols = "grid-template-columns: 3.5rem repeat(7, minmax(8.5rem, 1fr));"
           </select>
           <a
             href="/bookings"
-            class="rounded-xl bg-gradient-to-r from-navy-600 to-blue-500 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:brightness-110"
+            class="rounded-xl bg-gradient-to-r from-amber-500 to-orange-400 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:brightness-110"
           >
             Manage Bookings
           </a>
         </div>
       </div>
       <div class="mt-3 flex flex-wrap gap-2 lg:hidden">
-        <span class="inline-flex items-center gap-1.5 rounded-full bg-navy-50 px-3 py-1 text-xs font-semibold text-navy-700 ring-1 ring-navy-100">
+        <span class="inline-flex items-center gap-1.5 rounded-full bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-800 ring-1 ring-amber-200">
           {{ stats.jobs }} jobs
         </span>
         <span
@@ -365,7 +365,7 @@ const gridCols = "grid-template-columns: 3.5rem repeat(7, minmax(8.5rem, 1fr));"
     </div>
 
     <!-- Calendar -->
-    <div class="overflow-hidden rounded-3xl bg-white shadow-sm ring-1 ring-gray-100">
+    <div class="overflow-hidden rounded-3xl border border-amber-200/60 bg-[#FFFBF3] shadow-sm">
       <div v-if="loading" class="space-y-3 p-8">
         <div class="h-12 animate-pulse rounded-2xl bg-gray-100"></div>
         <div class="h-64 animate-pulse rounded-2xl bg-gray-50"></div>
@@ -403,7 +403,7 @@ const gridCols = "grid-template-columns: 3.5rem repeat(7, minmax(8.5rem, 1fr));"
       <div v-else class="overflow-x-auto">
         <div class="min-w-[920px]">
           <!-- Day headers -->
-          <div class="grid border-b border-gray-100 bg-gray-50/60" :style="gridCols">
+          <div class="grid border-b border-amber-200/60 bg-amber-100/50" :style="gridCols">
             <div></div>
             <div
               v-for="(day, i) in days"
@@ -412,11 +412,11 @@ const gridCols = "grid-template-columns: 3.5rem repeat(7, minmax(8.5rem, 1fr));"
               :tabindex="bookedCount(day) > 0 ? 0 : -1"
               :aria-label="`View bookings for ${day.toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' })}`"
               :class="[
-                'flex flex-col items-center gap-0.5 border-l border-gray-100 py-2.5 text-center',
-                sameDay(day, today) ? 'bg-navy-50/70' : '',
+                'flex flex-col items-center gap-0.5 border-l border-amber-200/50 py-2.5 text-center',
+                sameDay(day, today) ? 'bg-amber-200/60' : '',
                 isPast(day) && !sameDay(day, today) ? 'opacity-60' : '',
                 bookedCount(day) > 0
-                  ? 'cursor-pointer hover:bg-navy-50 focus:outline-none focus:ring-2 focus:ring-inset focus:ring-navy-500'
+                  ? 'cursor-pointer hover:bg-amber-100 focus:outline-none focus:ring-2 focus:ring-inset focus:ring-amber-500'
                   : '',
               ]"
               @click="openDay(day)"
@@ -430,7 +430,7 @@ const gridCols = "grid-template-columns: 3.5rem repeat(7, minmax(8.5rem, 1fr));"
                 :class="[
                   'flex h-8 w-8 items-center justify-center rounded-full text-sm font-semibold',
                   sameDay(day, today)
-                    ? 'bg-navy-600 text-white shadow-sm'
+                    ? 'bg-amber-500 text-white shadow-sm'
                     : 'text-gray-900',
                 ]"
               >
@@ -465,18 +465,18 @@ const gridCols = "grid-template-columns: 3.5rem repeat(7, minmax(8.5rem, 1fr));"
             <div
               v-for="(day, i) in days"
               :key="i"
-              class="relative border-l border-gray-100"
+              class="relative border-l border-amber-200/40"
               :style="{ height: `${gridHeight}px` }"
             >
               <div
                 v-for="h in hours"
                 :key="h"
-                class="pointer-events-none absolute left-0 right-0 border-t border-gray-100"
+                class="pointer-events-none absolute left-0 right-0 border-t border-amber-100/70"
                 :style="{ top: `${(h - windowStart) * HOUR_PX}px` }"
               />
               <div
                 v-if="sameDay(day, today)"
-                class="pointer-events-none absolute inset-0 bg-navy-50/50"
+                class="pointer-events-none absolute inset-0 bg-amber-100/50"
               />
               <div
                 v-if="sameDay(day, today) && nowTop !== null"
@@ -494,7 +494,7 @@ const gridCols = "grid-template-columns: 3.5rem repeat(7, minmax(8.5rem, 1fr));"
                 tabindex="0"
                 aria-haspopup="dialog"
                 :aria-label="`${b.customerName}, ${labelForService(b.serviceType)}, ${timeRange(b.scheduledFor, b.durationMinutes)}`"
-                class="absolute left-1 right-1 z-10 cursor-pointer overflow-hidden rounded-xl border-l-4 bg-white p-2 shadow-sm ring-1 ring-gray-200 transition hover:-translate-y-px hover:shadow-md focus:outline-none focus:ring-2 focus:ring-navy-500"
+                class="absolute left-1 right-1 z-10 cursor-pointer overflow-hidden rounded-xl border-l-4 bg-[#FFFDF7] p-2 shadow-sm ring-1 ring-amber-200/70 transition hover:-translate-y-px hover:shadow-md focus:outline-none focus:ring-2 focus:ring-amber-500"
                 :style="{
                   top: `${topOf(b.scheduledFor)}px`,
                   height: `${heightOf(b.durationMinutes)}px`,
@@ -505,7 +505,7 @@ const gridCols = "grid-template-columns: 3.5rem repeat(7, minmax(8.5rem, 1fr));"
                 @keydown.enter.prevent="openBooking(b)"
                 @keydown.space.prevent="openBooking(b)"
               >
-                <p class="truncate text-[11px] font-semibold text-navy-700">
+                <p class="truncate text-[11px] font-semibold text-amber-700">
                   {{ timeRange(b.scheduledFor, b.durationMinutes) }}
                 </p>
                 <p class="truncate text-xs font-semibold text-gray-900">
@@ -516,7 +516,7 @@ const gridCols = "grid-template-columns: 3.5rem repeat(7, minmax(8.5rem, 1fr));"
                 </p>
                 <div class="mt-1 flex items-center gap-1.5">
                   <span
-                    class="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-navy-100 text-[9px] font-bold text-navy-700"
+                    class="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-amber-200 text-[9px] font-bold text-amber-800"
                   >
                     {{ crewInitial(crewName(b)) }}
                   </span>

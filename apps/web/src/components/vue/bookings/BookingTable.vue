@@ -36,13 +36,23 @@ const statusLabels: Record<BookingStatus, string> = {
 };
 
 const statusStyles: Record<BookingStatus, string> = {
-  pending: "bg-amber-50 text-amber-700",
-  confirmed: "bg-navy-50 text-navy-700",
-  in_progress: "bg-navy-50 text-navy-700",
-  completed: "bg-green-50 text-green-700",
-  cancelled: "bg-gray-100 text-gray-600",
-  no_show: "bg-red-50 text-red-700",
-  rescheduled: "bg-navy-50 text-navy-700",
+  pending: "bg-amber-100 text-amber-800 ring-1 ring-amber-300",
+  confirmed: "bg-blue-100 text-blue-800 ring-1 ring-blue-300",
+  in_progress: "bg-indigo-100 text-indigo-800 ring-1 ring-indigo-300",
+  completed: "bg-green-100 text-green-800 ring-1 ring-green-300",
+  cancelled: "bg-gray-200 text-gray-700 ring-1 ring-gray-300",
+  no_show: "bg-red-100 text-red-800 ring-1 ring-red-300",
+  rescheduled: "bg-purple-100 text-purple-800 ring-1 ring-purple-300",
+};
+
+const statusAccent: Record<BookingStatus, string> = {
+  pending: "bg-amber-400",
+  confirmed: "bg-blue-500",
+  in_progress: "bg-indigo-500",
+  completed: "bg-green-500",
+  cancelled: "bg-gray-300",
+  no_show: "bg-red-500",
+  rescheduled: "bg-purple-500",
 };
 
 const recurrenceLabels: Record<string, string> = {
@@ -74,7 +84,7 @@ const loading = ref(true);
 const search = ref("");
 const statusFilter = ref<BookingStatus | "">("");
 const page = ref(1);
-const pageSize = 10;
+const pageSize = 9;
 
 const showForm = ref(false);
 const editingBooking = ref<Booking | undefined>(undefined);
@@ -226,9 +236,9 @@ onMounted(fetchBookings);
 </script>
 
 <template>
-  <div class="rounded-xl border border-gray-200 bg-white">
+  <div class="rounded-xl border border-gray-200 bg-gray-100/70">
     <div
-      class="flex flex-col gap-3 border-b border-gray-200 px-6 py-4 sm:flex-row sm:items-center"
+      class="flex flex-col gap-3 rounded-t-xl border-b border-gray-200 bg-white px-6 py-4 sm:flex-row sm:items-center"
     >
       <h2 class="text-base font-semibold text-gray-900">Bookings</h2>
       <span
@@ -270,12 +280,12 @@ onMounted(fetchBookings);
       </div>
     </div>
 
-    <!-- Mobile-only field cards. Desktop table below is unchanged. -->
-    <div class="p-4 lg:hidden">
+    <!-- Cleaner field view (mobile cards with Accept / Check-in actions) -->
+    <div v-if="role === 'CLEANER'" class="p-4 lg:hidden">
       <MyJobs :bookings="filteredBookings" :loading="loading" @changed="fetchBookings" />
     </div>
 
-    <div class="hidden lg:block">
+    <div>
 
     <div v-if="loading" class="px-6 py-16 text-center">
       <p class="text-sm text-gray-500">Loading bookings...</p>
@@ -291,99 +301,107 @@ onMounted(fetchBookings);
       </p>
     </div>
 
-    <div v-else class="overflow-x-auto">
-      <table class="w-full text-left text-sm">
-        <thead>
-          <tr
-            class="border-b border-gray-200 text-xs uppercase tracking-wide text-gray-500"
+    <div v-else class="grid grid-cols-1 gap-4 p-4 sm:p-6 md:grid-cols-2 xl:grid-cols-3">
+      <article
+        v-for="booking in pagedBookings"
+        :key="booking.id"
+        class="flex flex-col overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm transition hover:shadow-md"
+      >
+        <!-- Status color bar -->
+        <div :class="['h-1.5 w-full', statusAccent[booking.status]]"></div>
+        <div class="flex flex-1 flex-col p-5">
+        <div class="flex items-center justify-between gap-2">
+          <span class="rounded bg-gray-900 px-2 py-0.5 font-mono text-[11px] font-semibold tracking-wide text-white">
+            {{ booking.bookingNumber }}
+          </span>
+          <span
+            :class="[
+              'inline-flex shrink-0 items-center gap-1 rounded-full px-2.5 py-1 text-xs font-bold',
+              statusStyles[booking.status],
+            ]"
           >
-            <th class="px-6 py-3 font-medium">Booking #</th>
-            <th class="px-6 py-3 font-medium">Customer</th>
-            <th class="px-6 py-3 font-medium">Service Type</th>
-            <th class="px-6 py-3 font-medium">Repeat</th>
-            <th class="px-6 py-3 font-medium">Scheduled</th>
-            <th class="px-6 py-3 font-medium">Cleaner</th>
-            <th class="px-6 py-3 font-medium">Status</th>
-            <th class="px-6 py-3 font-medium text-right">Actions</th>
-          </tr>
-        </thead>
-        <tbody class="divide-y divide-navy-100">
-          <tr
-            v-for="booking in pagedBookings"
-            :key="booking.id"
-            class="hover:bg-gray-100"
-          >
-            <td class="px-6 py-4 font-mono text-xs text-gray-600">
-              {{ booking.bookingNumber }}
-            </td>
-            <td class="px-6 py-4 font-medium text-gray-900">
+            <span :class="['h-1.5 w-1.5 rounded-full', statusAccent[booking.status]]"></span>
+            {{ statusLabels[booking.status] }}
+          </span>
+        </div>
+
+        <div class="mt-3 flex items-center gap-3">
+          <span class="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-navy-600 text-base font-bold text-white">
+            {{ (booking.customerName || "?").charAt(0).toUpperCase() }}
+          </span>
+          <div class="min-w-0">
+            <h3 class="truncate text-base font-bold text-gray-900">
               {{ booking.customerName }}
-            </td>
-            <td class="px-6 py-4 text-gray-600">
-              {{ labelForService(booking.serviceType) }}
-            </td>
-            <td class="px-6 py-4">
+            </h3>
+            <p class="mt-0.5 flex flex-wrap items-center gap-1.5 text-sm">
+              <span class="inline-flex rounded-md bg-slate-100 px-2 py-0.5 text-xs font-semibold text-slate-700 ring-1 ring-slate-200">
+                {{ labelForService(booking.serviceType) }}
+              </span>
               <span
                 v-if="booking.isRecurring && booking.recurrence"
-                class="inline-flex rounded-full bg-amber-50 px-2.5 py-0.5 text-xs font-medium text-amber-700"
+                class="inline-flex rounded-md bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-800 ring-1 ring-amber-200"
                 title="This booking repeats"
               >
                 ↻ {{ recurrenceLabels[booking.recurrence] ?? booking.recurrence }}
               </span>
-              <span v-else class="text-gray-400">—</span>
-            </td>
-            <td class="px-6 py-4 text-gray-600">
-              {{ formatDate(booking.scheduledFor) }}
-            </td>
-            <td class="px-6 py-4 text-gray-600">
-              {{ cleanerSummary(booking) }}
-            </td>
-            <td class="px-6 py-4">
-              <span
-                :class="[
-                  'inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium',
-                  statusStyles[booking.status],
-                ]"
-              >
-                {{ statusLabels[booking.status] }}
-              </span>
-            </td>
-            <td class="px-6 py-4 text-right whitespace-nowrap">
-              <button
-                v-if="canEdit"
-                type="button"
-                class="rounded-lg px-2 py-1 text-sm font-medium text-gray-600 hover:bg-gray-100 hover:text-gray-900"
-                @click="openEdit(booking)"
-              >
-                Edit
-              </button>
-              <button
-                v-if="canInvoice && booking.status === 'completed'"
-                type="button"
-                :disabled="invoicingId === booking.id"
-                class="rounded-lg px-2 py-1 text-sm font-medium text-navy-700 hover:bg-navy-50 disabled:opacity-50"
-                @click="handleInvoice(booking)"
-              >
-                Invoice
-              </button>
-              <a
-                :href="`/checklists?booking=${booking.id}`"
-                class="rounded-lg px-2 py-1 text-sm font-medium text-gray-600 hover:bg-gray-100 hover:text-gray-900"
-              >
-                Checklist
-              </a>
-              <button
-                v-if="canDelete"
-                type="button"
-                class="rounded-lg px-2 py-1 text-sm font-medium text-red-600 hover:bg-red-50"
-                @click="pendingDelete = booking"
-              >
-                Delete
-              </button>
-            </td>
-          </tr>
-        </tbody>
-      </table>
+            </p>
+          </div>
+        </div>
+
+        <dl class="mt-4 space-y-2.5 rounded-lg bg-gray-50 p-3 text-sm ring-1 ring-gray-100">
+          <div class="flex items-center gap-2">
+            <span class="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-blue-100 text-blue-700"><svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg></span>
+            <dd class="min-w-0 font-medium text-gray-800">{{ formatDate(booking.scheduledFor) }}</dd>
+          </div>
+          <div class="flex items-center gap-2">
+            <span class="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-green-100 text-green-700"><svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z" /></svg></span>
+            <dd class="min-w-0 truncate text-gray-700">{{ cleanerSummary(booking) || "Unassigned" }}</dd>
+          </div>
+          <div v-if="booking.address" class="flex items-center gap-2">
+            <span class="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-orange-100 text-orange-700"><svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M17.657 16.657L13.414 20.9a2 2 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" /><path stroke-linecap="round" stroke-linejoin="round" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" /></svg></span>
+            <dd class="min-w-0 truncate text-gray-700">{{ booking.address }}</dd>
+          </div>
+          <div v-if="booking.notes" class="flex items-start gap-2">
+            <span class="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-yellow-100 text-yellow-700"><svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg></span>
+            <dd class="line-clamp-2 min-w-0 text-gray-500">{{ booking.notes }}</dd>
+          </div>
+        </dl>
+
+        <div class="mt-4 flex flex-wrap items-center gap-2 border-t border-gray-100 pt-3">
+          <button
+            v-if="canEdit"
+            type="button"
+            class="rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-sm font-semibold text-gray-700 hover:bg-gray-100"
+            @click="openEdit(booking)"
+          >
+            Edit
+          </button>
+          <button
+            v-if="canInvoice && booking.status === 'completed'"
+            type="button"
+            :disabled="invoicingId === booking.id"
+            class="rounded-lg bg-navy-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-navy-700 disabled:opacity-50"
+            @click="handleInvoice(booking)"
+          >
+            {{ invoicingId === booking.id ? "Invoicing…" : "Invoice" }}
+          </button>
+          <a
+            :href="`/checklists?booking=${booking.id}`"
+            class="rounded-lg border border-navy-200 bg-navy-50 px-3 py-1.5 text-sm font-semibold text-navy-700 hover:bg-navy-100"
+          >
+            Checklist
+          </a>
+          <button
+            v-if="canDelete"
+            type="button"
+            class="ml-auto rounded-lg px-2.5 py-1.5 text-sm font-medium text-red-600 hover:bg-red-50"
+            @click="pendingDelete = booking"
+          >
+            Delete
+          </button>
+        </div>
+        </div>
+      </article>
     </div>
 
     <div
