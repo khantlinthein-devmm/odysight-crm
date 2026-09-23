@@ -35,6 +35,10 @@ type Invoice struct {
 	Total         float64
 	Currency      string
 	Status        Status
+	ContractID    *int64
+	IdempotencyKey *string
+	BillingPeriodStart *time.Time
+	BillingPeriodEnd   *time.Time
 	IssuedAt      time.Time
 	PaidAt        *time.Time
 	CreatedAt     time.Time

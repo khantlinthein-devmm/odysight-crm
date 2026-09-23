@@ -25,7 +25,7 @@
   --color-green-900: #14532d;
   --color-green-950: #052e16;
 
-  --font-sans: "Poppins", "Inter", "Segoe UI", "Helvetica Neue", Arial, system-ui,
+  --font-sans: "Poppins", "Prompt", "Inter", "Segoe UI", "Helvetica Neue", Arial, system-ui,
     -apple-system, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol",
     sans-serif;
 }
@@ -89,4 +89,34 @@ select[multiple] {
   -webkit-appearance: auto;
   padding: 0.375rem;
   cursor: auto;
+}
+
+/* ---------------------------------------------------------------------------
+ * Mobile-first field rules. Strictly additive: everything below only applies
+ * below the lg breakpoint (or on coarse pointers), so desktop is untouched.
+ * ------------------------------------------------------------------------- */
+@media (max-width: 1023.5px) {
+  /* Stop iOS Safari auto-zoom on focus (kicks in below 16px). */
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
+  select,
+  textarea {
+    font-size: 16px;
+  }
+
+  /* Bottom-nav clearance for page content on phones. */
+  .mobile-nav-clearance {
+    padding-bottom: calc(5.5rem + env(safe-area-inset-bottom, 0px));
+  }
+}
+
+/* 44px minimum touch targets for field actions (check-in/out, checklist
+ * ticks, job cards). Coarse-pointer only: mouse-driven desktop unaffected. */
+@media (pointer: coarse) {
+  .field-tap {
+    min-height: 44px;
+  }
+  .field-tap-sm {
+    min-height: 40px;
+    min-width: 40px;
+  }
 }

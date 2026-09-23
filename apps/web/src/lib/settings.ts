@@ -1,4 +1,5 @@
 import { apiFetch } from "./api";
+import { persistSettingsSnapshot, readSettingsSnapshot } from "./offline";
 
 export interface CompanySettings {
   name: string;
@@ -189,9 +190,14 @@ export async function getWorkspaceSettings(
   inflight = (async () => {
     try {
       const all = await apiFetch<Partial<WorkspaceSettings>>("/api/v1/settings");
+      // Persist every successful fetch so the calculator (and other offline
+      // surfaces) keep real catalog prices and tax rates with no signal.
+      persistSettingsSnapshot(all);
       cache = merge(all);
     } catch {
-      cache = structuredClone(DEFAULT_SETTINGS);
+      // Offline: last-synced snapshot first, built-in defaults last.
+      const snapshot = readSettingsSnapshot<WorkspaceSettings>();
+      cache = merge(snapshot ?? {});
     }
     return cache;
   })();

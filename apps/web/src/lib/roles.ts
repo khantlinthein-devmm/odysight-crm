@@ -113,6 +113,40 @@ export const PERMISSION_MATRIX: PermissionGroup[] = [
     ],
   },
   {
+    resource: "Sites",
+    permissions: [
+      { key: "sites.read", label: "View", roles: ["SUPER_ADMIN", "ADMIN", "MANAGER", "DISPATCH", "CLEANER"] },
+      { key: "sites.create", label: "Create", roles: ["SUPER_ADMIN", "ADMIN", "MANAGER"] },
+      { key: "sites.update", label: "Edit", roles: ["SUPER_ADMIN", "ADMIN", "MANAGER"] },
+      { key: "sites.delete", label: "Delete", roles: ["SUPER_ADMIN", "ADMIN"] },
+    ],
+  },
+  {
+    resource: "Contracts",
+    permissions: [
+      { key: "contracts.read", label: "View", roles: ["SUPER_ADMIN", "ADMIN", "MANAGER", "ACCOUNTANT"] },
+      { key: "contracts.create", label: "Create", roles: ["SUPER_ADMIN", "ADMIN"] },
+      { key: "contracts.update", label: "Edit", roles: ["SUPER_ADMIN", "ADMIN"] },
+      { key: "contracts.delete", label: "Delete", roles: ["SUPER_ADMIN", "ADMIN"] },
+    ],
+  },
+  {
+    resource: "Quotes",
+    permissions: [
+      { key: "quotes.read", label: "View", roles: ["SUPER_ADMIN", "ADMIN", "MANAGER", "ACCOUNTANT"] },
+      { key: "quotes.create", label: "Create", roles: ["SUPER_ADMIN", "ADMIN", "MANAGER"] },
+      { key: "quotes.update", label: "Edit", roles: ["SUPER_ADMIN", "ADMIN", "MANAGER"] },
+      { key: "quotes.approve", label: "Approve", roles: ["SUPER_ADMIN", "ADMIN"] },
+    ],
+  },
+  {
+    resource: "Checklists",
+    permissions: [
+      { key: "checklists.read", label: "View", roles: ["SUPER_ADMIN", "ADMIN", "MANAGER", "DISPATCH", "ACCOUNTANT", "CLEANER"] },
+      { key: "checklists.manage", label: "Manage / complete", roles: ["SUPER_ADMIN", "ADMIN", "MANAGER", "CLEANER"] },
+    ],
+  },
+  {
     resource: "Team & audit",
     permissions: [
       { key: "users.read", label: "View team", roles: ["SUPER_ADMIN", "ADMIN", "MANAGER"] },

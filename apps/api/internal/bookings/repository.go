@@ -40,14 +40,14 @@ func NewRepository(pool *pgxpool.Pool) *Repository {
 	return &Repository{pool: pool}
 }
 
-const bookingColumns = `id, booking_number, customer_name, customer_email, customer_id, service_type, scheduled_for, duration_minutes, address, area, assigned_cleaner, status, notes, is_recurring, recurrence, series_id, created_at`
+const bookingColumns = `id, booking_number, customer_name, customer_email, customer_id, site_id, contract_id, service_type, scheduled_for, duration_minutes, address, area, COALESCE(assigned_cleaner, '') AS assigned_cleaner, status, notes, is_recurring, recurrence, series_id, created_at`
 
 const bookingNumberExpr = `'BK-' || to_char(created_at, 'YYYY') || '-' || lpad(id::text, 4, '0')`
 
 func scanBooking(row pgx.Row) (Booking, error) {
 	var b Booking
 	var recurrence *string
-	err := row.Scan(&b.ID, &b.BookingNumber, &b.CustomerName, &b.CustomerEmail, &b.CustomerID, &b.ServiceType,
+	err := row.Scan(&b.ID, &b.BookingNumber, &b.CustomerName, &b.CustomerEmail, &b.CustomerID, &b.SiteID, &b.ContractID, &b.ServiceType,
 		&b.ScheduledFor, &b.DurationMinutes, &b.Address, &b.Area, &b.AssignedCleaner,
 		&b.Status, &b.Notes, &b.IsRecurring, &recurrence, &b.SeriesID, &b.CreatedAt)
 	if recurrence != nil {
@@ -344,6 +344,40 @@ func (r *Repository) CustomerPhone(ctx context.Context, id int64) (string, error
 	return phone, nil
 }
 
+// ValidateSiteContract ensures an optional site belongs to the booking's
+// customer and an optional contract belongs to the same customer. Either link
+// may be nil (one-time bookings need neither). A booking for Customer A can
+// never point at Customer B's site or contract.
+func (r *Repository) ValidateSiteContract(ctx context.Context, customerID *int64, siteID *int64, contractID *int64) error {
+	if siteID != nil {
+		var owner int64
+		err := r.pool.QueryRow(ctx, `SELECT customer_id FROM sites WHERE id = $1`, *siteID).Scan(&owner)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return fmt.Errorf("site not found")
+		}
+		if err != nil {
+			return fmt.Errorf("check booking site: %w", err)
+		}
+		if customerID == nil || owner != *customerID {
+			return fmt.Errorf("site does not belong to this customer")
+		}
+	}
+	if contractID != nil {
+		var owner int64
+		err := r.pool.QueryRow(ctx, `SELECT customer_id FROM contracts WHERE id = $1`, *contractID).Scan(&owner)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return fmt.Errorf("contract not found")
+		}
+		if err != nil {
+			return fmt.Errorf("check booking contract: %w", err)
+		}
+		if customerID == nil || owner != *customerID {
+			return fmt.Errorf("contract does not belong to this customer")
+		}
+	}
+	return nil
+}
+
 func (r *Repository) Create(ctx context.Context, b Booking) (Booking, error) {
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
@@ -375,10 +409,10 @@ func (r *Repository) insertBooking(ctx context.Context, tx pgx.Tx, b Booking) (B
 	temp := "TMP-" + fmt.Sprintf("%d", time.Now().UnixNano())
 	var id int64
 	if err := tx.QueryRow(ctx,
-		`INSERT INTO bookings (booking_number, customer_name, customer_email, customer_id, service_type, scheduled_for, duration_minutes, address, area, assigned_cleaner, status, notes, is_recurring, recurrence, series_id)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+		`INSERT INTO bookings (booking_number, customer_name, customer_email, customer_id, site_id, contract_id, service_type, scheduled_for, duration_minutes, address, area, assigned_cleaner, status, notes, is_recurring, recurrence, series_id)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
 		 RETURNING id`,
-		temp, b.CustomerName, b.CustomerEmail, b.CustomerID, b.ServiceType, b.ScheduledFor, b.DurationMinutes,
+		temp, b.CustomerName, b.CustomerEmail, b.CustomerID, b.SiteID, b.ContractID, b.ServiceType, b.ScheduledFor, b.DurationMinutes,
 		b.Address, b.Area, b.AssignedCleaner, b.Status, b.Notes, b.IsRecurring, recurrenceValue(b), b.SeriesID).Scan(&id); err != nil {
 		return Booking{}, fmt.Errorf("create booking: %w", err)
 	}
@@ -439,6 +473,10 @@ type Patch struct {
 	CustomerName    *string
 	CustomerEmail   *string
 	CustomerID      *int64
+	SiteID          *int64
+	ContractID      *int64
+	ClearSiteID     bool
+	ClearContractID bool
 	ServiceType     *ServiceType
 	ScheduledFor    *time.Time
 	DurationMinutes *int
@@ -474,19 +512,22 @@ func (r *Repository) Update(ctx context.Context, id int64, p Patch) (Booking, er
 			customer_name    = COALESCE($2, customer_name),
 			customer_email   = COALESCE($3, customer_email),
 			customer_id      = COALESCE($4, customer_id),
-			service_type     = COALESCE($5, service_type),
-			scheduled_for    = COALESCE($6, scheduled_for),
-			duration_minutes = COALESCE($7, duration_minutes),
-			address          = COALESCE($8, address),
-			area             = COALESCE($9, area),
-			assigned_cleaner = COALESCE($10, assigned_cleaner),
-			status           = COALESCE($11, status),
-			notes            = COALESCE($12, notes),
-			is_recurring     = COALESCE($13, is_recurring),
-			recurrence       = CASE WHEN $14::text = '' THEN NULL ELSE COALESCE($14, recurrence) END
+			site_id          = CASE WHEN $5 THEN NULL WHEN $6::bigint IS NULL THEN site_id ELSE $6 END,
+			contract_id      = CASE WHEN $7 THEN NULL WHEN $8::bigint IS NULL THEN contract_id ELSE $8 END,
+			service_type     = COALESCE($9, service_type),
+			scheduled_for    = COALESCE($10, scheduled_for),
+			duration_minutes = COALESCE($11, duration_minutes),
+			address          = COALESCE($12, address),
+			area             = COALESCE($13, area),
+			assigned_cleaner = COALESCE($14, assigned_cleaner),
+			status           = COALESCE($15, status),
+			notes            = COALESCE($16, notes),
+			is_recurring     = COALESCE($17, is_recurring),
+			recurrence       = CASE WHEN $18::text = '' THEN NULL ELSE COALESCE($18, recurrence) END
 		 WHERE id = $1
 		 RETURNING `+bookingColumns,
-		id, p.CustomerName, p.CustomerEmail, p.CustomerID, serviceType, p.ScheduledFor, p.DurationMinutes,
+		id, p.CustomerName, p.CustomerEmail, p.CustomerID, p.ClearSiteID, p.SiteID, p.ClearContractID, p.ContractID,
+		serviceType, p.ScheduledFor, p.DurationMinutes,
 		p.Address, p.Area, p.AssignedCleaner, status, p.Notes, p.IsRecurring, p.Recurrence))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Booking{}, ErrNotFound
@@ -620,10 +661,15 @@ func (r *Repository) Accept(ctx context.Context, bookingID int64, cleaner Cleane
 
 // DueRecurring returns active recurring bookings whose scheduled time has
 // passed the cutoff. Each is a candidate for generating the next occurrence.
+// Bounded + ordered so a large backlog never loads the whole table at once.
+// Multi-instance safety comes from RollForwardRecurring's
+// uq_bookings_series_slot unique index: only one instance wins the insert,
+// the loser retires its source as a duplicate.
 func (r *Repository) DueRecurring(ctx context.Context, cutoff time.Time) ([]Booking, error) {
 	rows, err := r.pool.Query(ctx,
 		`SELECT `+bookingColumns+` FROM bookings
-		 WHERE is_recurring = true AND status <> 'cancelled' AND scheduled_for < $1`, cutoff)
+		 WHERE is_recurring = true AND status <> 'cancelled' AND scheduled_for < $1
+		 ORDER BY scheduled_for ASC LIMIT 200`, cutoff)
 	if err != nil {
 		return nil, fmt.Errorf("query due recurring bookings: %w", err)
 	}

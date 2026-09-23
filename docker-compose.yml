@@ -50,11 +50,19 @@ services:
       SEED_DISPATCH_NAME: ${SEED_DISPATCH_NAME:-Dispatcher}
       RUN_MIGRATIONS: ${RUN_MIGRATIONS:-true}
       MIGRATIONS_DIR: ${MIGRATIONS_DIR:-migrations}
+      # Private proof-of-work photo storage (served only to authenticated staff).
+      UPLOAD_DIR: ${UPLOAD_DIR:-/app/uploads}
+      MAX_UPLOAD_MB: ${MAX_UPLOAD_MB:-8}
       RATE_LIMIT_RPM: ${RATE_LIMIT_RPM:-300}
       LOGIN_RATE_LIMIT_RPM: ${LOGIN_RATE_LIMIT_RPM:-20}
       # Comma-separated proxy IPs allowed to set X-Forwarded-For.
       # Defaults to the Caddy container's static IP (see networks below).
       TRUSTED_PROXY_IPS: ${TRUSTED_PROXY_IPS:-172.30.0.20}
+      # LINE OA integration (optional). Empty = webhook answers 503, app unchanged.
+      # Set on the deploy server (public HTTPS required for LINE webhooks).
+      LINE_CHANNEL_SECRET: ${LINE_CHANNEL_SECRET:-}
+      LINE_CHANNEL_ACCESS_TOKEN: ${LINE_CHANNEL_ACCESS_TOKEN:-}
+      LINE_AUTO_REPLY: ${LINE_AUTO_REPLY:-}
       REQUEST_TIMEOUT: ${REQUEST_TIMEOUT:-30s}
       READ_HEADER_TIMEOUT: ${READ_HEADER_TIMEOUT:-10s}
       READ_TIMEOUT: ${READ_TIMEOUT:-15s}
@@ -63,8 +71,10 @@ services:
       READY_TIMEOUT: ${READY_TIMEOUT:-2s}
       SHUTDOWN_TIMEOUT: ${SHUTDOWN_TIMEOUT:-10s}
     ports:
-      # Loopback only for local development; production traffic goes via Caddy.
-      - "127.0.0.1:${API_PORT:?API_PORT is required}:${API_INTERNAL_PORT:?API_INTERNAL_PORT is required}"
+      # Exposed to LAN so team staff can use the host's IP. Keep Postgres/MailHog on loopback.
+      - "${API_PORT:?API_PORT is required}:${API_INTERNAL_PORT:?API_INTERNAL_PORT is required}"
+    volumes:
+      - odysight_uploads:/app/uploads
     working_dir: /app
     networks:
       - odysight
@@ -95,7 +105,8 @@ services:
       # Server-side only: used by the SSR middleware to validate session cookies.
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
     ports:
-      - "127.0.0.1:${WEB_PORT:?WEB_PORT is required}:${WEB_INTERNAL_PORT:?WEB_INTERNAL_PORT is required}"
+      # Exposed to LAN so team staff can use the host's IP.
+      - "${WEB_PORT:?WEB_PORT is required}:${WEB_INTERNAL_PORT:?WEB_INTERNAL_PORT is required}"
     networks:
       - odysight
     healthcheck:
@@ -190,6 +201,7 @@ networks:
 
 volumes:
   odysight_pgdata:
+  odysight_uploads:
   odysight_backups:
   caddy_data:
   caddy_config:

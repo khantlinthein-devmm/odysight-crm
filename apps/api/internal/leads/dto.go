@@ -12,26 +12,30 @@ import (
 // DTOs use camelCase to match the frontend contract.
 
 type LeadDTO struct {
-	ID        int64     `json:"id"`
-	FirstName string    `json:"firstName"`
-	LastName  string    `json:"lastName"`
-	Email     string    `json:"email"`
-	Phone     string    `json:"phone"`
-	Status    string    `json:"status"`
-	Source    string    `json:"source"`
-	CreatedAt time.Time `json:"createdAt"`
+	ID             int64     `json:"id"`
+	FirstName      string    `json:"firstName"`
+	LastName       string    `json:"lastName"`
+	Email          string    `json:"email"`
+	Phone          string    `json:"phone"`
+	Status         string    `json:"status"`
+	Source         string    `json:"source"`
+	LineUserID     string    `json:"lineUserId"`
+	LinePictureURL string    `json:"linePictureUrl"`
+	CreatedAt      time.Time `json:"createdAt"`
 }
 
 func toDTO(l Lead) LeadDTO {
 	return LeadDTO{
-		ID:        l.ID,
-		FirstName: l.FirstName,
-		LastName:  l.LastName,
-		Email:     l.Email,
-		Phone:     l.Phone,
-		Status:    string(l.Status),
-		Source:    string(l.Source),
-		CreatedAt: l.CreatedAt,
+		ID:             l.ID,
+		FirstName:      l.FirstName,
+		LastName:       l.LastName,
+		Email:          l.Email,
+		Phone:          l.Phone,
+		Status:         string(l.Status),
+		Source:         string(l.Source),
+		LineUserID:     l.LineUserID,
+		LinePictureURL: l.LinePictureURL,
+		CreatedAt:      l.CreatedAt,
 	}
 }
 

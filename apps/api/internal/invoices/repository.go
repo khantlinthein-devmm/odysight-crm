@@ -31,6 +31,7 @@ func NewRepository(pool *pgxpool.Pool) *Repository {
 
 const invoiceColumns = `id, invoice_number, booking_id, booking_number, customer_name, customer_email, address,
 	service_type, service_name, subtotal, tax_rate, tax_amount, total, currency, status,
+	contract_id, idempotency_key, billing_period_start, billing_period_end,
 	issued_at, paid_at, created_at, updated_at`
 
 func scanInvoice(row pgx.Row) (Invoice, error) {
@@ -38,7 +39,8 @@ func scanInvoice(row pgx.Row) (Invoice, error) {
 	err := row.Scan(&inv.ID, &inv.InvoiceNumber, &inv.BookingID, &inv.BookingNumber,
 		&inv.CustomerName, &inv.CustomerEmail, &inv.Address, &inv.ServiceType, &inv.ServiceName,
 		&inv.Subtotal, &inv.TaxRate, &inv.TaxAmount, &inv.Total, &inv.Currency,
-		&inv.Status, &inv.IssuedAt, &inv.PaidAt, &inv.CreatedAt, &inv.UpdatedAt)
+		&inv.Status, &inv.ContractID, &inv.IdempotencyKey, &inv.BillingPeriodStart, &inv.BillingPeriodEnd,
+		&inv.IssuedAt, &inv.PaidAt, &inv.CreatedAt, &inv.UpdatedAt)
 	return inv, err
 }
 
@@ -131,20 +133,39 @@ func (r *Repository) BookingForInvoice(ctx context.Context, bookingID int64) (Bo
 	return b, nil
 }
 
+// GetByIdempotencyKey returns the invoice previously created for a contract
+// billing key, letting retried scheduler runs return the existing row.
+func (r *Repository) GetByIdempotencyKey(ctx context.Context, key string) (Invoice, error) {
+	inv, err := scanInvoice(r.pool.QueryRow(ctx,
+		`SELECT `+invoiceColumns+` FROM invoices WHERE idempotency_key = $1`, key))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Invoice{}, ErrNotFound
+	}
+	if err != nil {
+		return Invoice{}, fmt.Errorf("get invoice by idempotency key: %w", err)
+	}
+	return inv, nil
+}
+
 // Create inserts the invoice; the number comes from the shared sequence.
 func (r *Repository) Create(ctx context.Context, inv Invoice) (Invoice, error) {
 	invNumberExpr := `'INV-' || to_char(now(), 'YYYY') || '-' || lpad(nextval('invoice_seq')::text, 4, '0')`
 	created, err := scanInvoice(r.pool.QueryRow(ctx,
 		`INSERT INTO invoices (invoice_number, booking_id, booking_number, customer_name, customer_email, address,
-			service_type, service_name, subtotal, tax_rate, tax_amount, total, currency, status)
-		 VALUES (`+invNumberExpr+`, $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+			service_type, service_name, subtotal, tax_rate, tax_amount, total, currency, status,
+			contract_id, idempotency_key, billing_period_start, billing_period_end)
+		 VALUES (`+invNumberExpr+`, $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
 		 RETURNING `+invoiceColumns,
 		inv.BookingID, inv.BookingNumber, inv.CustomerName, inv.CustomerEmail, inv.Address,
 		inv.ServiceType, inv.ServiceName, inv.Subtotal, inv.TaxRate, inv.TaxAmount,
-		inv.Total, inv.Currency, inv.Status))
+		inv.Total, inv.Currency, inv.Status,
+		inv.ContractID, inv.IdempotencyKey, inv.BillingPeriodStart, inv.BillingPeriodEnd))
 	if err != nil {
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+			if pgErr.ConstraintName == "uq_invoices_idempotency_key" {
+				return Invoice{}, fmt.Errorf("duplicate idempotency key")
+			}
 			return Invoice{}, ErrActiveInvoiceExists
 		}
 		return Invoice{}, fmt.Errorf("create invoice: %w", err)

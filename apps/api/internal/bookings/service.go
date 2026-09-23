@@ -56,6 +56,8 @@ func (s *Service) Create(ctx context.Context, req CreateBookingRequest) (Booking
 		CustomerName:    req.CustomerName,
 		CustomerEmail:   req.CustomerEmail,
 		CustomerID:      req.CustomerID,
+		SiteID:          req.SiteID,
+		ContractID:      req.ContractID,
 		ServiceType:     ServiceType(req.ServiceType),
 		ScheduledFor:    scheduledFor,
 		DurationMinutes: req.DurationMinutes,
@@ -71,6 +73,10 @@ func (s *Service) Create(ctx context.Context, req CreateBookingRequest) (Booking
 	if req.IsRecurring {
 		seriesID := newSeriesID()
 		b.SeriesID = &seriesID
+	}
+
+	if err := s.repo.ValidateSiteContract(ctx, b.CustomerID, b.SiteID, b.ContractID); err != nil {
+		return Booking{}, response.NewAPIError(422, err.Error())
 	}
 
 	created, err := s.repo.Create(ctx, b)
@@ -153,6 +159,18 @@ func (s *Service) Update(ctx context.Context, id int64, req UpdateBookingRequest
 	if req.CustomerID != nil {
 		patch.CustomerID = req.CustomerID
 	}
+	if req.SiteID != nil {
+		patch.SiteID = req.SiteID
+	}
+	if req.ContractID != nil {
+		patch.ContractID = req.ContractID
+	}
+	if req.ClearSiteID != nil && *req.ClearSiteID {
+		patch.ClearSiteID = true
+	}
+	if req.ClearContractID != nil && *req.ClearContractID {
+		patch.ClearContractID = true
+	}
 	if req.ServiceType != nil {
 		st := ServiceType(*req.ServiceType)
 		patch.ServiceType = &st
@@ -208,29 +226,54 @@ func (s *Service) Update(ctx context.Context, id int64, req UpdateBookingRequest
 	// Resolve the resulting schedule + cleaners and surface conflicts BEFORE
 	// persisting anything, so a rejected change leaves no partial write behind.
 	changedSchedule := req.ScheduledFor != nil || req.DurationMinutes != nil
-	if req.CleanerIDs != nil || changedSchedule {
+	changedLinks := req.SiteID != nil || req.ContractID != nil || req.CustomerID != nil ||
+		req.ClearSiteID != nil || req.ClearContractID != nil
+	if req.CleanerIDs != nil || changedSchedule || changedLinks {
 		current, err := s.repo.GetByID(ctx, id)
 		if err != nil {
 			return Booking{}, mapRepoError(err)
 		}
-		start := current.ScheduledFor
-		duration := current.DurationMinutes
-		if req.ScheduledFor != nil {
-			t, err := time.Parse(time.RFC3339, *req.ScheduledFor)
-			if err != nil {
-				return Booking{}, response.NewAPIError(400, "scheduledFor must be a valid RFC3339 timestamp")
+		effCustomer := current.CustomerID
+		if req.CustomerID != nil {
+			effCustomer = req.CustomerID
+		}
+		effSite := current.SiteID
+		if req.SiteID != nil {
+			effSite = req.SiteID
+		}
+		if req.ClearSiteID != nil && *req.ClearSiteID {
+			effSite = nil
+		}
+		effContract := current.ContractID
+		if req.ContractID != nil {
+			effContract = req.ContractID
+		}
+		if req.ClearContractID != nil && *req.ClearContractID {
+			effContract = nil
+		}
+		if err := s.repo.ValidateSiteContract(ctx, effCustomer, effSite, effContract); err != nil {
+			return Booking{}, response.NewAPIError(422, err.Error())
+		}
+		if req.CleanerIDs != nil || changedSchedule {
+			start := current.ScheduledFor
+			duration := current.DurationMinutes
+			if req.ScheduledFor != nil {
+				t, err := time.Parse(time.RFC3339, *req.ScheduledFor)
+				if err != nil {
+					return Booking{}, response.NewAPIError(400, "scheduledFor must be a valid RFC3339 timestamp")
+				}
+				start = t
 			}
-			start = t
-		}
-		if req.DurationMinutes != nil {
-			duration = *req.DurationMinutes
-		}
-		checking := cleanerIDs(current.Cleaners)
-		if req.CleanerIDs != nil {
-			checking = cleanerIDs(patch.Cleaners)
-		}
-		if err := s.assertNoConflicts(ctx, checking, start, start.Add(time.Duration(duration)*time.Minute), id); err != nil {
-			return Booking{}, err
+			if req.DurationMinutes != nil {
+				duration = *req.DurationMinutes
+			}
+			checking := cleanerIDs(current.Cleaners)
+			if req.CleanerIDs != nil {
+				checking = cleanerIDs(patch.Cleaners)
+			}
+			if err := s.assertNoConflicts(ctx, checking, start, start.Add(time.Duration(duration)*time.Minute), id); err != nil {
+				return Booking{}, err
+			}
 		}
 	}
 

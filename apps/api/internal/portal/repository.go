@@ -2,9 +2,11 @@ package portal
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -163,4 +165,146 @@ func (r *Repository) EnsureBookingOwned(ctx context.Context, customerID, booking
 		return "", fmt.Errorf("check booking %d ownership: %w", bookingID, err)
 	}
 	return status, nil
+}
+
+// ListSites returns the customer's own service locations, default first.
+func (r *Repository) ListSites(ctx context.Context, customerID int64) ([]Site, error) {
+	rows, err := r.pool.Query(ctx,
+		`SELECT id, name, address, is_default FROM sites
+		 WHERE customer_id = $1 AND status = 'active'
+		 ORDER BY is_default DESC, created_at DESC`, customerID)
+	if err != nil {
+		return nil, fmt.Errorf("query portal sites: %w", err)
+	}
+	defer rows.Close()
+	items := []Site{}
+	for rows.Next() {
+		var s Site
+		if err := rows.Scan(&s.ID, &s.Name, &s.Address, &s.IsDefault); err != nil {
+			return nil, fmt.Errorf("scan portal site: %w", err)
+		}
+		items = append(items, s)
+	}
+	return items, rows.Err()
+}
+
+// ActiveServices reads the workspace service catalog from settings and
+// returns only active entries. Falls back to empty (never errors the portal)
+// when the settings row is missing.
+func (r *Repository) ActiveServices(ctx context.Context) ([]ServiceItem, error) {
+	var raw []byte
+	err := r.pool.QueryRow(ctx, `SELECT value FROM settings WHERE key = 'services'`).Scan(&raw)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return []ServiceItem{}, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("query portal services: %w", err)
+	}
+	var all []ServiceItem
+	if err := json.Unmarshal(raw, &all); err != nil {
+		return nil, fmt.Errorf("decode portal services: %w", err)
+	}
+	out := []ServiceItem{}
+	for _, s := range all {
+		if s.Active {
+			out = append(out, s)
+		}
+	}
+	return out, nil
+}
+
+// portalCustomerBookingInfo loads the snapshot fields needed to create a
+// customer-owned booking.
+type portalCustomerBookingInfo struct {
+	Name    string
+	Email   string
+	Address string
+	Area    string
+}
+
+// CreatePortalBooking inserts a pending booking owned by the given customer.
+// Site ownership is enforced: a site belonging to another customer is
+// rejected. Address falls back to the site address, then the customer
+// address, so one-time portal bookings work without a site.
+func (r *Repository) CreatePortalBooking(ctx context.Context, customerID int64, req CreateBookingRequest, scheduledFor time.Time, duration int) (Booking, error) {
+	var info portalCustomerBookingInfo
+	err := r.pool.QueryRow(ctx,
+		`SELECT trim(first_name || ' ' || last_name), email, address, area FROM customers WHERE id = $1`,
+		customerID).Scan(&info.Name, &info.Email, &info.Address, &info.Area)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Booking{}, ErrNotFound
+	}
+	if err != nil {
+		return Booking{}, fmt.Errorf("load portal customer %d: %w", customerID, err)
+	}
+	address := strings.TrimSpace(req.Address)
+	var siteID *int64
+	if req.SiteID != nil {
+		var owner int64
+		var siteAddr string
+		err := r.pool.QueryRow(ctx, `SELECT customer_id, address FROM sites WHERE id = $1`, *req.SiteID).
+			Scan(&owner, &siteAddr)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return Booking{}, fmt.Errorf("site not found")
+		}
+		if err != nil {
+			return Booking{}, fmt.Errorf("check portal site: %w", err)
+		}
+		if owner != customerID {
+			return Booking{}, fmt.Errorf("site does not belong to this customer")
+		}
+		siteID = req.SiteID
+		if address == "" {
+			address = siteAddr
+		}
+	}
+	if address == "" {
+		address = info.Address
+	}
+	temp := "TMP-" + fmt.Sprintf("%d", time.Now().UnixNano())
+	var id int64
+	var bookingNumber string
+	var created time.Time
+	err = r.pool.QueryRow(ctx,
+		`INSERT INTO bookings (booking_number, customer_name, customer_email, customer_id, site_id,
+		 service_type, scheduled_for, duration_minutes, address, area, assigned_cleaner, status, notes)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, '', 'pending', $11)
+		 RETURNING id, booking_number, scheduled_for`,
+		temp, info.Name, info.Email, customerID, siteID,
+		strings.TrimSpace(req.ServiceType), scheduledFor, duration, address, info.Area, strings.TrimSpace(req.Notes),
+	).Scan(&id, &bookingNumber, &created)
+	if err != nil {
+		return Booking{}, fmt.Errorf("create portal booking: %w", err)
+	}
+	// Replace the temp number with the human-readable BK-YYYY-NNNN value.
+	err = r.pool.QueryRow(ctx,
+		`UPDATE bookings SET booking_number = 'BK-' || to_char(created_at,'YYYY') || '-' || lpad(id::text,4,'0')
+		 WHERE id = $1
+		 RETURNING booking_number, scheduled_for, duration_minutes, address, status, notes`,
+		id).Scan(&bookingNumber, &created, &duration, &address, new(string), new(string))
+	// Re-read the full row for a clean response (cheap, single row).
+	var b Booking
+	err = r.pool.QueryRow(ctx,
+		`SELECT id, booking_number, service_type, scheduled_for, duration_minutes, address,
+		 COALESCE(assigned_cleaner, ''), status, notes FROM bookings WHERE id = $1`, id).
+		Scan(&b.ID, &b.BookingNumber, &b.ServiceType, &b.ScheduledFor, &b.DurationMinutes,
+			&b.Address, &b.Assignee, &b.Status, &b.Notes)
+	if err != nil {
+		return Booking{}, fmt.Errorf("reload portal booking %d: %w", id, err)
+	}
+	return b, nil
+}
+
+// CancelPortalBooking cancels the customer's own pending/confirmed booking.
+func (r *Repository) CancelPortalBooking(ctx context.Context, customerID, bookingID int64) error {
+	tag, err := r.pool.Exec(ctx,
+		`UPDATE bookings SET status = 'cancelled' WHERE id = $1 AND customer_id = $2
+		 AND status IN ('pending', 'confirmed')`, bookingID, customerID)
+	if err != nil {
+		return fmt.Errorf("cancel portal booking %d: %w", bookingID, err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return nil
 }

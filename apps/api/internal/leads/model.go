@@ -41,12 +41,14 @@ func (s Source) Valid() bool {
 }
 
 type Lead struct {
-	ID        int64
-	FirstName string
-	LastName  string
-	Email     string
-	Phone     string
-	Status    Status
-	Source    Source
-	CreatedAt time.Time
+	ID             int64
+	FirstName      string
+	LastName       string
+	Email          string
+	Phone          string
+	Status         Status
+	Source         Source
+	LineUserID     string
+	LinePictureURL string
+	CreatedAt      time.Time
 }

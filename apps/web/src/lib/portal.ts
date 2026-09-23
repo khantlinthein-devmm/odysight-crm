@@ -27,6 +27,30 @@ export interface PortalFeedback {
   comment: string;
 }
 
+export interface PortalSite {
+  id: number;
+  name: string;
+  address: string;
+  isDefault: boolean;
+}
+
+export interface PortalService {
+  id: string;
+  name: string;
+  durationMinutes: number;
+  basePrice: number;
+  active: boolean;
+}
+
+export interface PortalCreateBookingInput {
+  serviceType: string;
+  scheduledFor: string;
+  durationMinutes?: number;
+  siteId?: number | null;
+  address?: string;
+  notes?: string;
+}
+
 interface PortalLoginResponse {
   token: string;
   customer: PortalCustomer;
@@ -172,4 +196,67 @@ export async function portalSubmitFeedback(
       body: JSON.stringify({ rating: input.rating, comment: input.comment }),
     },
   );
+}
+
+export async function portalSites(): Promise<PortalSite[]> {
+  if (USE_MOCKS) {
+    await delay(200);
+    return [
+      { id: 501, name: "Default Site", address: "Sukhumvit 38, Bangkok", isDefault: true },
+      { id: 502, name: "Silom Branch", address: "Silom 5, Bangkok", isDefault: false },
+    ];
+  }
+  const json = await apiFetch<PortalSite[]>("/api/v1/portal/sites");
+  return Array.isArray(json) ? json : [];
+}
+
+export async function portalServices(): Promise<PortalService[]> {
+  if (USE_MOCKS) {
+    await delay(200);
+    return [
+      { id: "house_cleaning", name: "House Cleaning", durationMinutes: 180, basePrice: 1500, active: true },
+      { id: "condo_cleaning", name: "Condo Cleaning", durationMinutes: 120, basePrice: 1200, active: true },
+      { id: "deep_cleaning", name: "Deep Cleaning", durationMinutes: 240, basePrice: 2500, active: true },
+      { id: "office_cleaning", name: "Office Cleaning", durationMinutes: 210, basePrice: 2200, active: true },
+    ];
+  }
+  const json = await apiFetch<PortalService[]>("/api/v1/portal/services");
+  return Array.isArray(json) ? json : [];
+}
+
+export async function portalCreateBooking(
+  input: PortalCreateBookingInput,
+): Promise<PortalBooking> {
+  if (USE_MOCKS) {
+    await delay(400);
+    const booking: PortalBooking = {
+      id: Math.floor(Math.random() * 10000) + 300,
+      bookingNumber: `BK-2026-${String(Math.floor(Math.random() * 9000) + 1000)}`,
+      serviceType: input.serviceType,
+      scheduledFor: input.scheduledFor,
+      durationMinutes: input.durationMinutes ?? 120,
+      address: input.address || "Sukhumvit 38, Bangkok",
+      assignee: "",
+      status: "pending",
+      notes: input.notes ?? "",
+    };
+    mockBookings.unshift(booking);
+    return { ...booking };
+  }
+  return apiFetch<PortalBooking>("/api/v1/portal/bookings", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+export async function portalCancelBooking(bookingId: number): Promise<void> {
+  if (USE_MOCKS) {
+    await delay(300);
+    const b = mockBookings.find((x) => x.id === bookingId);
+    if (b) b.status = "cancelled";
+    return;
+  }
+  await apiFetch<{ status: string }>(`/api/v1/portal/bookings/${bookingId}/cancel`, {
+    method: "POST",
+  });
 }

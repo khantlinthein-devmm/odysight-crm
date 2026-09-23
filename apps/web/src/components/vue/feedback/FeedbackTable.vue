@@ -19,7 +19,7 @@ const loading = ref(true);
 const forbidden = ref(false);
 const search = ref("");
 const page = ref(1);
-const pageSize = 8;
+const pageSize = 10;
 const pendingDelete = ref<Feedback | null>(null);
 const deleting = ref(false);
 

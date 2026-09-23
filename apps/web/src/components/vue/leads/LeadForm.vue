@@ -23,8 +23,8 @@ const { container } = useModalA11y(() => emit("cancel"));
 const statusOptions: { value: LeadStatus; label: string }[] = [
   { value: "new", label: "New" },
   { value: "contacted", label: "Contacted" },
-  { value: "qualified", label: "Qualified" },
-  { value: "proposal", label: "Proposal" },
+  { value: "quote_sent", label: "Quote Sent" },
+  { value: "booked", label: "Booked" },
   { value: "won", label: "Won" },
   { value: "lost", label: "Lost" },
 ];
@@ -32,7 +32,8 @@ const statusOptions: { value: LeadStatus; label: string }[] = [
 const sourceOptions: { value: LeadSource; label: string }[] = [
   { value: "website", label: "Website" },
   { value: "referral", label: "Referral" },
-  { value: "social_media", label: "Social Media" },
+  { value: "line", label: "LINE" },
+  { value: "facebook", label: "Facebook" },
   { value: "walk_in", label: "Walk-in" },
   { value: "campaign", label: "Campaign" },
 ];
@@ -53,6 +54,8 @@ const errors = computed(() => {
   if (!form.firstName.trim()) e.firstName = "First name is required";
   if (form.email.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email))
     e.email = "Email is invalid";
+  if (!/^[+\d][\d\s\-.()]{5,20}$/.test(form.phone.trim()))
+    e.phone = "A valid phone is required";
   return e;
 });
 
@@ -166,9 +169,15 @@ function inputClassFor(field: keyof CreateLeadInput) {
             <input
               id="phone"
               v-model="form.phone"
-              :class="inputClass"
-              placeholder="+1 555-0100"
+              :class="inputClassFor('phone')"
+              placeholder="+66 81 234 5678"
             />
+            <p
+              v-if="submitted && errors.phone"
+              class="mt-1 text-xs text-red-600"
+            >
+              {{ errors.phone }}
+            </p>
           </div>
 
           <div>

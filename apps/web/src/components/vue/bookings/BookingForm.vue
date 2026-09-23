@@ -4,6 +4,8 @@ import { useModalA11y } from "../ui/useModalA11y";
 import { getCustomers, type Customer } from "../../../lib/customers";
 import type { Cleaner } from "../../../lib/cleaners";
 import { getCleaners } from "../../../lib/cleaners";
+import { getSites, type Site } from "../../../lib/sites";
+import { getContracts, type Contract } from "../../../lib/contracts";
 import type {
   Booking,
   BookingStatus,
@@ -102,6 +104,61 @@ const cleanersLoading = ref(true);
 const customers = ref<Customer[]>([]);
 const customersLoading = ref(false);
 const selectedCustomerId = ref<number | null>(props.booking?.customerId ?? null);
+const sites = ref<Site[]>([]);
+const sitesLoading = ref(false);
+const selectedSiteId = ref<number | null>(props.booking?.siteId ?? null);
+const contracts = ref<Contract[]>([]);
+const selectedContractId = ref<number | null>(props.booking?.contractId ?? null);
+
+async function loadCommercial(customerId: number | null) {
+  sites.value = [];
+  contracts.value = [];
+  selectedSiteId.value = null;
+  selectedContractId.value = null;
+  if (!customerId) return;
+  sitesLoading.value = true;
+  try {
+    sites.value = await getSites({ customerId, limit: 100 });
+    if (props.booking?.siteId && sites.value.some((s) => s.id === props.booking!.siteId)) {
+      selectedSiteId.value = props.booking.siteId;
+      form.siteId = props.booking.siteId;
+    } else if (!props.booking) {
+      const def = sites.value.find((s) => s.isDefault) ?? sites.value[0];
+      if (def) {
+        selectedSiteId.value = def.id;
+        form.siteId = def.id;
+        if (!form.address) form.address = def.address;
+      }
+    }
+  } catch {
+    /* site picker is optional: bookings work with free-text address */
+  } finally {
+    sitesLoading.value = false;
+  }
+  try {
+    contracts.value = await getContracts({ customerId, limit: 100 });
+    if (props.booking?.contractId && contracts.value.some((c) => c.id === props.booking!.contractId)) {
+      selectedContractId.value = props.booking.contractId;
+      form.contractId = props.booking.contractId;
+    }
+  } catch {
+    /* contracts are optional */
+  }
+}
+
+function applySite(siteId: number | string) {
+  const raw = typeof siteId === "string" ? Number(siteId) : siteId;
+  selectedSiteId.value = raw || null;
+  form.siteId = selectedSiteId.value;
+  const site = sites.value.find((s) => s.id === raw);
+  if (site && !form.address) form.address = site.address;
+}
+
+function applyContract(contractId: number | string) {
+  const raw = typeof contractId === "string" ? Number(contractId) : contractId;
+  selectedContractId.value = raw || null;
+  form.contractId = selectedContractId.value;
+}
 
 function customerFullName(c: Customer): string {
   return `${c.firstName} ${c.lastName}`.trim();
@@ -112,10 +169,14 @@ function applyCustomer(customerId: number | string) {
   selectedCustomerId.value = raw || null;
   form.customerId = selectedCustomerId.value;
   const customer = customers.value.find((c) => c.id === raw);
-  if (!customer) return;
+  if (!customer) {
+    void loadCommercial(selectedCustomerId.value);
+    return;
+  }
   form.customerName = customerFullName(customer);
   form.customerEmail = customer.email;
   form.address = form.address || customer.address || "";
+  void loadCommercial(selectedCustomerId.value);
 }
 
 onMounted(async () => {
@@ -150,6 +211,7 @@ onMounted(async () => {
   } finally {
     cleanersLoading.value = false;
   }
+  if (selectedCustomerId.value) await loadCommercial(selectedCustomerId.value);
 });
 
 // Pickers derive cleanerIds: first = primary, rest = crew.
@@ -192,6 +254,8 @@ const form = reactive<CreateBookingInput>({
   customerName: props.booking?.customerName ?? "",
   customerEmail: props.booking?.customerEmail ?? "",
   customerId: props.booking?.customerId ?? null,
+  siteId: props.booking?.siteId ?? null,
+  contractId: props.booking?.contractId ?? null,
   serviceType: props.booking?.serviceType ?? "house_cleaning",
   scheduledFor: props.booking?.scheduledFor
     ? toDatetimeLocal(props.booking.scheduledFor)
@@ -310,6 +374,45 @@ function inputClassFor(field: keyof CreateBookingInput) {
               Pick a customer to pre-fill the name, or leave empty to enter
               manually.
             </p>
+          </div>
+
+          <div v-if="selectedCustomerId">
+            <label
+              class="mb-1 block text-sm font-medium text-gray-700"
+              for="b-siteId"
+              >Site <span class="font-normal text-gray-400">(optional)</span></label
+            >
+            <select
+              id="b-siteId"
+              :value="selectedSiteId ?? ''"
+              :disabled="sitesLoading"
+              @change="applySite(($event.target as HTMLSelectElement).value)"
+              :class="inputClass"
+            >
+              <option value="">No specific site</option>
+              <option v-for="s in sites" :key="s.id" :value="s.id">
+                {{ s.name }}{{ s.isDefault ? " (default)" : "" }}
+              </option>
+            </select>
+          </div>
+
+          <div v-if="selectedCustomerId && contracts.length > 0">
+            <label
+              class="mb-1 block text-sm font-medium text-gray-700"
+              for="b-contractId"
+              >Contract <span class="font-normal text-gray-400">(optional)</span></label
+            >
+            <select
+              id="b-contractId"
+              :value="selectedContractId ?? ''"
+              @change="applyContract(($event.target as HTMLSelectElement).value)"
+              :class="inputClass"
+            >
+              <option value="">No contract</option>
+              <option v-for="c in contracts" :key="c.id" :value="c.id">
+                {{ c.contractNumber }} — {{ c.status }}
+              </option>
+            </select>
           </div>
 
           <div class="sm:col-span-2">

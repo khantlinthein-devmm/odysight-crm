@@ -20,11 +20,11 @@ func NewRepository(pool *pgxpool.Pool) *Repository {
 	return &Repository{pool: pool}
 }
 
-const leadColumns = `id, first_name, last_name, email, phone, status, source, created_at`
+const leadColumns = `id, first_name, last_name, email, phone, status, source, line_user_id, line_picture_url, created_at`
 
 func scanLead(row pgx.Row) (Lead, error) {
 	var l Lead
-	err := row.Scan(&l.ID, &l.FirstName, &l.LastName, &l.Email, &l.Phone, &l.Status, &l.Source, &l.CreatedAt)
+	err := row.Scan(&l.ID, &l.FirstName, &l.LastName, &l.Email, &l.Phone, &l.Status, &l.Source, &l.LineUserID, &l.LinePictureURL, &l.CreatedAt)
 	return l, err
 }
 
@@ -101,14 +101,68 @@ func (r *Repository) GetByID(ctx context.Context, id int64) (Lead, error) {
 
 func (r *Repository) Create(ctx context.Context, l Lead) (Lead, error) {
 	created, err := scanLead(r.pool.QueryRow(ctx,
-		`INSERT INTO leads (first_name, last_name, email, phone, status, source)
-		 VALUES ($1, $2, $3, $4, $5, $6)
+		`INSERT INTO leads (first_name, last_name, email, phone, status, source, line_user_id, line_picture_url)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 		 RETURNING `+leadColumns,
-		l.FirstName, l.LastName, l.Email, l.Phone, l.Status, l.Source))
+		l.FirstName, l.LastName, l.Email, l.Phone, l.Status, l.Source, l.LineUserID, l.LinePictureURL))
 	if err != nil {
 		return Lead{}, fmt.Errorf("create lead: %w", err)
 	}
 	return created, nil
+}
+
+// FindByLineUserID returns the lead linked to a LINE user, if any.
+func (r *Repository) FindByLineUserID(ctx context.Context, lineUserID string) (Lead, error) {
+	l, err := scanLead(r.pool.QueryRow(ctx,
+		`SELECT `+leadColumns+` FROM leads WHERE line_user_id = $1`, lineUserID))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Lead{}, ErrNotFound
+	}
+	if err != nil {
+		return Lead{}, fmt.Errorf("find lead by line user: %w", err)
+	}
+	return l, nil
+}
+
+// CreateLineLead inserts a LINE-sourced lead idempotently: concurrent webhook
+// deliveries for the same LINE user collapse onto the partial unique index
+// (idx_leads_line_user) and the existing row is returned.
+func (r *Repository) CreateLineLead(ctx context.Context, l Lead) (Lead, error) {
+	created, err := scanLead(r.pool.QueryRow(ctx,
+		`INSERT INTO leads (first_name, last_name, email, phone, status, source, line_user_id, line_picture_url)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+		 ON CONFLICT (line_user_id) WHERE line_user_id <> '' DO NOTHING
+		 RETURNING `+leadColumns,
+		l.FirstName, l.LastName, l.Email, l.Phone, l.Status, l.Source, l.LineUserID, l.LinePictureURL))
+	if err == nil {
+		return created, nil
+	}
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return Lead{}, fmt.Errorf("create line lead: %w", err)
+	}
+	// DO NOTHING skipped the insert: another delivery won the race.
+	existing, ferr := r.FindByLineUserID(ctx, l.LineUserID)
+	if ferr != nil {
+		return Lead{}, fmt.Errorf("create line lead conflict: %w", ferr)
+	}
+	return existing, nil
+}
+
+// RefreshLineIdentity updates the display name/picture when a known LINE user
+// re-follows or messages again with a changed profile.
+func (r *Repository) RefreshLineIdentity(ctx context.Context, id int64, firstName, lastName, pictureURL string) (Lead, error) {
+	updated, err := scanLead(r.pool.QueryRow(ctx,
+		`UPDATE leads SET first_name = $2, last_name = $3, line_picture_url = $4
+		 WHERE id = $1
+		 RETURNING `+leadColumns,
+		id, firstName, lastName, pictureURL))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Lead{}, ErrNotFound
+	}
+	if err != nil {
+		return Lead{}, fmt.Errorf("refresh line identity %d: %w", id, err)
+	}
+	return updated, nil
 }
 
 // Patch carries only the fields that should change; nil means "leave as is".

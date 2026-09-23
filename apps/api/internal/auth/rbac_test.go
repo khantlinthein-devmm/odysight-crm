@@ -57,6 +57,23 @@ func TestRoleBoundaries(t *testing.T) {
 		{RoleAccountant, PermInvoicesCreate, true},
 		{RoleDispatch, PermInvoicesRead, false},
 		{RoleCleaner, PermInvoicesRead, false},
+		{RoleSuperAdmin, PermSitesDelete, true},
+		{RoleAdmin, PermContractsDelete, true},
+		{RoleManager, PermSitesCreate, true},
+		{RoleManager, PermSitesDelete, false},
+		{RoleManager, PermContractsCreate, false},
+		{RoleManager, PermContractsRead, true},
+		{RoleManager, PermQuotesCreate, true},
+		{RoleManager, PermQuotesApprove, false},
+		{RoleAdmin, PermQuotesApprove, true},
+		{RoleDispatch, PermSitesRead, true},
+		{RoleDispatch, PermSitesCreate, false},
+		{RoleDispatch, PermContractsRead, false},
+		{RoleAccountant, PermContractsRead, true},
+		{RoleAccountant, PermQuotesApprove, false},
+		{RoleCleaner, PermChecklistsManage, true},
+		{RoleCleaner, PermContractsRead, false},
+		{RoleCleaner, PermSitesRead, true},
 	}
 	for _, tt := range tests {
 		if got := roleHasPermission(tt.role, tt.perm); got != tt.allowed {

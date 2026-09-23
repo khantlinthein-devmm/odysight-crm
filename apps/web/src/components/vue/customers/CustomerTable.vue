@@ -32,7 +32,7 @@ const loading = ref(true);
 const search = ref("");
 const statusFilter = ref<CustomerStatus | "">("");
 const page = ref(1);
-const pageSize = 5;
+const pageSize = 10;
 
 const showForm = ref(false);
 const editingCustomer = ref<Customer | undefined>(undefined);

@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"math"
 	"strings"
+	"time"
 
 	"github.com/odysight/crm/internal/notifications"
 	"github.com/odysight/crm/internal/settings"
@@ -70,9 +71,17 @@ func (s *Service) renderPDF(ctx context.Context, inv Invoice) ([]byte, error) {
 }
 
 // Create bills a completed booking, pricing it from the service catalog.
+// When req.IdempotencyKey is set, an existing invoice for that key is
+// returned instead of creating a duplicate (contract billing retries).
 func (s *Service) Create(ctx context.Context, req CreateInvoiceRequest) (Invoice, error) {
 	if err := req.Validate(); err != nil {
 		return Invoice{}, err
+	}
+
+	if req.IdempotencyKey != nil {
+		if existing, err := s.repo.GetByIdempotencyKey(ctx, *req.IdempotencyKey); err == nil {
+			return existing, nil
+		}
 	}
 
 	b, err := s.repo.BookingForInvoice(ctx, req.BookingID)
@@ -115,10 +124,28 @@ func (s *Service) Create(ctx context.Context, req CreateInvoiceRequest) (Invoice
 		Total:         round2(subtotal + taxAmount),
 		Currency:      currency,
 		Status:        StatusIssued,
+		ContractID:    req.ContractID,
+		IdempotencyKey: req.IdempotencyKey,
+	}
+	if req.BillingPeriodStart != nil {
+		if v, err := time.Parse("2006-01-02", strings.TrimSpace(*req.BillingPeriodStart)); err == nil {
+			inv.BillingPeriodStart = &v
+		}
+	}
+	if req.BillingPeriodEnd != nil {
+		if v, err := time.Parse("2006-01-02", strings.TrimSpace(*req.BillingPeriodEnd)); err == nil {
+			inv.BillingPeriodEnd = &v
+		}
 	}
 
 	created, err := s.repo.Create(ctx, inv)
 	if err != nil {
+		// A concurrent retry may have won the insert race: return the winner.
+		if req.IdempotencyKey != nil && strings.Contains(err.Error(), "duplicate idempotency key") {
+			if existing, gerr := s.repo.GetByIdempotencyKey(ctx, *req.IdempotencyKey); gerr == nil {
+				return existing, nil
+			}
+		}
 		return Invoice{}, mapRepoError(err)
 	}
 	s.deliver(ctx, created, "Invoice",

@@ -1,4 +1,5 @@
 import { ApiError, USE_MOCKS, apiFetch, delay, toQuery, unwrapPage, type Page } from "./api";
+import { OfflineQueued, enqueue, isOnline } from "./offline";
 
 export type BookingStatus =
   | "pending"
@@ -27,6 +28,8 @@ export interface Booking {
   customerName: string;
   customerEmail: string;
   customerId?: number | null;
+  siteId?: number | null;
+  contractId?: number | null;
   serviceType: ServiceType;
   scheduledFor: string;
   durationMinutes: number;
@@ -49,7 +52,10 @@ export type CreateBookingInput = Omit<
   cleanerIds?: number[];
 };
 
-export type UpdateBookingInput = Partial<CreateBookingInput>;
+export type UpdateBookingInput = Partial<CreateBookingInput> & {
+  clearSiteId?: boolean;
+  clearContractId?: boolean;
+};
 
 let mockId = 300;
 
@@ -266,6 +272,13 @@ export async function updateBooking(
     mockBookings[index] = booking;
     return clone(booking);
   }
+  if (!isOnline()) {
+    // Queued status/assignment edits replay as PATCH on reconnect. A 409
+    // (e.g. double-booked cleaner, reassigned job) becomes a dead-letter the
+    // user can review instead of a silent retry.
+    const entryId = await enqueue("booking.patch", { id, patch: input });
+    throw new OfflineQueued("booking.patch", entryId);
+  }
   return apiFetch<Booking>(`/api/v1/bookings/${id}`, {
     method: "PATCH",
     body: JSON.stringify(input),
@@ -281,4 +294,61 @@ export async function deleteBooking(id: number): Promise<void> {
     return;
   }
   await apiFetch<void>(`/api/v1/bookings/${id}`, { method: "DELETE" });
+}
+
+/**
+ * Cleaner first-tap-wins accept (POST /api/v1/bookings/:id/accept).
+ * The server resolves the cleaner's profile from the login. Offline it
+ * queues: a later 409 ("no longer available") becomes a dead-letter the
+ * cleaner can review instead of a silent retry.
+ */
+export async function acceptBooking(id: number): Promise<Booking> {
+  if (USE_MOCKS) {
+    await delay(400);
+    const booking = mockBookings.find((b) => b.id === id);
+    if (!booking) throw new ApiError(404, `Booking ${id} not found`);
+    if (booking.status !== "pending" || (booking.cleaners ?? []).length > 0) {
+      throw new ApiError(409, "booking is no longer available");
+    }
+    return clone(booking);
+  }
+  if (!isOnline()) {
+    const entryId = await enqueue("booking.accept", { id });
+    throw new OfflineQueued("booking.accept", entryId);
+  }
+  return apiFetch<Booking>(`/api/v1/bookings/${id}/accept`, {
+    method: "POST",
+    body: JSON.stringify({}),
+  });
+}
+
+export interface MyJobsIdentity {
+  email: string;
+  name: string;
+  cleanerProfileId?: number | null;
+}
+
+/**
+ * Pure field-list selector for the mobile "My Jobs" cards.
+ * Cleaners see their own upcoming jobs plus open (pending, unassigned) jobs
+ * they can tap Accept on; everyone else sees the same filtered list as the
+ * desktop table. Sorted soonest first.
+ */
+export function myJobs(list: Booking[], me: MyJobsIdentity): Booking[] {
+  const name = me.name.trim().toLowerCase();
+  const mine = (b: Booking): boolean => {
+    if (me.cleanerProfileId != null) {
+      if ((b.cleaners ?? []).some((c) => c.id === me.cleanerProfileId)) return true;
+    }
+    // Fallback: office often assigns by name string before profiles link up.
+    if (name && b.assignedCleaner.trim().toLowerCase() === name) return true;
+    return false;
+  };
+  const open = (b: Booking): boolean =>
+    b.status === "pending" && (b.cleaners ?? []).length === 0 && !b.assignedCleaner;
+  const active = (b: Booking): boolean =>
+    b.status === "confirmed" || b.status === "in_progress" || b.status === "pending";
+  return list
+    .filter((b) => active(b) && (mine(b) || open(b)))
+    .sort((a, b) => a.scheduledFor.localeCompare(b.scheduledFor));
 }

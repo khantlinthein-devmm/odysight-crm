@@ -39,6 +39,15 @@ type Config struct {
 	SeedDispatchEmail string
 	SeedDispatchPass  string
 	SeedDispatchName  string
+	// Private file storage for proof-of-work photos (never publicly served;
+	// downloads require an authenticated staff session).
+	UploadDir  string
+	MaxUploadMB int
+	// LINE OA integration (optional). When the channel secret is empty the
+	// webhook endpoint answers 503 and everything else runs unchanged.
+	LineChannelSecret      string
+	LineChannelAccessToken string
+	LineAutoReply          string
 }
 
 func Load() (*Config, error) {
@@ -68,6 +77,11 @@ func Load() (*Config, error) {
 		SeedDispatchEmail: os.Getenv("SEED_DISPATCH_EMAIL"),
 		SeedDispatchPass:  os.Getenv("SEED_DISPATCH_PASSWORD"),
 		SeedDispatchName:  getEnv("SEED_DISPATCH_NAME", "Dispatcher"),
+		UploadDir:         getEnv("UPLOAD_DIR", "uploads"),
+		MaxUploadMB:       getIntEnv("MAX_UPLOAD_MB", 8),
+		LineChannelSecret:      os.Getenv("LINE_CHANNEL_SECRET"),
+		LineChannelAccessToken: os.Getenv("LINE_CHANNEL_ACCESS_TOKEN"),
+		LineAutoReply:          os.Getenv("LINE_AUTO_REPLY"),
 	}
 
 	if cfg.DatabaseURL == "" {
@@ -136,6 +150,12 @@ func Load() (*Config, error) {
 	}
 	if cfg.MigrationsDir == "" {
 		return nil, fmt.Errorf("MIGRATIONS_DIR must not be empty")
+	}
+	if cfg.UploadDir == "" {
+		return nil, fmt.Errorf("UPLOAD_DIR must not be empty")
+	}
+	if cfg.MaxUploadMB <= 0 || cfg.MaxUploadMB > 50 {
+		return nil, fmt.Errorf("MAX_UPLOAD_MB must be between 1 and 50")
 	}
 
 	if cfg.SeedEnabled {

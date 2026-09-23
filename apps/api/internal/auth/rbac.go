@@ -43,6 +43,20 @@ const (
 	PermAttendanceManage     Permission = "attendance.manage"
 	PermExpensesRead         Permission = "expenses.read"
 	PermExpensesManage       Permission = "expenses.manage"
+	PermSitesRead            Permission = "sites.read"
+	PermSitesCreate          Permission = "sites.create"
+	PermSitesUpdate          Permission = "sites.update"
+	PermSitesDelete          Permission = "sites.delete"
+	PermContractsRead        Permission = "contracts.read"
+	PermContractsCreate      Permission = "contracts.create"
+	PermContractsUpdate      Permission = "contracts.update"
+	PermContractsDelete      Permission = "contracts.delete"
+	PermQuotesRead           Permission = "quotes.read"
+	PermQuotesCreate         Permission = "quotes.create"
+	PermQuotesUpdate         Permission = "quotes.update"
+	PermQuotesApprove        Permission = "quotes.approve"
+	PermChecklistsRead       Permission = "checklists.read"
+	PermChecklistsManage     Permission = "checklists.manage"
 )
 
 func perms(list ...Permission) map[Permission]struct{} {
@@ -70,6 +84,10 @@ var rolePermissions = map[Role]map[Permission]struct{}{
 		PermNotificationsRead,
 		PermAttendanceRead, PermAttendanceManage,
 		PermExpensesRead, PermExpensesManage,
+		PermSitesRead, PermSitesCreate, PermSitesUpdate, PermSitesDelete,
+		PermContractsRead, PermContractsCreate, PermContractsUpdate, PermContractsDelete,
+		PermQuotesRead, PermQuotesCreate, PermQuotesUpdate, PermQuotesApprove,
+		PermChecklistsRead, PermChecklistsManage,
 	),
 	RoleAdmin: perms(
 		PermLeadsRead, PermLeadsCreate, PermLeadsUpdate, PermLeadsDelete,
@@ -86,6 +104,10 @@ var rolePermissions = map[Role]map[Permission]struct{}{
 		PermNotificationsRead,
 		PermAttendanceRead, PermAttendanceManage,
 		PermExpensesRead, PermExpensesManage,
+		PermSitesRead, PermSitesCreate, PermSitesUpdate, PermSitesDelete,
+		PermContractsRead, PermContractsCreate, PermContractsUpdate, PermContractsDelete,
+		PermQuotesRead, PermQuotesCreate, PermQuotesUpdate, PermQuotesApprove,
+		PermChecklistsRead, PermChecklistsManage,
 	),
 	RoleManager: perms(
 		PermLeadsRead, PermLeadsCreate, PermLeadsUpdate,
@@ -102,6 +124,10 @@ var rolePermissions = map[Role]map[Permission]struct{}{
 		PermNotificationsRead,
 		PermAttendanceRead, PermAttendanceManage,
 		PermExpensesRead,
+		PermSitesRead, PermSitesCreate, PermSitesUpdate,
+		PermContractsRead,
+		PermQuotesRead, PermQuotesCreate, PermQuotesUpdate,
+		PermChecklistsRead, PermChecklistsManage,
 	),
 	RoleDispatch: perms(
 		PermLeadsRead, PermLeadsUpdate,
@@ -111,6 +137,8 @@ var rolePermissions = map[Role]map[Permission]struct{}{
 		PermServiceRecordsRead, PermServiceRecordsCreate, PermServiceRecordsUpdate,
 		PermSettingsRead,
 		PermAttendanceRead, PermAttendanceManage,
+		PermSitesRead,
+		PermChecklistsRead,
 	),
 	RoleAccountant: perms(
 		PermLeadsRead,
@@ -124,12 +152,17 @@ var rolePermissions = map[Role]map[Permission]struct{}{
 		PermSettingsRead,
 		PermAttendanceRead,
 		PermExpensesRead, PermExpensesManage,
+		PermContractsRead,
+		PermQuotesRead,
+		PermChecklistsRead,
 	),
 	RoleCleaner: perms(
 		PermBookingsRead, PermBookingsUpdate,
 		PermServiceRecordsRead, PermServiceRecordsCreate, PermServiceRecordsUpdate,
 		PermCustomersRead,
 		PermSettingsRead,
+		PermSitesRead,
+		PermChecklistsRead, PermChecklistsManage,
 	),
 }
 

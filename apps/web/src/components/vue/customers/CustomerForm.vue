@@ -283,6 +283,11 @@ onMounted(loadLeads);
             >
               {{ errors.address }}
             </p>
+            <p v-if="customer" class="mt-1 text-xs text-gray-500">
+              Multi-branch customer? Manage additional locations under
+              <a :href="`/sites?customer=${customer.id}`" class="font-medium text-navy-600 hover:underline">Sites</a>
+              — bookings can pick a site or fall back to this address.
+            </p>
           </div>
 
           <div>

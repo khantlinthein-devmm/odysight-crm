@@ -1,0 +1,256 @@
+<script setup lang="ts">
+import { computed, onMounted, ref } from "vue";
+import {
+  acceptBooking,
+  myJobs,
+  updateBooking,
+  type Booking,
+} from "../../../lib/bookings";
+import { checkIn, checkOut, getAttendance } from "../../../lib/attendance";
+import { getCleaners } from "../../../lib/cleaners";
+import { getSessionUser } from "../../../lib/auth";
+import { hasPermission } from "../../../lib/roles";
+import { isOfflineQueued } from "../../../lib/offline";
+import { showToast } from "../../../lib/toast";
+
+const props = defineProps<{ bookings: Booking[]; loading: boolean }>();
+const emit = defineEmits<{ changed: [] }>();
+
+const user = getSessionUser();
+const role = user?.role;
+const canUpdate = computed(() => hasPermission(role, "bookings.update"));
+
+const profileId = ref<number | null>(null);
+const checkedInToday = ref(false);
+const checkedOutToday = ref(false);
+const busyId = ref<number | null>(null);
+
+function todayStr(): string {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+async function resolveProfile(): Promise<void> {
+  try {
+    const email = (user?.email ?? "").trim().toLowerCase();
+    if (!email) return;
+    const cleaners = await getCleaners();
+    const match = cleaners.find((c) => (c.email ?? "").trim().toLowerCase() === email);
+    if (match) profileId.value = match.id;
+  } catch {
+    /* offline or API error: name fallback still applies in myJobs() */
+  }
+}
+
+async function loadDayState(): Promise<void> {
+  if (profileId.value == null) return;
+  try {
+    const rows = await getAttendance({ type: "cleaner", person: profileId.value });
+    const today = rows.find((r) => r.workDate === todayStr());
+    checkedInToday.value = !!today?.checkInAt;
+    checkedOutToday.value = !!today?.checkOutAt;
+  } catch {
+    /* offline: action buttons stay available; server dedupes on sync */
+  }
+}
+
+const jobs = computed(() => {
+  const sorted = [...props.bookings].sort((a, b) =>
+    a.scheduledFor.localeCompare(b.scheduledFor),
+  );
+  if (role !== "CLEANER") return sorted;
+  return myJobs(props.bookings, {
+    email: user?.email ?? "",
+    name: user?.name ?? "",
+    cleanerProfileId: profileId.value,
+  });
+});
+
+function isMine(b: Booking): boolean {
+  if (profileId.value != null && (b.cleaners ?? []).some((c) => c.id === profileId.value)) return true;
+  const name = (user?.name ?? "").trim().toLowerCase();
+  return !!name && b.assignedCleaner.trim().toLowerCase() === name;
+}
+
+function isOpen(b: Booking): boolean {
+  return b.status === "pending" && (b.cleaners ?? []).length === 0 && !b.assignedCleaner;
+}
+
+function mapsUrl(b: Booking): string {
+  return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(b.address || b.customerName)}`;
+}
+
+function formatWhen(iso: string): string {
+  try {
+    return new Date(iso).toLocaleString(undefined, {
+      weekday: "short",
+      day: "numeric",
+      month: "short",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  } catch {
+    return iso;
+  }
+}
+
+function errMsg(err: unknown, fallback: string): string {
+  return err instanceof Error && err.message ? err.message : fallback;
+}
+
+async function doAccept(b: Booking): Promise<void> {
+  busyId.value = b.id;
+  try {
+    await acceptBooking(b.id);
+    showToast("Job accepted", "success");
+    emit("changed");
+  } catch (err) {
+    if (isOfflineQueued(err)) showToast("Saved offline — accept will sync when online", "success");
+    else showToast(errMsg(err, "Accept failed"), "error");
+  } finally {
+    busyId.value = null;
+  }
+}
+
+async function doCheckIn(b: Booking): Promise<void> {
+  if (profileId.value == null) {
+    showToast("No cleaner profile linked to this login — ask the office", "error");
+    return;
+  }
+  busyId.value = b.id;
+  try {
+    await checkIn("cleaner", profileId.value);
+    checkedInToday.value = true;
+    showToast("Checked in", "success");
+    emit("changed");
+  } catch (err) {
+    if (isOfflineQueued(err)) showToast("Saved offline — check-in will sync", "success");
+    else showToast(errMsg(err, "Check-in failed"), "error");
+  } finally {
+    busyId.value = null;
+  }
+}
+
+async function doCheckOut(b: Booking): Promise<void> {
+  if (profileId.value == null) {
+    showToast("No cleaner profile linked to this login — ask the office", "error");
+    return;
+  }
+  busyId.value = b.id;
+  try {
+    await checkOut("cleaner", profileId.value);
+    checkedOutToday.value = true;
+    showToast("Checked out", "success");
+    emit("changed");
+  } catch (err) {
+    if (isOfflineQueued(err)) showToast("Saved offline — check-out will sync", "success");
+    else showToast(errMsg(err, "Check-out failed"), "error");
+  } finally {
+    busyId.value = null;
+  }
+}
+
+async function doComplete(b: Booking): Promise<void> {
+  busyId.value = b.id;
+  try {
+    await updateBooking(b.id, { status: "completed" });
+    showToast("Job completed", "success");
+    emit("changed");
+  } catch (err) {
+    if (isOfflineQueued(err)) showToast("Saved offline — completion will sync", "success");
+    else showToast(errMsg(err, "Complete failed"), "error");
+  } finally {
+    busyId.value = null;
+  }
+}
+
+onMounted(async () => {
+  await resolveProfile();
+  await loadDayState();
+});
+</script>
+
+<template>
+  <!-- Mobile-only field cards. Desktop keeps the table below untouched. -->
+  <div class="space-y-3 lg:hidden">
+    <div v-if="loading" class="rounded-2xl bg-white p-6 text-center text-sm text-gray-500 ring-1 ring-gray-100">
+      Loading jobs…
+    </div>
+    <div v-else-if="jobs.length === 0" class="rounded-2xl bg-white p-6 text-center ring-1 ring-gray-100">
+      <p class="text-sm font-medium text-gray-900">No upcoming jobs</p>
+      <p class="mt-1 text-xs text-gray-500">Open jobs you can accept will appear here.</p>
+    </div>
+    <article
+      v-for="b in jobs"
+      :key="b.id"
+      class="rounded-2xl bg-white p-4 shadow-sm ring-1 ring-gray-100"
+    >
+      <div class="flex items-start justify-between gap-2">
+        <div class="min-w-0">
+          <p class="truncate text-base font-semibold text-gray-900">{{ b.customerName }}</p>
+          <p class="mt-0.5 text-sm text-gray-500">{{ formatWhen(b.scheduledFor) }}</p>
+        </div>
+        <span class="shrink-0 rounded-full bg-navy-50 px-2.5 py-1 text-xs font-medium text-navy-700">
+          {{ b.status.replace("_", " ") }}
+        </span>
+      </div>
+      <p class="mt-2 text-sm text-gray-600">📍 {{ b.address || "—" }}</p>
+
+      <div class="mt-3 grid grid-cols-1 gap-2">
+        <button
+          v-if="isOpen(b) && canUpdate"
+          type="button"
+          :disabled="busyId === b.id"
+          class="field-tap w-full rounded-xl bg-navy-600 px-4 py-3 text-base font-semibold text-white active:bg-navy-700 disabled:opacity-50"
+          @click="doAccept(b)"
+        >
+          {{ busyId === b.id ? "Working…" : "Accept job" }}
+        </button>
+        <template v-if="isMine(b) && (b.status === 'confirmed' || b.status === 'in_progress')">
+          <button
+            v-if="!checkedInToday"
+            type="button"
+            :disabled="busyId === b.id"
+            class="field-tap w-full rounded-xl bg-green-600 px-4 py-3 text-base font-semibold text-white active:bg-green-700 disabled:opacity-50"
+            @click="doCheckIn(b)"
+          >
+            {{ busyId === b.id ? "Working…" : "Check in" }}
+          </button>
+          <button
+            v-else-if="!checkedOutToday"
+            type="button"
+            :disabled="busyId === b.id"
+            class="field-tap w-full rounded-xl bg-gray-900 px-4 py-3 text-base font-semibold text-white active:bg-gray-700 disabled:opacity-50"
+            @click="doCheckOut(b)"
+          >
+            {{ busyId === b.id ? "Working…" : "Check out" }}
+          </button>
+          <button
+            type="button"
+            :disabled="busyId === b.id"
+            class="field-tap w-full rounded-xl bg-white px-4 py-3 text-base font-semibold text-navy-700 ring-1 ring-navy-200 active:bg-navy-50 disabled:opacity-50"
+            @click="doComplete(b)"
+          >
+            {{ busyId === b.id ? "Working…" : "Mark completed" }}
+          </button>
+        </template>
+        <div class="grid grid-cols-2 gap-2">
+          <a
+            :href="`/checklists?booking=${b.id}`"
+            class="field-tap inline-flex items-center justify-center rounded-xl bg-gray-100 px-4 py-3 text-sm font-semibold text-gray-800 active:bg-gray-200"
+          >
+            Checklist
+          </a>
+          <a
+            :href="mapsUrl(b)"
+            target="_blank"
+            rel="noopener"
+            class="field-tap inline-flex items-center justify-center rounded-xl bg-gray-100 px-4 py-3 text-sm font-semibold text-gray-800 active:bg-gray-200"
+          >
+            Navigate
+          </a>
+        </div>
+      </div>
+    </article>
+  </div>
+</template>

@@ -33,7 +33,7 @@ const loading = ref(true);
 const search = ref("");
 const statusFilter = ref<ServiceRecordStatus | "">("");
 const page = ref(1);
-const pageSize = 5;
+const pageSize = 10;
 
 const showForm = ref(false);
 const editingRecord = ref<ServiceRecord | undefined>(undefined);

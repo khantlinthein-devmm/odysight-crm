@@ -17,6 +17,11 @@ func (s *Service) GetSummary(ctx context.Context) (Summary, error) {
 	return s.repo.LoadSummary(ctx, time.Now())
 }
 
+// GetCommercial returns revenue by site/contract plus quote and checklist stats.
+func (s *Service) GetCommercial(ctx context.Context) (CommercialReport, error) {
+	return s.repo.LoadCommercial(ctx)
+}
+
 // GetFinancial returns the financial & tax report for the [from, to] window.
 func (s *Service) GetFinancial(ctx context.Context, from, to time.Time, currency string) (FinancialReport, error) {
 	return s.repo.LoadFinancial(ctx, from, to, currency)

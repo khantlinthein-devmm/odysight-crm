@@ -16,7 +16,7 @@ const loading = ref(true);
 const search = ref("");
 const statusFilter = ref<NotificationLogEntry["status"] | "">("");
 const page = ref(1);
-const pageSize = 12;
+const pageSize = 10;
 
 const channelStyles: Record<string, string> = {
   email: "bg-navy-50 text-navy-700",

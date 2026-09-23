@@ -28,6 +28,10 @@ export interface Invoice {
   total: number;
   currency: string;
   status: InvoiceStatus;
+  contractId?: number | null;
+  idempotencyKey?: string | null;
+  billingPeriodStart?: string | null;
+  billingPeriodEnd?: string | null;
   issuedAt: string;
   paidAt: string | null;
   createdAt: string;
@@ -36,6 +40,10 @@ export interface Invoice {
 export type CreateInvoiceInput = {
   bookingId: number;
   subtotal?: number;
+  contractId?: number | null;
+  idempotencyKey?: string;
+  billingPeriodStart?: string;
+  billingPeriodEnd?: string;
 };
 
 export type UpdateInvoiceInput = { status: InvoiceStatus };

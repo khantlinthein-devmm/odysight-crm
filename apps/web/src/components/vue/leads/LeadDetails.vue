@@ -12,8 +12,8 @@ import LeadForm from "./LeadForm.vue";
 const statusLabels: Record<LeadStatus, string> = {
   new: "New",
   contacted: "Contacted",
-  qualified: "Qualified",
-  proposal: "Proposal",
+  quote_sent: "Quote Sent",
+  booked: "Booked",
   won: "Won",
   lost: "Lost",
 };
@@ -21,7 +21,8 @@ const statusLabels: Record<LeadStatus, string> = {
 const sourceLabels: Record<string, string> = {
   website: "Website",
   referral: "Referral",
-  social_media: "Social Media",
+  line: "LINE",
+  facebook: "Facebook",
   walk_in: "Walk-in",
   campaign: "Campaign",
 };
@@ -56,8 +57,8 @@ async function handleSave(input: CreateLeadInput) {
     lead.value = await updateLead(lead.value.id, input);
     showToast("Lead updated", "success");
     showForm.value = false;
-  } catch {
-    showToast("Failed to update lead", "error");
+  } catch (err) {
+    showToast(err instanceof Error ? err.message : "Failed to update lead", "error");
   } finally {
     saving.value = false;
   }
@@ -130,7 +131,7 @@ onMounted(fetchLead);
               'bg-navy-50 text-navy-700',
             ]"
           >
-            {{ statusLabels[lead.status] }}
+            {{ statusLabels[lead.status] ?? lead.status }}
           </span>
           <button
             type="button"
@@ -168,6 +169,16 @@ onMounted(fetchLead);
           </dt>
           <dd class="mt-1 text-sm text-gray-900">
             {{ sourceLabels[lead.source] ?? lead.source }}
+            <span
+              v-if="lead.lineUserId"
+              title="Created from a LINE OA chat — name came from the LINE profile"
+              class="ml-1 inline-flex items-center gap-1 rounded-full bg-green-50 px-2 py-0.5 text-xs font-medium text-green-700"
+            >
+              LINE
+            </span>
+          </dd>
+          <dd v-if="lead.lineUserId && !lead.phone" class="mt-1 text-xs text-amber-600">
+            No phone yet — LINE shares no numbers. Ask on first contact.
           </dd>
         </div>
         <div>
@@ -177,7 +188,7 @@ onMounted(fetchLead);
             Status
           </dt>
           <dd class="mt-1 text-sm text-gray-900">
-            {{ statusLabels[lead.status] }}
+            {{ statusLabels[lead.status] ?? lead.status }}
           </dd>
         </div>
       </dl>

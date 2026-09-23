@@ -23,3 +23,13 @@ func (h *Handler) Summary(w http.ResponseWriter, r *http.Request) {
 	}
 	response.JSON(w, http.StatusOK, summary)
 }
+
+// Commercial handles GET /api/v1/reports/commercial
+func (h *Handler) Commercial(w http.ResponseWriter, r *http.Request) {
+	report, err := h.service.GetCommercial(r.Context())
+	if err != nil {
+		response.HandleError(w, r, err)
+		return
+	}
+	response.JSON(w, http.StatusOK, report)
+}

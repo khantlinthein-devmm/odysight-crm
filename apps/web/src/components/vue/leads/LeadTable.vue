@@ -16,8 +16,8 @@ import ConfirmDialog from "../ui/ConfirmDialog.vue";
 const statusLabels: Record<LeadStatus, string> = {
   new: "New",
   contacted: "Contacted",
-  qualified: "Qualified",
-  proposal: "Proposal",
+  quote_sent: "Quote Sent",
+  booked: "Booked",
   won: "Won",
   lost: "Lost",
 };
@@ -25,8 +25,8 @@ const statusLabels: Record<LeadStatus, string> = {
 const statusStyles: Record<LeadStatus, string> = {
   new: "bg-navy-50 text-navy-700",
   contacted: "bg-navy-50 text-navy-700",
-  qualified: "bg-navy-50 text-navy-700",
-  proposal: "bg-amber-50 text-amber-700",
+  quote_sent: "bg-navy-50 text-navy-700",
+  booked: "bg-amber-50 text-amber-700",
   won: "bg-green-50 text-green-700",
   lost: "bg-gray-100 text-gray-600",
 };
@@ -34,7 +34,8 @@ const statusStyles: Record<LeadStatus, string> = {
 const sourceLabels: Record<string, string> = {
   website: "Website",
   referral: "Referral",
-  social_media: "Social Media",
+  line: "LINE",
+  facebook: "Facebook",
   walk_in: "Walk-in",
   campaign: "Campaign",
 };
@@ -44,7 +45,7 @@ const loading = ref(true);
 const search = ref("");
 const statusFilter = ref<LeadStatus | "">("");
 const page = ref(1);
-const pageSize = 5;
+const pageSize = 10;
 
 const showForm = ref(false);
 const editingLead = ref<Lead | undefined>(undefined);
@@ -113,8 +114,8 @@ async function handleSave(input: CreateLeadInput) {
       showToast("Lead created", "success");
     }
     closeForm();
-  } catch {
-    showToast("Failed to save lead", "error");
+  } catch (err) {
+    showToast(err instanceof Error ? err.message : "Failed to save lead", "error");
   } finally {
     saving.value = false;
   }
@@ -234,15 +235,21 @@ onMounted(fetchLeads);
             <td class="px-6 py-4 text-gray-600">{{ lead.phone }}</td>
             <td class="px-6 py-4 text-gray-600">
               {{ sourceLabels[lead.source] ?? lead.source }}
+              <span
+                v-if="lead.lineUserId"
+                class="ml-1 inline-flex rounded-full bg-green-50 px-2 py-0.5 text-xs font-medium text-green-700"
+              >
+                LINE
+              </span>
             </td>
             <td class="px-6 py-4">
               <span
                 :class="[
                   'inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium',
-                  statusStyles[lead.status],
+                  statusStyles[lead.status] ?? 'bg-gray-100 text-gray-600',
                 ]"
               >
-                {{ statusLabels[lead.status] }}
+                {{ statusLabels[lead.status] ?? lead.status }}
               </span>
             </td>
             <td class="px-6 py-4 text-gray-600">

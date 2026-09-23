@@ -217,6 +217,87 @@ func (r *Repository) loadARAging(ctx context.Context, currency string) ([]ARAgin
 	return out, nil
 }
 
+func (r *Repository) LoadCommercial(ctx context.Context) (CommercialReport, error) {
+	report := CommercialReport{
+		RevenueBySite:     []SiteRevenue{},
+		RevenueByContract: []ContractRevenue{},
+	}
+
+	siteRows, err := r.pool.Query(ctx,
+		`SELECT s.id, s.customer_id, s.name,
+		        COUNT(DISTINCT b.id) AS bookings,
+		        COUNT(DISTINCT CASE WHEN b.status = 'completed' THEN b.id END) AS completed,
+		        COALESCE(SUM(i.total) FILTER (WHERE i.status <> 'void'), 0) AS billed
+		 FROM sites s
+		 LEFT JOIN bookings b ON b.site_id = s.id
+		 LEFT JOIN invoices i ON i.booking_id = b.id
+		 GROUP BY s.id, s.customer_id, s.name
+		 ORDER BY billed DESC, bookings DESC`)
+	if err != nil {
+		return report, fmt.Errorf("query revenue by site: %w", err)
+	}
+	for siteRows.Next() {
+		var row SiteRevenue
+		if err := siteRows.Scan(&row.SiteID, &row.CustomerID, &row.SiteName, &row.Bookings, &row.Completed, &row.Billed); err != nil {
+			siteRows.Close()
+			return report, fmt.Errorf("scan revenue by site: %w", err)
+		}
+		report.RevenueBySite = append(report.RevenueBySite, row)
+	}
+	siteRows.Close()
+	if err := siteRows.Err(); err != nil {
+		return report, err
+	}
+
+	contractRows, err := r.pool.Query(ctx,
+		`SELECT c.id, c.contract_number, c.title, c.status, c.contract_value,
+		        (SELECT COUNT(*) FROM bookings b WHERE b.contract_id = c.id) AS bookings,
+		        (SELECT COALESCE(SUM(total), 0) FROM invoices i WHERE i.contract_id = c.id AND i.status <> 'void') AS billed
+		 FROM contracts c
+		 ORDER BY c.end_date DESC`)
+	if err != nil {
+		return report, fmt.Errorf("query revenue by contract: %w", err)
+	}
+	for contractRows.Next() {
+		var row ContractRevenue
+		if err := contractRows.Scan(&row.ContractID, &row.ContractNumber, &row.Title, &row.Status, &row.ContractValue, &row.Bookings, &row.Billed); err != nil {
+			contractRows.Close()
+			return report, fmt.Errorf("scan revenue by contract: %w", err)
+		}
+		report.RevenueByContract = append(report.RevenueByContract, row)
+	}
+	contractRows.Close()
+	if err := contractRows.Err(); err != nil {
+		return report, err
+	}
+
+	var total, accepted int64
+	if err := r.pool.QueryRow(ctx,
+		`SELECT COUNT(*), COUNT(*) FILTER (WHERE status = 'accepted') FROM quotes`).Scan(&total, &accepted); err != nil {
+		return report, fmt.Errorf("query quote win rate: %w", err)
+	}
+	report.QuoteWinRate = QuoteWinRate{Total: total, Accepted: accepted}
+	if total > 0 {
+		rate := float64(accepted) / float64(total) * 100
+		report.QuoteWinRate.Rate = &rate
+	}
+
+	var lists, listsDone, itemsTotal, itemsDone int64
+	if err := r.pool.QueryRow(ctx,
+		`SELECT COUNT(*), COUNT(*) FILTER (WHERE status = 'completed'),
+		        COALESCE((SELECT COUNT(*) FROM booking_checklist_items), 0),
+		        COALESCE((SELECT COUNT(*) FROM booking_checklist_items WHERE is_completed), 0)
+		 FROM booking_checklists`).Scan(&lists, &listsDone, &itemsTotal, &itemsDone); err != nil {
+		return report, fmt.Errorf("query checklist stats: %w", err)
+	}
+	report.Checklists = ChecklistStats{Total: lists, Completed: listsDone, ItemsTotal: itemsTotal, ItemsDone: itemsDone}
+	if itemsTotal > 0 {
+		pc := float64(itemsDone) / float64(itemsTotal) * 100
+		report.Checklists.CompletionPC = &pc
+	}
+	return report, nil
+}
+
 // defaultTaxRate is used when no invoices exist in the period.
 func defaultTaxRate(currency string) float64 {
 	// THB VAT is 7% (VAT on services). Other currencies use 0 by default.

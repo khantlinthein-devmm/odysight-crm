@@ -22,18 +22,23 @@ import (
 	"github.com/odysight/crm/internal/audit"
 	"github.com/odysight/crm/internal/auth"
 	"github.com/odysight/crm/internal/bookings"
+	"github.com/odysight/crm/internal/checklists"
 	"github.com/odysight/crm/internal/cleaners"
+	"github.com/odysight/crm/internal/contracts"
 	"github.com/odysight/crm/internal/customers"
 	"github.com/odysight/crm/internal/expenses"
 	"github.com/odysight/crm/internal/feedback"
 	"github.com/odysight/crm/internal/invoices"
 	"github.com/odysight/crm/internal/leads"
+	"github.com/odysight/crm/internal/line"
 	"github.com/odysight/crm/internal/notifications"
 	"github.com/odysight/crm/internal/payments"
 	"github.com/odysight/crm/internal/portal"
+	"github.com/odysight/crm/internal/quotes"
 	"github.com/odysight/crm/internal/reports"
 	"github.com/odysight/crm/internal/servicerecords"
 	"github.com/odysight/crm/internal/settings"
+	"github.com/odysight/crm/internal/sites"
 	"github.com/odysight/crm/internal/users"
 	"github.com/odysight/crm/pkg/database"
 	"github.com/odysight/crm/pkg/mailer"
@@ -163,7 +168,7 @@ func run() error {
 	bookingHandler := bookings.NewHandler(bookingService)
 
 	portalRepo := portal.NewRepository(pool)
-	portalService := portal.NewService(portalRepo, feedbackService, cfg.JWTSecret)
+	portalService := portal.NewService(portalRepo, feedbackService, cfg.JWTSecret).WithNotifier(notifService)
 	portalHandler := portal.NewHandler(portalService, !cfg.IsDev(), cfg.TokenTTL)
 	portalAuthorizer := portal.NewAuthorizer(cfg.JWTSecret)
 
@@ -187,6 +192,29 @@ func run() error {
 	expenseRepo := expenses.NewRepository(pool)
 	expenseService := expenses.NewService(expenseRepo)
 	expenseHandler := expenses.NewHandler(expenseService)
+
+	siteRepo := sites.NewRepository(pool)
+	siteService := sites.NewService(siteRepo)
+	siteHandler := sites.NewHandler(siteService)
+
+	contractRepo := contracts.NewRepository(pool)
+	contractService := contracts.NewService(contractRepo)
+	contractHandler := contracts.NewHandler(contractService)
+
+	quoteRepo := quotes.NewRepository(pool)
+	quoteService := quotes.NewService(quoteRepo)
+	quoteHandler := quotes.NewHandler(quoteService)
+
+	checklistRepo := checklists.NewRepository(pool)
+	checklistService := checklists.NewService(checklistRepo)
+	checklistHandler := checklists.NewHandler(checklistService, checklists.NewPhotoStore(cfg.UploadDir, cfg.MaxUploadMB))
+
+	// LINE OA → auto-lead. Mounted outside the auth group: authenticity
+	// comes from the X-Line-Signature HMAC. With no channel secret
+	// configured the endpoint answers 503 and everything else is unchanged.
+	lineClient := line.NewClient(cfg.LineChannelAccessToken)
+	lineService := line.NewService(leadRepo, lineClient, lineClient, cfg.LineAutoReply)
+	lineHandler := line.NewHandler(lineService, cfg.LineChannelSecret)
 
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID)
@@ -215,6 +243,7 @@ func run() error {
 	r.Route("/api/v1", func(r chi.Router) {
 		r.Mount("/auth", auth.Routes(authHandler, authorizer, apmw.LoginRateLimit(cfg.LoginRateLimitRPM, cfg.TrustedProxyIPs)))
 		r.Mount("/portal", portal.Routes(portalHandler, portalAuthorizer))
+		r.Mount("/line", line.Routes(lineHandler))
 		r.Group(func(r chi.Router) {
 			r.Use(authorizer.Authenticate)
 			r.Use(auditLog(pool, cfg.ReadyTimeout))
@@ -233,6 +262,10 @@ func run() error {
 			r.Mount("/notifications", notifications.Routes(notifHandler, authorizer))
 			r.Mount("/attendance", attendance.Routes(attendanceHandler, authorizer))
 			r.Mount("/expenses", expenses.Routes(expenseHandler, authorizer))
+			r.Mount("/sites", sites.Routes(siteHandler, authorizer))
+			r.Mount("/contracts", contracts.Routes(contractHandler, authorizer))
+			r.Mount("/quotes", quotes.Routes(quoteHandler, authorizer))
+			r.Mount("/checklists", checklists.Routes(checklistHandler, authorizer))
 		})
 	})
 

@@ -1,4 +1,5 @@
 import { ApiError, USE_MOCKS, apiFetch, delay, toQuery, unwrapPage, type Page } from "./api";
+import { OfflineQueued, enqueue, isOnline } from "./offline";
 
 // Attendance is kept for two workforces: field cleaners and office/team staff.
 export type PersonType = "cleaner" | "staff";
@@ -194,6 +195,10 @@ export async function checkIn(
     mockAttendance.unshift(record);
     return clone(record);
   }
+  if (!isOnline()) {
+    const entryId = await enqueue("attendance.check-in", { personType, personId });
+    throw new OfflineQueued("attendance.check-in", entryId);
+  }
   return apiFetch<AttendanceRecord>("/api/v1/attendance/check-in", {
     method: "POST",
     body: JSON.stringify({ personType, personId }),
@@ -218,6 +223,10 @@ export async function checkOut(
     }
     existing.checkOutAt = new Date().toISOString();
     return clone(existing);
+  }
+  if (!isOnline()) {
+    const entryId = await enqueue("attendance.check-out", { personType, personId });
+    throw new OfflineQueued("attendance.check-out", entryId);
   }
   return apiFetch<AttendanceRecord>("/api/v1/attendance/check-out", {
     method: "POST",

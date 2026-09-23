@@ -79,3 +79,49 @@ export async function getReportSummary(): Promise<ReportSummary> {
   }
   return apiFetch<ReportSummary>("/api/v1/reports/summary");
 }
+
+export interface SiteRevenue {
+  siteId: number;
+  customerId: number;
+  siteName: string;
+  bookings: number;
+  completed: number;
+  billed: number;
+}
+
+export interface ContractRevenue {
+  contractId: number;
+  contractNumber: string;
+  title: string;
+  status: string;
+  contractValue: number;
+  bookings: number;
+  billed: number;
+}
+
+export interface CommercialReport {
+  revenueBySite: SiteRevenue[];
+  revenueByContract: ContractRevenue[];
+  quoteWinRate: { total: number; accepted: number; rate: number | null };
+  checklists: { total: number; completed: number; itemsTotal: number; itemsDone: number; completionRate: number | null };
+}
+
+const mockCommercial: CommercialReport = {
+  revenueBySite: [
+    { siteId: 501, customerId: 101, siteName: "Default Site", bookings: 3, completed: 2, billed: 9650 },
+    { siteId: 502, customerId: 101, siteName: "Silom Branch", bookings: 1, completed: 0, billed: 0 },
+  ],
+  revenueByContract: [
+    { contractId: 701, contractNumber: "CT-2026-0701", title: "Sukhumvit + Silom — 12-month", status: "active", contractValue: 480000, bookings: 2, billed: 6400 },
+  ],
+  quoteWinRate: { total: 4, accepted: 1, rate: 25 },
+  checklists: { total: 1, completed: 0, itemsTotal: 3, itemsDone: 1, completionRate: 33.3 },
+};
+
+export async function getCommercialReport(): Promise<CommercialReport> {
+  if (USE_MOCKS) {
+    await delay(300);
+    return JSON.parse(JSON.stringify(mockCommercial)) as CommercialReport;
+  }
+  return apiFetch<CommercialReport>("/api/v1/reports/commercial");
+}

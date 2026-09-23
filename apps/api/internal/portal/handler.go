@@ -105,6 +105,55 @@ func (h *Handler) Bookings(w http.ResponseWriter, r *http.Request) {
 	response.JSON(w, http.StatusOK, items)
 }
 
+// Sites handles GET /api/v1/portal/sites
+func (h *Handler) Sites(w http.ResponseWriter, r *http.Request) {
+	items, err := h.service.Sites(r.Context(), CustomerID(r))
+	if err != nil {
+		response.HandleError(w, r, err)
+		return
+	}
+	response.JSON(w, http.StatusOK, items)
+}
+
+// Services handles GET /api/v1/portal/services
+func (h *Handler) Services(w http.ResponseWriter, r *http.Request) {
+	items, err := h.service.Services(r.Context(), CustomerID(r))
+	if err != nil {
+		response.HandleError(w, r, err)
+		return
+	}
+	response.JSON(w, http.StatusOK, items)
+}
+
+// CreateBooking handles POST /api/v1/portal/bookings
+func (h *Handler) CreateBooking(w http.ResponseWriter, r *http.Request) {
+	req, ok := decodeJSON[CreateBookingRequest](w, r)
+	if !ok {
+		return
+	}
+	b, err := h.service.CreateBooking(r.Context(), CustomerID(r), req)
+	if err != nil {
+		response.HandleError(w, r, err)
+		return
+	}
+	response.JSON(w, http.StatusCreated, b)
+}
+
+// CancelBooking handles POST /api/v1/portal/bookings/{id}/cancel
+func (h *Handler) CancelBooking(w http.ResponseWriter, r *http.Request) {
+	raw := chi.URLParam(r, "id")
+	bookingID, err := strconv.ParseInt(raw, 10, 64)
+	if err != nil || bookingID < 1 {
+		response.Error(w, http.StatusBadRequest, "invalid booking id")
+		return
+	}
+	if err := h.service.CancelBooking(r.Context(), CustomerID(r), bookingID); err != nil {
+		response.HandleError(w, r, err)
+		return
+	}
+	response.JSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
 // Feedback handles POST /api/v1/portal/bookings/{id}/feedback
 func (h *Handler) Feedback(w http.ResponseWriter, r *http.Request) {
 	raw := chi.URLParam(r, "id")

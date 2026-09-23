@@ -24,6 +24,9 @@ export interface Lead {
   phone: string;
   status: LeadStatus;
   source: LeadSource;
+  /** LINE OA identity (empty for non-LINE leads). */
+  lineUserId?: string;
+  linePictureUrl?: string;
   createdAt: string;
 }
 

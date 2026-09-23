@@ -58,6 +58,8 @@ type Booking struct {
 	CustomerName    string
 	CustomerEmail   string
 	CustomerID      *int64
+	SiteID          *int64
+	ContractID      *int64
 	ServiceType     ServiceType
 	ScheduledFor    time.Time
 	DurationMinutes int

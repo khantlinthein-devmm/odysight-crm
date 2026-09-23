@@ -4,6 +4,7 @@ import Sidebar from "../components/astro/Sidebar.astro";
 import Header from "../components/astro/Header.astro";
 import Toast from "../components/svelte/Toast.svelte";
 import CommandPalette from "../components/svelte/CommandPalette.svelte";
+import BottomNav from "../components/svelte/BottomNav.svelte";
 
 interface Props {
   title?: string;
@@ -19,6 +20,12 @@ const { title = "Dashboard" } = Astro.props;
     <link rel="icon" type="image/png" href="/logo/logo.png" />
     <link rel="icon" href="/favicon.ico" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#1e3a5f" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="apple-touch-icon" href="/logo/logo.png" />
     <meta name="generator" content={Astro.generator} />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -33,12 +40,17 @@ const { title = "Dashboard" } = Astro.props;
 
     <div class="flex min-h-screen flex-col lg:pl-64">
       <Header title={title} />
-      <main class="flex-1 p-4 sm:p-6">
+      <main class="mobile-nav-clearance flex-1 p-4 sm:p-6 lg:pb-6">
         <slot />
       </main>
     </div>
 
     <Toast client:load />
     <CommandPalette client:load />
+    <BottomNav client:load />
+    <script>
+      import { initOffline } from "../lib/offline";
+      initOffline();
+    </script>
   </body>
 </html>

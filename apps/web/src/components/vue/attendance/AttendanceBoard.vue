@@ -10,6 +10,7 @@ import {
 } from "../../../lib/attendance";
 import { getSessionUser } from "../../../lib/auth";
 import { getCleaners } from "../../../lib/cleaners";
+import { isOfflineQueued } from "../../../lib/offline";
 import { hasPermission } from "../../../lib/roles";
 import { showToast } from "../../../lib/toast";
 import { getUsers } from "../../../lib/users";
@@ -219,7 +220,12 @@ async function doCheckIn(personId: number): Promise<void> {
     showToast("Checked in", "success");
     await Promise.all([loadDay(), loadHistory()]);
   } catch (err) {
-    showToast(errorMessage(err, "Check-in failed"), "error");
+    if (isOfflineQueued(err)) {
+      showToast("Saved offline — check-in will sync when online", "success");
+      await Promise.all([loadDay(), loadHistory()]);
+    } else {
+      showToast(errorMessage(err, "Check-in failed"), "error");
+    }
   } finally {
     actingId.value = null;
   }
@@ -232,7 +238,12 @@ async function doCheckOut(personId: number): Promise<void> {
     showToast("Checked out", "success");
     await Promise.all([loadDay(), loadHistory()]);
   } catch (err) {
-    showToast(errorMessage(err, "Check-out failed"), "error");
+    if (isOfflineQueued(err)) {
+      showToast("Saved offline — check-out will sync when online", "success");
+      await Promise.all([loadDay(), loadHistory()]);
+    } else {
+      showToast(errorMessage(err, "Check-out failed"), "error");
+    }
   } finally {
     actingId.value = null;
   }
@@ -404,7 +415,7 @@ onMounted(async () => {
             :disabled="
               !canManage || actingId === person.id || statusFor(person.id) !== 'not-in'
             "
-            class="flex-1 rounded-xl bg-gradient-to-r from-emerald-400 to-green-600 px-3 py-2 text-xs font-semibold text-white shadow-sm transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
+            class="field-tap flex-1 rounded-xl bg-gradient-to-r from-emerald-400 to-green-600 px-3 py-3 text-sm font-semibold text-white shadow-sm transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40 sm:py-2 sm:text-xs"
             @click="doCheckIn(person.id)"
           >
             {{ actingId === person.id ? "Working…" : "Check in" }}
@@ -416,7 +427,7 @@ onMounted(async () => {
               actingId === person.id ||
               statusFor(person.id) !== 'checked-in'
             "
-            class="flex-1 rounded-xl bg-gradient-to-r from-navy-500 to-blue-600 px-3 py-2 text-xs font-semibold text-white shadow-sm transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
+            class="field-tap flex-1 rounded-xl bg-gradient-to-r from-navy-500 to-blue-600 px-3 py-3 text-sm font-semibold text-white shadow-sm transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40 sm:py-2 sm:text-xs"
             @click="doCheckOut(person.id)"
           >
             {{ actingId === person.id ? "Working…" : "Check out" }}

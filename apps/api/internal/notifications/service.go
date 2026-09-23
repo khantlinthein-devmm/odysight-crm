@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/odysight/crm/internal/settings"
@@ -98,6 +99,45 @@ func (s *Service) EmitEmail(ctx context.Context, eventType, recipient, subject, 
 		log.Status = StatusSent
 	}
 	_ = s.repo.Log(ctx, log)
+}
+
+// NotifyOffice emails every configured notification recipient (Settings →
+// Notifications → recipients), best-effort. Every attempt is written to the
+// notification log, so the office sees the event in the notification center
+// even when SMTP is not configured (logged as skipped) or no recipients are
+// set. Used for customer self-service events like portal bookings that
+// otherwise arrive silently.
+func (s *Service) NotifyOffice(ctx context.Context, eventType, subject, bodyHTML string) {
+	recipients := s.officeRecipients(ctx)
+	if len(recipients) == 0 {
+		s.Record(ctx, ChannelEmail, eventType, "(office recipients)", subject, StatusSkipped, "no notification recipients configured")
+		return
+	}
+	for _, to := range recipients {
+		s.EmitEmail(ctx, eventType, to, subject, bodyHTML)
+	}
+}
+
+func (s *Service) officeRecipients(ctx context.Context) []string {
+	all, err := s.settings.GetAll(ctx)
+	if err != nil {
+		return nil
+	}
+	raw, ok := all[settings.KeyNotifications]
+	if !ok {
+		return nil
+	}
+	var n settings.NotificationSettings
+	if err := json.Unmarshal(raw, &n); err != nil {
+		return nil
+	}
+	out := []string{}
+	for _, e := range n.Recipients {
+		if e = strings.TrimSpace(e); e != "" {
+			out = append(out, e)
+		}
+	}
+	return out
 }
 
 // EmitSMS sends an SMS or WhatsApp message through the configured provider.

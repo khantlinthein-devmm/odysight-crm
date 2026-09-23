@@ -10,12 +10,14 @@ import {
   type CreateBookingInput,
 } from "../../../lib/bookings";
 import { showToast } from "../../../lib/toast";
+import { isOfflineQueued } from "../../../lib/offline";
 import { getWorkspaceSettings, serviceLabel } from "../../../lib/settings";
 import { getSessionUser } from "../../../lib/auth";
 import { hasPermission } from "../../../lib/roles";
 import { createInvoice } from "../../../lib/invoices";
 import BookingForm from "./BookingForm.vue";
 import ConfirmDialog from "../ui/ConfirmDialog.vue";
+import MyJobs from "./MyJobs.vue";
 
 const role = getSessionUser()?.role;
 const canCreate = computed(() => hasPermission(role, "bookings.create"));
@@ -72,7 +74,7 @@ const loading = ref(true);
 const search = ref("");
 const statusFilter = ref<BookingStatus | "">("");
 const page = ref(1);
-const pageSize = 5;
+const pageSize = 10;
 
 const showForm = ref(false);
 const editingBooking = ref<Booking | undefined>(undefined);
@@ -135,11 +137,25 @@ async function handleSave(input: CreateBookingInput) {
   saving.value = true;
   try {
     if (editingBooking.value) {
-      const updated = await updateBooking(editingBooking.value.id, input);
-      bookings.value = bookings.value.map((b) =>
-        b.id === updated.id ? updated : b,
-      );
-      showToast("Booking updated", "success");
+      try {
+        const updated = await updateBooking(editingBooking.value.id, input);
+        bookings.value = bookings.value.map((b) =>
+          b.id === updated.id ? updated : b,
+        );
+        showToast("Booking updated", "success");
+      } catch (err) {
+        if (isOfflineQueued(err)) {
+          // Optimistic row update; the queued PATCH replays on reconnect.
+          // A 409 there (reassigned / double-booked) becomes a reviewable
+          // dead-letter instead of a silent retry.
+          bookings.value = bookings.value.map((b) =>
+            b.id === editingBooking.value!.id ? { ...b, ...input } : b,
+          );
+          showToast("Saved offline — edit will sync when online", "success");
+        } else {
+          throw err;
+        }
+      }
     } else {
       const created = await createBooking(input);
       bookings.value = [created, ...bookings.value];
@@ -254,6 +270,13 @@ onMounted(fetchBookings);
       </div>
     </div>
 
+    <!-- Mobile-only field cards. Desktop table below is unchanged. -->
+    <div class="p-4 lg:hidden">
+      <MyJobs :bookings="filteredBookings" :loading="loading" @changed="fetchBookings" />
+    </div>
+
+    <div class="hidden lg:block">
+
     <div v-if="loading" class="px-6 py-16 text-center">
       <p class="text-sm text-gray-500">Loading bookings...</p>
     </div>
@@ -343,6 +366,12 @@ onMounted(fetchBookings);
               >
                 Invoice
               </button>
+              <a
+                :href="`/checklists?booking=${booking.id}`"
+                class="rounded-lg px-2 py-1 text-sm font-medium text-gray-600 hover:bg-gray-100 hover:text-gray-900"
+              >
+                Checklist
+              </a>
               <button
                 v-if="canDelete"
                 type="button"
@@ -380,6 +409,7 @@ onMounted(fetchBookings);
           Next
         </button>
       </div>
+    </div>
     </div>
   </div>
 
