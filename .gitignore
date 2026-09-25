@@ -18,3 +18,21 @@ test-results/
 .DS_Store
 .idea/
 .vscode/
+# Production data — lives on the server / in volumes, never in git
+backups/
+*.dump
+*.sql.gz
+uploads/
+
+# TLS certificates and private keys
+certs/
+*.pem
+*.key
+*.crt
+
+# Local/server-only compose overrides (may hold secrets or host ports)
+docker-compose.override.yml
+
+# Test / coverage reports
+playwright-report/
+coverage/
