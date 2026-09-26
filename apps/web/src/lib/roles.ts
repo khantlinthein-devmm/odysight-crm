@@ -92,6 +92,27 @@ export const PERMISSION_MATRIX: PermissionGroup[] = [
     ],
   },
   {
+    resource: "Payroll",
+    permissions: [
+      { key: "payroll.read", label: "View cleaner pay", roles: ["SUPER_ADMIN", "ADMIN", "ACCOUNTANT"] },
+      { key: "payroll.manage", label: "Set pay rates", roles: ["SUPER_ADMIN", "ADMIN", "ACCOUNTANT"] },
+    ],
+  },
+  {
+    resource: "Complaints",
+    permissions: [
+      { key: "complaints.read", label: "View", roles: ["SUPER_ADMIN", "ADMIN", "MANAGER", "DISPATCH", "ACCOUNTANT"] },
+      { key: "complaints.manage", label: "Log / resolve / book re-clean", roles: ["SUPER_ADMIN", "ADMIN", "MANAGER", "DISPATCH"] },
+    ],
+  },
+  {
+    resource: "Supplies",
+    permissions: [
+      { key: "supplies.read", label: "View", roles: ["SUPER_ADMIN", "ADMIN", "MANAGER", "DISPATCH", "ACCOUNTANT"] },
+      { key: "supplies.manage", label: "Catalog / record usage", roles: ["SUPER_ADMIN", "ADMIN", "MANAGER", "DISPATCH"] },
+    ],
+  },
+  {
     resource: "Reports",
     permissions: [
       { key: "reports.read", label: "View", roles: ["SUPER_ADMIN", "ADMIN", "MANAGER", "ACCOUNTANT"] },

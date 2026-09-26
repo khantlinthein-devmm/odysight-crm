@@ -33,6 +33,7 @@ import (
 	"github.com/odysight/crm/internal/line"
 	"github.com/odysight/crm/internal/notifications"
 	"github.com/odysight/crm/internal/payments"
+	"github.com/odysight/crm/internal/payroll"
 	"github.com/odysight/crm/internal/portal"
 	"github.com/odysight/crm/internal/quotes"
 	"github.com/odysight/crm/internal/reports"
@@ -268,6 +269,7 @@ func run() error {
 			r.Mount("/feedback", feedback.Routes(feedbackHandler, authorizer))
 			r.Mount("/notifications", notifications.Routes(notifHandler, authorizer))
 			r.Mount("/attendance", attendance.Routes(attendanceHandler, authorizer))
+			r.Mount("/payroll", payroll.Routes(payroll.NewHandler(payroll.NewService(payroll.NewRepository(pool))), authorizer))
 			r.Mount("/expenses", expenses.Routes(expenseHandler, authorizer))
 			r.Mount("/sites", sites.Routes(siteHandler, authorizer))
 			r.Mount("/contracts", contracts.Routes(contractHandler, authorizer))

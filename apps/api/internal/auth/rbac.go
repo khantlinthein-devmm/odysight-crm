@@ -56,6 +56,12 @@ const (
 	PermQuotesUpdate         Permission = "quotes.update"
 	PermQuotesApprove        Permission = "quotes.approve"
 	PermChecklistsRead       Permission = "checklists.read"
+	PermPayrollRead          Permission = "payroll.read"
+	PermPayrollManage        Permission = "payroll.manage"
+	PermComplaintsRead       Permission = "complaints.read"
+	PermComplaintsManage     Permission = "complaints.manage"
+	PermSuppliesRead         Permission = "supplies.read"
+	PermSuppliesManage       Permission = "supplies.manage"
 	PermChecklistsManage     Permission = "checklists.manage"
 )
 
@@ -69,6 +75,7 @@ func perms(list ...Permission) map[Permission]struct{} {
 
 var rolePermissions = map[Role]map[Permission]struct{}{
 	RoleSuperAdmin: perms(
+		PermPayrollRead, PermPayrollManage, PermComplaintsRead, PermComplaintsManage, PermSuppliesRead, PermSuppliesManage,
 		PermLeadsRead, PermLeadsCreate, PermLeadsUpdate, PermLeadsDelete,
 		PermCustomersRead, PermCustomersCreate, PermCustomersUpdate, PermCustomersDelete,
 		PermBookingsRead, PermBookingsCreate, PermBookingsUpdate, PermBookingsDelete,
@@ -90,6 +97,7 @@ var rolePermissions = map[Role]map[Permission]struct{}{
 		PermChecklistsRead, PermChecklistsManage,
 	),
 	RoleAdmin: perms(
+		PermPayrollRead, PermPayrollManage, PermComplaintsRead, PermComplaintsManage, PermSuppliesRead, PermSuppliesManage,
 		PermLeadsRead, PermLeadsCreate, PermLeadsUpdate, PermLeadsDelete,
 		PermCustomersRead, PermCustomersCreate, PermCustomersUpdate, PermCustomersDelete,
 		PermBookingsRead, PermBookingsCreate, PermBookingsUpdate, PermBookingsDelete,
@@ -110,6 +118,7 @@ var rolePermissions = map[Role]map[Permission]struct{}{
 		PermChecklistsRead, PermChecklistsManage,
 	),
 	RoleManager: perms(
+		PermComplaintsRead, PermComplaintsManage, PermSuppliesRead, PermSuppliesManage,
 		PermLeadsRead, PermLeadsCreate, PermLeadsUpdate,
 		PermCustomersRead, PermCustomersCreate, PermCustomersUpdate,
 		PermBookingsRead, PermBookingsCreate, PermBookingsUpdate,
@@ -130,6 +139,7 @@ var rolePermissions = map[Role]map[Permission]struct{}{
 		PermChecklistsRead, PermChecklistsManage,
 	),
 	RoleDispatch: perms(
+		PermComplaintsRead, PermComplaintsManage, PermSuppliesRead, PermSuppliesManage,
 		PermLeadsRead, PermLeadsUpdate,
 		PermCustomersRead,
 		PermBookingsRead, PermBookingsCreate, PermBookingsUpdate,
@@ -141,6 +151,7 @@ var rolePermissions = map[Role]map[Permission]struct{}{
 		PermChecklistsRead,
 	),
 	RoleAccountant: perms(
+		PermPayrollRead, PermPayrollManage, PermComplaintsRead, PermSuppliesRead,
 		PermLeadsRead,
 		PermCustomersRead,
 		PermBookingsRead,

@@ -7,34 +7,34 @@ import (
 )
 
 type RecordDTO struct {
-	ID         int64      `json:"id"`
-	PersonType PersonType `json:"personType"`
-	PersonID   int64      `json:"personId"`
-	PersonName string     `json:"personName"`
-	WorkDate   string     `json:"workDate"`
-	CheckInAt  *time.Time `json:"checkInAt"`
-	CheckOutAt *time.Time `json:"checkOutAt"`
-	Note       string     `json:"note"`
-	CreatedAt  time.Time  `json:"createdAt"`
-	CheckInLat       *float64 `json:"checkInLat"`
-	CheckInLng       *float64 `json:"checkInLng"`
-	CheckOutLat      *float64 `json:"checkOutLat"`
-	CheckOutLng      *float64 `json:"checkOutLng"`
-	CheckInDistanceM *int     `json:"checkInDistanceM"`
-	CheckInSiteName  string   `json:"checkInSiteName"`
+	ID               int64      `json:"id"`
+	PersonType       PersonType `json:"personType"`
+	PersonID         int64      `json:"personId"`
+	PersonName       string     `json:"personName"`
+	WorkDate         string     `json:"workDate"`
+	CheckInAt        *time.Time `json:"checkInAt"`
+	CheckOutAt       *time.Time `json:"checkOutAt"`
+	Note             string     `json:"note"`
+	CreatedAt        time.Time  `json:"createdAt"`
+	CheckInLat       *float64   `json:"checkInLat"`
+	CheckInLng       *float64   `json:"checkInLng"`
+	CheckOutLat      *float64   `json:"checkOutLat"`
+	CheckOutLng      *float64   `json:"checkOutLng"`
+	CheckInDistanceM *int       `json:"checkInDistanceM"`
+	CheckInSiteName  string     `json:"checkInSiteName"`
 }
 
 func toDTO(r Record) RecordDTO {
 	return RecordDTO{
-		ID:         r.ID,
-		PersonType: r.PersonType,
-		PersonID:   r.PersonID,
-		PersonName: r.PersonName,
-		WorkDate:   r.WorkDate,
-		CheckInAt:  r.CheckInAt,
-		CheckOutAt: r.CheckOutAt,
-		Note:       r.Note,
-		CreatedAt:  r.CreatedAt,
+		ID:               r.ID,
+		PersonType:       r.PersonType,
+		PersonID:         r.PersonID,
+		PersonName:       r.PersonName,
+		WorkDate:         r.WorkDate,
+		CheckInAt:        r.CheckInAt,
+		CheckOutAt:       r.CheckOutAt,
+		Note:             r.Note,
+		CreatedAt:        r.CreatedAt,
 		CheckInLat:       r.CheckInLat,
 		CheckInLng:       r.CheckInLng,
 		CheckOutLat:      r.CheckOutLat,
