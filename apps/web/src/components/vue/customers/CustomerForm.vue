@@ -45,6 +45,9 @@ const form = reactive<CreateCustomerInput>({
   area: props.customer?.area ?? "",
   status: props.customer?.status ?? "active",
   leadId: props.customer?.leadId ?? null,
+  taxId: props.customer?.taxId ?? "",
+  taxBranch: props.customer?.taxBranch ?? "",
+  withholdingRate: props.customer?.withholdingRate ?? 0,
 });
 
 const leads = ref<Lead[]>([]);
@@ -91,6 +94,10 @@ const errors = computed(() => {
   if (!form.phone.trim()) e.phone = "Phone is required";
   if (!form.address.trim()) e.address = "Address is required";
   if (!form.area.trim()) e.area = "Area is required";
+  const taxDigits = (form.taxId ?? "").replace(/\D/g, "");
+  if (taxDigits && taxDigits.length !== 13) e.taxId = "Tax ID must be 13 digits";
+  const wht = Number(form.withholdingRate ?? 0);
+  if (Number.isNaN(wht) || wht < 0 || wht > 15) e.withholdingRate = "Withholding must be 0–15%";
   return e;
 });
 
@@ -326,6 +333,30 @@ onMounted(loadLeads);
                 {{ opt.label }}
               </option>
             </select>
+          </div>
+
+          <div class="sm:col-span-2 border-t border-gray-100 pt-3">
+            <p class="text-sm font-medium text-gray-700">Tax invoice details <span class="font-normal text-gray-400">(companies only)</span></p>
+          </div>
+          <div>
+            <label class="mb-1 block text-sm font-medium text-gray-700" for="c-taxId">Tax ID (เลขประจำตัวผู้เสียภาษี)</label>
+            <input id="c-taxId" v-model="form.taxId" type="text" inputmode="numeric" maxlength="17" placeholder="13 digits" :class="inputClassFor('taxId')" />
+            <p v-if="submitted && errors.taxId" class="mt-1 text-xs text-red-600">{{ errors.taxId }}</p>
+          </div>
+          <div>
+            <label class="mb-1 block text-sm font-medium text-gray-700" for="c-taxBranch">Branch (00000 = head office)</label>
+            <input id="c-taxBranch" v-model="form.taxBranch" type="text" inputmode="numeric" maxlength="5" placeholder="00000" :class="inputClass" />
+          </div>
+          <div>
+            <label class="mb-1 block text-sm font-medium text-gray-700" for="c-wht">Withholding tax % (หัก ณ ที่จ่าย)</label>
+            <select id="c-wht" v-model.number="form.withholdingRate" :class="inputClassFor('withholdingRate')">
+              <option :value="0">None — individual</option>
+              <option :value="1">1%</option>
+              <option :value="2">2%</option>
+              <option :value="3">3% — company (services)</option>
+              <option :value="5">5%</option>
+            </select>
+            <p v-if="submitted && errors.withholdingRate" class="mt-1 text-xs text-red-600">{{ errors.withholdingRate }}</p>
           </div>
         </div>
 

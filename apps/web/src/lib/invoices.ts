@@ -28,6 +28,13 @@ export interface Invoice {
   total: number;
   currency: string;
   status: InvoiceStatus;
+  /** Tax-invoice snapshot taken when the invoice was issued. */
+  customerTaxId?: string;
+  customerTaxBranch?: string;
+  withholdingRate?: number;
+  withholdingAmount?: number;
+  /** Total minus withholding tax — what the customer actually transfers. */
+  netPayable?: number;
   contractId?: number | null;
   idempotencyKey?: string | null;
   billingPeriodStart?: string | null;
@@ -186,6 +193,21 @@ export async function updateInvoice(
     method: "PATCH",
     body: JSON.stringify(input),
   });
+}
+
+/**
+ * Object URL of the invoice's PromptPay QR (PNG), or null when PromptPay is
+ * not configured. Callers should URL.revokeObjectURL it when done.
+ */
+export async function getPromptPayQrUrl(id: number): Promise<string | null> {
+  if (USE_MOCKS) return null;
+  const api = getApiBaseUrl();
+  if (!api) return null;
+  const response = await fetch(`${api}/api/v1/invoices/${id}/promptpay.png`, {
+    credentials: "include",
+  });
+  if (!response.ok) return null;
+  return URL.createObjectURL(await response.blob());
 }
 
 export async function downloadInvoicePdf(id: number, fileName?: string): Promise<void> {

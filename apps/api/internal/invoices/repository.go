@@ -15,10 +15,10 @@ import (
 )
 
 var (
-	ErrNotFound               = errors.New("invoice not found")
-	ErrBookingNotFound        = errors.New("booking not found")
-	ErrBookingNotCompleted    = errors.New("booking not completed")
-	ErrActiveInvoiceExists    = errors.New("booking has an active invoice")
+	ErrNotFound            = errors.New("invoice not found")
+	ErrBookingNotFound     = errors.New("booking not found")
+	ErrBookingNotCompleted = errors.New("booking not completed")
+	ErrActiveInvoiceExists = errors.New("booking has an active invoice")
 )
 
 type Repository struct {
@@ -31,6 +31,7 @@ func NewRepository(pool *pgxpool.Pool) *Repository {
 
 const invoiceColumns = `id, invoice_number, booking_id, booking_number, customer_name, customer_email, address,
 	service_type, service_name, subtotal, tax_rate, tax_amount, total, currency, status,
+	customer_tax_id, customer_tax_branch, withholding_rate::float8, withholding_amount::float8,
 	contract_id, idempotency_key, billing_period_start, billing_period_end,
 	issued_at, paid_at, created_at, updated_at`
 
@@ -39,7 +40,8 @@ func scanInvoice(row pgx.Row) (Invoice, error) {
 	err := row.Scan(&inv.ID, &inv.InvoiceNumber, &inv.BookingID, &inv.BookingNumber,
 		&inv.CustomerName, &inv.CustomerEmail, &inv.Address, &inv.ServiceType, &inv.ServiceName,
 		&inv.Subtotal, &inv.TaxRate, &inv.TaxAmount, &inv.Total, &inv.Currency,
-		&inv.Status, &inv.ContractID, &inv.IdempotencyKey, &inv.BillingPeriodStart, &inv.BillingPeriodEnd,
+		&inv.Status, &inv.CustomerTaxID, &inv.CustomerTaxBranch, &inv.WithholdingRate, &inv.WithholdingAmount,
+		&inv.ContractID, &inv.IdempotencyKey, &inv.BillingPeriodStart, &inv.BillingPeriodEnd,
 		&inv.IssuedAt, &inv.PaidAt, &inv.CreatedAt, &inv.UpdatedAt)
 	return inv, err
 }
@@ -119,10 +121,13 @@ func (r *Repository) GetActiveByBookingID(ctx context.Context, bookingID int64) 
 func (r *Repository) BookingForInvoice(ctx context.Context, bookingID int64) (BookingSnapshot, error) {
 	var b BookingSnapshot
 	err := r.pool.QueryRow(ctx,
-		`SELECT id, booking_number, customer_name, customer_email, address, service_type, duration_minutes, status
-		   FROM bookings WHERE id = $1`, bookingID).
+		`SELECT b.id, b.booking_number, b.customer_name, b.customer_email, b.address, b.service_type,
+		        b.duration_minutes, b.status,
+		        COALESCE(c.tax_id, ''), COALESCE(c.tax_branch, ''), COALESCE(c.withholding_rate, 0)::float8
+		   FROM bookings b LEFT JOIN customers c ON c.id = b.customer_id
+		  WHERE b.id = $1`, bookingID).
 		Scan(&b.ID, &b.BookingNumber, &b.CustomerName, &b.CustomerEmail, &b.Address, &b.ServiceType,
-			&b.DurationMinutes, &b.Status)
+			&b.DurationMinutes, &b.Status, &b.CustomerTaxID, &b.CustomerTaxBranch, &b.WithholdingRate)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return BookingSnapshot{}, ErrBookingNotFound
 	}
@@ -153,13 +158,16 @@ func (r *Repository) Create(ctx context.Context, inv Invoice) (Invoice, error) {
 	created, err := scanInvoice(r.pool.QueryRow(ctx,
 		`INSERT INTO invoices (invoice_number, booking_id, booking_number, customer_name, customer_email, address,
 			service_type, service_name, subtotal, tax_rate, tax_amount, total, currency, status,
-			contract_id, idempotency_key, billing_period_start, billing_period_end)
-		 VALUES (`+invNumberExpr+`, $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
+			contract_id, idempotency_key, billing_period_start, billing_period_end,
+			customer_tax_id, customer_tax_branch, withholding_rate, withholding_amount)
+		 VALUES (`+invNumberExpr+`, $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17,
+			$18, $19, $20, $21)
 		 RETURNING `+invoiceColumns,
 		inv.BookingID, inv.BookingNumber, inv.CustomerName, inv.CustomerEmail, inv.Address,
 		inv.ServiceType, inv.ServiceName, inv.Subtotal, inv.TaxRate, inv.TaxAmount,
 		inv.Total, inv.Currency, inv.Status,
-		inv.ContractID, inv.IdempotencyKey, inv.BillingPeriodStart, inv.BillingPeriodEnd))
+		inv.ContractID, inv.IdempotencyKey, inv.BillingPeriodStart, inv.BillingPeriodEnd,
+		inv.CustomerTaxID, inv.CustomerTaxBranch, inv.WithholdingRate, inv.WithholdingAmount))
 	if err != nil {
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) && pgErr.Code == "23505" {

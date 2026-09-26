@@ -90,6 +90,10 @@ func (r *ReminderRunner) sendReminders(ctx context.Context) error {
 	if v, ok := all[settings.KeyCompany]; ok {
 		_ = json.Unmarshal(v, &company)
 	}
+	var pay settings.PaymentSettings
+	if v, ok := all[settings.KeyPayments]; ok {
+		_ = json.Unmarshal(v, &pay)
+	}
 
 	sent, noEmail := 0, 0
 	for _, inv := range overdue {
@@ -98,7 +102,7 @@ func (r *ReminderRunner) sendReminders(ctx context.Context) error {
 			noEmail++
 			continue
 		}
-		pdf, err := renderInvoicePDF(inv, company)
+		pdf, err := renderInvoicePDF(inv, company, pay)
 		if err != nil {
 			slog.Warn("overdue reminder pdf render failed", "invoice", inv.InvoiceNumber, "error", err)
 			r.record(ctx, inv, "failed", "pdf render failed")

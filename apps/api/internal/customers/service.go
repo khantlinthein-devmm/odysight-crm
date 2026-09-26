@@ -37,15 +37,18 @@ func (s *Service) Create(ctx context.Context, req CreateCustomerRequest) (Custom
 	}
 
 	c := Customer{
-		FirstName:    req.FirstName,
-		LastName:     req.LastName,
-		Email:        req.Email,
-		Phone:        req.Phone,
-		Address:      req.Address,
-		PropertyType: PropertyType(req.PropertyType),
-		Area:         req.Area,
-		Status:       Status(req.Status),
-		LeadID:       req.LeadID,
+		FirstName:       req.FirstName,
+		LastName:        req.LastName,
+		Email:           req.Email,
+		Phone:           req.Phone,
+		Address:         req.Address,
+		PropertyType:    PropertyType(req.PropertyType),
+		Area:            req.Area,
+		Status:          Status(req.Status),
+		LeadID:          req.LeadID,
+		TaxID:           req.TaxID,
+		TaxBranch:       req.TaxBranch,
+		WithholdingRate: req.WithholdingRate,
 	}
 
 	created, err := s.repo.Create(ctx, c)
@@ -63,15 +66,18 @@ func (s *Service) ConvertToCustomer(ctx context.Context, req CreateCustomerReque
 	}
 
 	c := Customer{
-		FirstName:    req.FirstName,
-		LastName:     req.LastName,
-		Email:        req.Email,
-		Phone:        req.Phone,
-		Address:      req.Address,
-		PropertyType: PropertyType(req.PropertyType),
-		Area:         req.Area,
-		Status:       Status(req.Status),
-		LeadID:       req.LeadID,
+		FirstName:       req.FirstName,
+		LastName:        req.LastName,
+		Email:           req.Email,
+		Phone:           req.Phone,
+		Address:         req.Address,
+		PropertyType:    PropertyType(req.PropertyType),
+		Area:            req.Area,
+		Status:          Status(req.Status),
+		LeadID:          req.LeadID,
+		TaxID:           req.TaxID,
+		TaxBranch:       req.TaxBranch,
+		WithholdingRate: req.WithholdingRate,
 	}
 
 	created, err := s.repo.Create(ctx, c)
@@ -121,6 +127,9 @@ func (s *Service) Update(ctx context.Context, id int64, req UpdateCustomerReques
 		status := Status(*req.Status)
 		patch.Status = &status
 	}
+	patch.TaxID = req.TaxID
+	patch.TaxBranch = req.TaxBranch
+	patch.WithholdingRate = req.WithholdingRate
 
 	updated, err := s.repo.Update(ctx, id, patch)
 	if err != nil {

@@ -15,14 +15,17 @@ const editable = computed(() =>
   hasPermission(getSessionUser()?.role, "settings.manage"),
 );
 
-const form = ref<CompanySettings>({ name: "", phone: "", address: "", invoiceFooter: "", logoUrl: "" });
+const form = ref<CompanySettings>({
+  name: "", phone: "", address: "", invoiceFooter: "", logoUrl: "",
+  legalName: "", taxId: "", taxBranch: "00000", vatRegistered: false,
+});
 const loading = ref(true);
 const saving = ref(false);
 const error = ref<string | null>(null);
 
 onMounted(async () => {
   try {
-    form.value = { ...(await getWorkspaceSettings()).company };
+    form.value = { ...form.value, ...(await getWorkspaceSettings()).company };
   } catch (e) {
     error.value = e instanceof Error ? e.message : "Failed to load";
   } finally {
@@ -34,6 +37,15 @@ async function save() {
   error.value = null;
   if (!form.value.name.trim()) {
     error.value = "Company name is required.";
+    return;
+  }
+  const taxDigits = form.value.taxId.replace(/\D/g, "");
+  if (taxDigits && taxDigits.length !== 13) {
+    error.value = "Tax ID must be 13 digits.";
+    return;
+  }
+  if (form.value.vatRegistered && !taxDigits) {
+    error.value = "A VAT-registered company needs its tax ID.";
     return;
   }
   saving.value = true;
@@ -75,6 +87,29 @@ const input =
       <label class="block sm:col-span-2">
         <span class="mb-1 block text-xs font-medium text-gray-600">Invoice footer</span>
         <input v-model="form.invoiceFooter" type="text" :class="input" :disabled="!editable" />
+      </label>
+      <div class="sm:col-span-2 mt-2 border-t border-gray-100 pt-4">
+        <h3 class="text-sm font-semibold text-gray-900">Thai tax invoice</h3>
+        <p class="mt-0.5 text-xs text-gray-500">
+          Printed on every invoice PDF. When VAT registered, invoices become
+          ใบกำกับภาษี / ใบเสร็จรับเงิน (tax invoice / receipt).
+        </p>
+      </div>
+      <label class="block sm:col-span-2">
+        <span class="mb-1 block text-xs font-medium text-gray-600">Registered legal name</span>
+        <input v-model="form.legalName" type="text" placeholder="บริษัท สไมล์ คลีน (ประเทศไทย) จำกัด" :class="input" :disabled="!editable" />
+      </label>
+      <label class="block">
+        <span class="mb-1 block text-xs font-medium text-gray-600">Tax ID (เลขประจำตัวผู้เสียภาษี)</span>
+        <input v-model="form.taxId" type="text" inputmode="numeric" maxlength="17" placeholder="0105560000000" :class="input" :disabled="!editable" />
+      </label>
+      <label class="block">
+        <span class="mb-1 block text-xs font-medium text-gray-600">Branch (00000 = head office)</span>
+        <input v-model="form.taxBranch" type="text" inputmode="numeric" maxlength="5" :class="input" :disabled="!editable" />
+      </label>
+      <label class="flex items-center gap-2 sm:col-span-2">
+        <input v-model="form.vatRegistered" type="checkbox" class="h-4 w-4 rounded border-gray-300" :disabled="!editable" />
+        <span class="text-sm text-gray-700">VAT registered (จดทะเบียนภาษีมูลค่าเพิ่ม)</span>
       </label>
       <label class="block sm:col-span-2">
         <span class="mb-1 block text-xs font-medium text-gray-600">Logo URL (optional)</span>

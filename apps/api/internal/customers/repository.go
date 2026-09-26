@@ -20,12 +20,13 @@ func NewRepository(pool *pgxpool.Pool) *Repository {
 	return &Repository{pool: pool}
 }
 
-const customerColumns = `id, first_name, last_name, email, phone, address, property_type, area, status, lead_id, portal_enabled, created_at`
+const customerColumns = `id, first_name, last_name, email, phone, address, property_type, area, status, lead_id, portal_enabled, tax_id, tax_branch, withholding_rate::float8, created_at`
 
 func scanCustomer(row pgx.Row) (Customer, error) {
 	var c Customer
 	err := row.Scan(&c.ID, &c.FirstName, &c.LastName, &c.Email, &c.Phone,
-		&c.Address, &c.PropertyType, &c.Area, &c.Status, &c.LeadID, &c.PortalEnabled, &c.CreatedAt)
+		&c.Address, &c.PropertyType, &c.Area, &c.Status, &c.LeadID, &c.PortalEnabled,
+		&c.TaxID, &c.TaxBranch, &c.WithholdingRate, &c.CreatedAt)
 	return c, err
 }
 
@@ -110,8 +111,9 @@ func (r *Repository) GetByID(ctx context.Context, id int64) (Customer, error) {
 func (r *Repository) Create(ctx context.Context, c Customer) (Customer, error) {
 	created, err := scanCustomer(r.pool.QueryRow(ctx,
 		`WITH c AS (
-		   INSERT INTO customers (first_name, last_name, email, phone, address, property_type, area, status, lead_id)
-		   VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+		   INSERT INTO customers (first_name, last_name, email, phone, address, property_type, area, status, lead_id,
+		                          tax_id, tax_branch, withholding_rate)
+		   VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
 		   RETURNING *
 		 ), site AS (
 		   INSERT INTO sites (customer_id, name, address, contact_name, phone, email, status, is_default)
@@ -120,7 +122,8 @@ func (r *Repository) Create(ctx context.Context, c Customer) (Customer, error) {
 		     FROM c
 		 )
 		 SELECT `+customerColumns+` FROM c`,
-		c.FirstName, c.LastName, c.Email, c.Phone, c.Address, c.PropertyType, c.Area, c.Status, c.LeadID))
+		c.FirstName, c.LastName, c.Email, c.Phone, c.Address, c.PropertyType, c.Area, c.Status, c.LeadID,
+		c.TaxID, c.TaxBranch, c.WithholdingRate))
 	if err != nil {
 		return Customer{}, fmt.Errorf("create customer: %w", err)
 	}
@@ -128,14 +131,17 @@ func (r *Repository) Create(ctx context.Context, c Customer) (Customer, error) {
 }
 
 type Patch struct {
-	FirstName    *string
-	LastName     *string
-	Email        *string
-	Phone        *string
-	Address      *string
-	PropertyType *PropertyType
-	Area         *string
-	Status       *Status
+	FirstName       *string
+	LastName        *string
+	Email           *string
+	Phone           *string
+	Address         *string
+	PropertyType    *PropertyType
+	Area            *string
+	Status          *Status
+	TaxID           *string
+	TaxBranch       *string
+	WithholdingRate *float64
 }
 
 func (r *Repository) Update(ctx context.Context, id int64, p Patch) (Customer, error) {
@@ -157,10 +163,14 @@ func (r *Repository) Update(ctx context.Context, id int64, p Patch) (Customer, e
 			address       = COALESCE($6, address),
 			property_type = COALESCE($7, property_type),
 			area          = COALESCE($8, area),
-			status        = COALESCE($9, status)
+			status        = COALESCE($9, status),
+			tax_id        = COALESCE($10, tax_id),
+			tax_branch    = COALESCE($11, tax_branch),
+			withholding_rate = COALESCE($12, withholding_rate)
 		 WHERE id = $1
 		 RETURNING `+customerColumns,
-		id, p.FirstName, p.LastName, p.Email, p.Phone, p.Address, propType, p.Area, status))
+		id, p.FirstName, p.LastName, p.Email, p.Phone, p.Address, propType, p.Area, status,
+		p.TaxID, p.TaxBranch, p.WithholdingRate))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Customer{}, ErrNotFound
 	}
