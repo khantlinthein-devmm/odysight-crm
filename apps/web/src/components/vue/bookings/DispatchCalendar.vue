@@ -1,6 +1,11 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from "vue";
-import { getBookings, type Booking, type BookingStatus } from "../../../lib/bookings";
+import { getBookings, updateBooking, type Booking, type BookingStatus } from "../../../lib/bookings";
+import { getCleaners, type Cleaner } from "../../../lib/cleaners";
+import { getSessionUser } from "../../../lib/auth";
+import { hasPermission } from "../../../lib/roles";
+import { showToast } from "../../../lib/toast";
+import { dropTime, onDay, reassignCrew } from "../../../lib/dispatch";
 import { serviceLabel } from "../../../lib/settings";
 import DispatchBookingModal from "./DispatchBookingModal.vue";
 
@@ -248,6 +253,133 @@ function goToday() {
   load();
 }
 
+// ---- Drag and drop -------------------------------------------------------
+// Office staff drag a job to another day/time (time view) or to another
+// cleaner's row (cleaner view). The API re-checks crew double-booking and
+// answers 409 on a clash, which is shown and the job snaps back.
+const role = getSessionUser()?.role;
+const canDrag = role !== "CLEANER" && hasPermission(role, "bookings.update");
+const view = ref<"time" | "cleaner">("time");
+const cleaners = ref<Cleaner[]>([]);
+const dragging = ref<{ booking: Booking; grabOffset: number; fromCleaner: number | null } | null>(null);
+const dropHint = ref<{ dayIndex: number; top: number } | null>(null);
+const moving = ref<number | null>(null);
+
+function draggable(b: Booking): boolean {
+  return canDrag && b.status !== "completed" && b.status !== "cancelled" && moving.value === null;
+}
+
+function onDragStart(e: DragEvent, b: Booking, fromCleaner: number | null = null) {
+  if (!draggable(b)) {
+    e.preventDefault();
+    return;
+  }
+  const el = e.currentTarget as HTMLElement;
+  dragging.value = { booking: b, grabOffset: e.clientY - el.getBoundingClientRect().top, fromCleaner };
+  e.dataTransfer?.setData("text/plain", String(b.id));
+  if (e.dataTransfer) e.dataTransfer.effectAllowed = "move";
+}
+
+function onDragEnd() {
+  dragging.value = null;
+  dropHint.value = null;
+}
+
+function columnOffset(e: DragEvent): number {
+  const col = e.currentTarget as HTMLElement;
+  return e.clientY - col.getBoundingClientRect().top - (dragging.value?.grabOffset ?? 0);
+}
+
+function onTimeDragOver(e: DragEvent, dayIndex: number) {
+  if (!dragging.value) return;
+  e.preventDefault();
+  const start = dropTime(days.value[dayIndex], columnOffset(e), HOUR_PX, windowStart.value);
+  dropHint.value = { dayIndex, top: topOf(start.toISOString()) };
+}
+
+async function move(b: Booking, patch: { scheduledFor?: string; cleanerIds?: number[] }, what: string) {
+  moving.value = b.id;
+  try {
+    const updated = await updateBooking(b.id, patch);
+    bookings.value = bookings.value.map((x) => (x.id === updated.id ? updated : x));
+    showToast(`${b.customerName}: ${what}`, "success");
+  } catch (e) {
+    showToast(e instanceof Error ? e.message : "Could not move the job", "error");
+  } finally {
+    moving.value = null;
+  }
+}
+
+function fmtWhen(d: Date): string {
+  return d.toLocaleString(undefined, { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+}
+
+async function onTimeDrop(e: DragEvent, dayIndex: number) {
+  const drag = dragging.value;
+  onDragEnd();
+  if (!drag) return;
+  e.preventDefault();
+  const start = dropTime(days.value[dayIndex], columnOffset(e), HOUR_PX, windowStart.value);
+  if (start.getTime() === new Date(drag.booking.scheduledFor).getTime()) return;
+  await move(drag.booking, { scheduledFor: start.toISOString() }, `moved to ${fmtWhen(start)}`);
+}
+
+// Cleaner view: rows = cleaners (+ unassigned), columns = days.
+const UNASSIGNED = 0;
+const cleanerRows = computed(() => [
+  ...cleaners.value
+    .filter((c) => c.status !== "inactive")
+    .map((c) => ({ id: c.id, name: `${c.firstName} ${c.lastName}`.trim() })),
+  { id: UNASSIGNED, name: "Unassigned" },
+]);
+
+function crewIds(b: Booking): number[] {
+  return (b.cleaners ?? []).map((c) => c.id);
+}
+
+function jobsFor(rowId: number, day: Date): Booking[] {
+  return bookingsForDay(day).filter((b) =>
+    rowId === UNASSIGNED ? crewIds(b).length === 0 : crewIds(b).includes(rowId),
+  );
+}
+
+function onCellDragOver(e: DragEvent) {
+  if (dragging.value) e.preventDefault();
+}
+
+async function onCellDrop(e: DragEvent, rowId: number, day: Date) {
+  const drag = dragging.value;
+  onDragEnd();
+  if (!drag) return;
+  e.preventDefault();
+  const b = drag.booking;
+  const patch: { scheduledFor?: string; cleanerIds?: number[] } = {};
+  const parts: string[] = [];
+  const from = drag.fromCleaner ?? UNASSIGNED;
+  if (rowId !== from) {
+    patch.cleanerIds = reassignCrew(crewIds(b), from === UNASSIGNED ? null : from, rowId === UNASSIGNED ? null : rowId);
+    parts.push(rowId === UNASSIGNED ? "unassigned" : `assigned to ${cleanerRows.value.find((r) => r.id === rowId)?.name}`);
+  }
+  if (!sameDay(new Date(b.scheduledFor), day)) {
+    const start = onDay(new Date(b.scheduledFor), day);
+    patch.scheduledFor = start.toISOString();
+    parts.push(`moved to ${fmtWhen(start)}`);
+  }
+  if (parts.length === 0) return;
+  await move(b, patch, parts.join(", "));
+}
+
+async function showCleanerView() {
+  view.value = "cleaner";
+  if (cleaners.value.length === 0) {
+    try {
+      cleaners.value = await getCleaners({ limit: 200 });
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : "Failed to load cleaners", "error");
+    }
+  }
+}
+
 onMounted(load);
 
 const gridCols = "grid-template-columns: 3.5rem repeat(7, minmax(8.5rem, 1fr));";
@@ -338,6 +470,10 @@ const gridCols = "grid-template-columns: 3.5rem repeat(7, minmax(8.5rem, 1fr));"
               {{ label }}
             </option>
           </select>
+          <div class="flex overflow-hidden rounded-xl ring-1 ring-amber-200" role="group" aria-label="Board view">
+            <button type="button" class="px-3 py-2 text-xs font-semibold" :class="view === 'time' ? 'bg-amber-500 text-white' : 'bg-white text-amber-700 hover:bg-amber-50'" @click="view = 'time'">By time</button>
+            <button type="button" class="px-3 py-2 text-xs font-semibold" :class="view === 'cleaner' ? 'bg-amber-500 text-white' : 'bg-white text-amber-700 hover:bg-amber-50'" @click="showCleanerView">By cleaner</button>
+          </div>
           <a
             href="/bookings"
             class="rounded-xl bg-gradient-to-r from-amber-500 to-orange-400 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:brightness-110"
@@ -365,7 +501,10 @@ const gridCols = "grid-template-columns: 3.5rem repeat(7, minmax(8.5rem, 1fr));"
     </div>
 
     <!-- Calendar -->
-    <div class="overflow-hidden rounded-3xl border border-amber-200/60 bg-[#FFFBF3] shadow-sm">
+    <div
+      v-if="view === 'time' || loading || visibleBookings.length === 0"
+      class="overflow-hidden rounded-3xl border border-amber-200/60 bg-[#FFFBF3] shadow-sm"
+    >
       <div v-if="loading" class="space-y-3 p-8">
         <div class="h-12 animate-pulse rounded-2xl bg-gray-100"></div>
         <div class="h-64 animate-pulse rounded-2xl bg-gray-50"></div>
@@ -400,7 +539,10 @@ const gridCols = "grid-template-columns: 3.5rem repeat(7, minmax(8.5rem, 1fr));"
         </template>
       </div>
 
-      <div v-else class="overflow-x-auto">
+      <div v-else-if="view === 'time'" class="overflow-x-auto">
+        <p v-if="canDrag" class="border-b border-amber-200/60 bg-amber-50 px-4 py-1.5 text-[11px] text-amber-800">
+          Drag a job to another day or time to reschedule it. Crew clashes are refused.
+        </p>
         <div class="min-w-[920px]">
           <!-- Day headers -->
           <div class="grid border-b border-amber-200/60 bg-amber-100/50" :style="gridCols">
@@ -467,7 +609,15 @@ const gridCols = "grid-template-columns: 3.5rem repeat(7, minmax(8.5rem, 1fr));"
               :key="i"
               class="relative border-l border-amber-200/40"
               :style="{ height: `${gridHeight}px` }"
+              @dragover="onTimeDragOver($event, i)"
+              @dragleave="dropHint = null"
+              @drop="onTimeDrop($event, i)"
             >
+              <div
+                v-if="dragging && dropHint?.dayIndex === i"
+                class="pointer-events-none absolute left-1 right-1 z-30 rounded-xl border-2 border-dashed border-amber-500 bg-amber-200/40"
+                :style="{ top: `${dropHint.top}px`, height: `${heightOf(dragging.booking.durationMinutes)}px` }"
+              />
               <div
                 v-for="h in hours"
                 :key="h"
@@ -495,6 +645,10 @@ const gridCols = "grid-template-columns: 3.5rem repeat(7, minmax(8.5rem, 1fr));"
                 aria-haspopup="dialog"
                 :aria-label="`${b.customerName}, ${labelForService(b.serviceType)}, ${timeRange(b.scheduledFor, b.durationMinutes)}`"
                 class="absolute left-1 right-1 z-10 cursor-pointer overflow-hidden rounded-xl border-l-4 bg-[#FFFDF7] p-2 shadow-sm ring-1 ring-amber-200/70 transition hover:-translate-y-px hover:shadow-md focus:outline-none focus:ring-2 focus:ring-amber-500"
+                :class="[draggable(b) ? 'cursor-grab active:cursor-grabbing' : '', moving === b.id || dragging?.booking.id === b.id ? 'opacity-50' : '']"
+                :draggable="draggable(b)"
+                @dragstart="onDragStart($event, b)"
+                @dragend="onDragEnd"
                 :style="{
                   top: `${topOf(b.scheduledFor)}px`,
                   height: `${heightOf(b.durationMinutes)}px`,
@@ -537,6 +691,52 @@ const gridCols = "grid-template-columns: 3.5rem repeat(7, minmax(8.5rem, 1fr));"
           </div>
         </div>
       </div>
+    </div>
+
+    <div v-if="!loading && view === 'cleaner' && visibleBookings.length > 0" class="overflow-x-auto rounded-3xl border border-amber-200/60 bg-[#FFFBF3] shadow-sm">
+      <p v-if="canDrag" class="border-b border-amber-200/60 bg-amber-50 px-4 py-1.5 text-[11px] text-amber-800">
+        Drag a job onto another cleaner to reassign it, or onto another day to move it (same time).
+      </p>
+      <table class="min-w-[980px] w-full table-fixed text-xs">
+        <thead>
+          <tr class="bg-amber-100/50">
+            <th class="w-40 px-3 py-2 text-left font-semibold text-gray-500">Cleaner</th>
+            <th v-for="(day, i) in days" :key="i" class="px-2 py-2 text-center font-semibold" :class="sameDay(day, today) ? 'bg-amber-200/60 text-gray-900' : 'text-gray-500'">
+              {{ day.toLocaleDateString(undefined, { weekday: "short", day: "numeric" }) }}
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="row in cleanerRows" :key="row.id" class="border-t border-amber-200/50 align-top">
+            <td class="px-3 py-2 font-semibold" :class="row.id === UNASSIGNED ? 'text-amber-700' : 'text-gray-900'">{{ row.name }}</td>
+            <td
+              v-for="(day, i) in days"
+              :key="i"
+              class="min-h-[56px] border-l border-amber-200/40 p-1"
+              :class="dragging ? 'bg-amber-50/60' : ''"
+              @dragover="onCellDragOver"
+              @drop="onCellDrop($event, row.id, day)"
+            >
+              <div
+                v-for="b in jobsFor(row.id, day)"
+                :key="b.id"
+                class="mb-1 rounded-lg border-l-4 bg-white px-2 py-1 shadow-sm ring-1 ring-amber-200/70"
+                :class="[draggable(b) ? 'cursor-grab active:cursor-grabbing' : 'cursor-pointer', moving === b.id ? 'opacity-50' : '']"
+                :style="{ borderLeftColor: statusAccent[b.status] }"
+                :draggable="draggable(b)"
+                :title="`${timeRange(b.scheduledFor, b.durationMinutes)} — ${b.customerName}`"
+                @dragstart="onDragStart($event, b, row.id === UNASSIGNED ? null : row.id)"
+                @dragend="onDragEnd"
+                @click="openBooking(b)"
+              >
+                <p class="truncate font-semibold text-amber-700">{{ timeRange(b.scheduledFor, b.durationMinutes).split(" – ")[0] }}</p>
+                <p class="truncate text-gray-900">{{ b.customerName }}</p>
+              </div>
+              <div v-if="jobsFor(row.id, day).length === 0" class="h-10"></div>
+            </td>
+          </tr>
+        </tbody>
+      </table>
     </div>
 
     <DispatchBookingModal
