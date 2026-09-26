@@ -138,9 +138,11 @@ import AuthLayout from "../layouts/AuthLayout.astro";
       const password = String(data.get("password") ?? "");
 
       try {
-        await login(email, password);
+        const user = await login(email, password);
         const params = new URLSearchParams(window.location.search);
-        window.location.href = params.get("next") ?? "/dashboard";
+        // Field cleaners work from their job list, not the office dashboard.
+        const home = user?.role === "CLEANER" ? "/bookings" : "/dashboard";
+        window.location.href = params.get("next") ?? home;
       } catch (err) {
         showError(err instanceof Error ? err.message : "Sign in failed");
         submitBtn.disabled = false;
