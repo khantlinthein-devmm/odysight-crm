@@ -34,11 +34,19 @@ const { title = "Dashboard" } = Astro.props;
       rel="stylesheet"
     />
     <title>{title} · Smile Clean</title>
+    <script is:inline>
+      // Apply the saved desktop sidebar width before first paint (no jump).
+      try {
+        if (localStorage.getItem("smileclean.sidebar") === "collapsed") {
+          document.documentElement.classList.add("sidebar-collapsed");
+        }
+      } catch (e) {}
+    </script>
   </head>
   <body class="bg-gray-50 text-gray-900 antialiased">
     <Sidebar />
 
-    <div class="flex min-h-screen flex-col lg:pl-64">
+    <div class="app-content flex min-h-screen flex-col">
       <Header title={title} />
       <main class="mobile-nav-clearance flex-1 p-4 sm:p-6 lg:pb-6">
         <slot />
