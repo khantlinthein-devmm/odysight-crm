@@ -4,6 +4,15 @@ import { completeChecklistItem, confirmChecklist, createChecklist, getChecklistB
 import { getBookings, type Booking } from "../../../lib/bookings";
 import { isOfflineQueued } from "../../../lib/offline";
 import { showToast } from "../../../lib/toast";
+import { getSessionUser } from "../../../lib/auth";
+import { t, type MessageKey } from "../../../lib/i18n";
+import LanguageSwitcher from "../ui/LanguageSwitcher.vue";
+
+// Cleaners see this page in their chosen language; office staff in English.
+const isCleaner = getSessionUser()?.role === "CLEANER";
+function L(key: MessageKey, english: string): string {
+  return isCleaner ? t(key) : english;
+}
 
 const bookingId = ref<number | "">("");
 const bookings = ref<Booking[]>([]);
@@ -42,13 +51,13 @@ async function handleCreate() {
 
 async function handleConfirm() {
   if (!checklist.value || !signature.value.trim()) {
-    showToast("Enter client name/signature to confirm", "error");
+    showToast(L("cl.needSignature", "Enter client name/signature to confirm"), "error");
     return;
   }
   confirming.value = true;
   try {
     checklist.value = await confirmChecklist(checklist.value.bookingId, signature.value.trim());
-    showToast("Checklist confirmed by client", "success");
+    showToast(L("cl.confirmed", "Checklist confirmed by client"), "success");
   } catch (err) {
     showToast(err instanceof Error ? err.message : "Failed to confirm checklist", "error");
   } finally {
@@ -86,7 +95,7 @@ async function attach(itemId: number, kind: "before" | "after", ev: Event) {
   if (!file) return;
   try {
     checklist.value = await uploadItemPhoto(itemId, kind, file);
-    showToast("Photo attached", "success");
+    showToast(L("cl.photoAttached", "Photo attached"), "success");
   } catch (err) {
     if (isOfflineQueued(err)) {
       // Offline preview from the on-device file; the queued upload replaces
@@ -128,19 +137,20 @@ onMounted(async () => {
 <template>
   <div class="rounded-xl border border-gray-200 bg-white">
     <div class="border-b border-gray-200 px-6 py-4">
-      <h2 class="text-base font-semibold text-gray-900">Checklists & proof of work</h2>
-      <p class="mt-1 text-sm text-gray-500">Optional per booking. Commercial bookings complete template items; photos attach per item via the API.</p>
+      <LanguageSwitcher v-if="isCleaner" class="mb-2" />
+      <h2 class="text-base font-semibold text-gray-900">{{ L("cl.title", "Checklists & proof of work") }}</h2>
+      <p class="mt-1 text-sm text-gray-500">{{ L("cl.subtitle", "Optional per booking. Tick each item and attach before/after photos.") }}</p>
       <div class="mt-3 flex flex-col gap-2 sm:flex-row">
         <select v-model="bookingId" :disabled="bookingsLoading" class="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm sm:w-80" @change="handleLoad">
-          <option value="" disabled>{{ bookingsLoading ? "Loading bookings…" : "Select booking" }}</option>
+          <option value="" disabled>{{ bookingsLoading ? L("cl.loadingBookings", "Loading bookings…") : L("cl.selectBooking", "Select booking") }}</option>
           <option v-for="b in bookings" :key="b.id" :value="b.id">
             {{ b.bookingNumber }} — {{ b.customerName }}
           </option>
         </select>
-        <button type="button" class="rounded-lg bg-navy-600 px-4 py-2 text-sm font-medium text-white" @click="handleCreate">New from template</button>
+        <button type="button" class="rounded-lg bg-navy-600 px-4 py-2 text-sm font-medium text-white" @click="handleCreate">{{ L("cl.newFromTemplate", "New from template") }}</button>
       </div>
     </div>
-    <div v-if="loading" class="px-6 py-10 text-center text-sm text-gray-500">Loading...</div>
+    <div v-if="loading" class="px-6 py-10 text-center text-sm text-gray-500">{{ L("cl.loading", "Loading…") }}</div>
     <div v-else-if="checklist" class="px-6 py-4">
       <p class="text-sm text-gray-500">Booking #{{ checklist.bookingId }} · <span class="font-medium text-gray-900">{{ checklist.status }}</span></p>
       <ul class="mt-3 space-y-2">
@@ -150,21 +160,21 @@ onMounted(async () => {
           <span class="ml-auto flex items-center gap-3 text-sm sm:gap-2 sm:text-xs">
             <span v-if="it.beforePhotoUrl" class="text-gray-400">before ✓</span>
             <span v-if="it.afterPhotoUrl" class="text-gray-400">after ✓</span>
-            <label class="field-tap-sm inline-flex cursor-pointer items-center font-medium text-navy-600">Before<input type="file" accept="image/jpeg,image/png,image/webp" class="hidden" @change="attach(it.id, 'before', $event)" /></label>
-            <label class="field-tap-sm inline-flex cursor-pointer items-center font-medium text-navy-600">After<input type="file" accept="image/jpeg,image/png,image/webp" class="hidden" @change="attach(it.id, 'after', $event)" /></label>
+            <label class="field-tap-sm inline-flex cursor-pointer items-center font-medium text-navy-600">{{ L("cl.before", "Before") }}<input type="file" accept="image/jpeg,image/png,image/webp" class="hidden" @change="attach(it.id, 'before', $event)" /></label>
+            <label class="field-tap-sm inline-flex cursor-pointer items-center font-medium text-navy-600">{{ L("cl.after", "After") }}<input type="file" accept="image/jpeg,image/png,image/webp" class="hidden" @change="attach(it.id, 'after', $event)" /></label>
           </span>
         </li>
       </ul>
-      <p v-if="checklist.items.length === 0" class="mt-2 text-sm text-gray-500">No items yet.</p>
+      <p v-if="checklist.items.length === 0" class="mt-2 text-sm text-gray-500">{{ L("cl.noItems", "No items yet.") }}</p>
       <div class="mt-4 rounded-lg border border-gray-100 bg-gray-50 p-4">
-        <h3 class="text-sm font-semibold text-gray-900">Client confirmation</h3>
-        <p v-if="checklist.clientSignature" class="mt-1 text-sm text-green-700">Signed by {{ checklist.clientSignature }}</p>
+        <h3 class="text-sm font-semibold text-gray-900">{{ L("cl.clientConfirm", "Client confirmation") }}</h3>
+        <p v-if="checklist.clientSignature" class="mt-1 text-sm text-green-700">{{ L("cl.signedBy", "Signed by") }} {{ checklist.clientSignature }}</p>
         <div v-else class="mt-2 flex flex-col gap-2 sm:flex-row">
-          <input v-model="signature" type="text" placeholder="Client name / signature" class="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm sm:w-80" />
-          <button type="button" :disabled="confirming" class="rounded-lg bg-green-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-50" @click="handleConfirm">{{ confirming ? "Confirming…" : "Confirm" }}</button>
+          <input v-model="signature" type="text" :placeholder="L('cl.signaturePlaceholder', 'Client name / signature')" class="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm sm:w-80" />
+          <button type="button" :disabled="confirming" class="rounded-lg bg-green-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-50" @click="handleConfirm">{{ confirming ? L("cl.confirming", "Confirming…") : L("cl.confirm", "Confirm") }}</button>
         </div>
       </div>
     </div>
-    <div v-else class="px-6 py-10 text-center text-sm text-gray-500">Load a booking checklist, or create one from the default template.</div>
+    <div v-else class="px-6 py-10 text-center text-sm text-gray-500">{{ L("cl.empty", "Load a booking checklist, or create one from the default template.") }}</div>
   </div>
 </template>

@@ -13,6 +13,8 @@ import { getCleaners, getMyCleanerProfile } from "../../../lib/cleaners";
 import { isOfflineQueued } from "../../../lib/offline";
 import { hasPermission } from "../../../lib/roles";
 import { showToast } from "../../../lib/toast";
+import { t, type MessageKey } from "../../../lib/i18n";
+import LanguageSwitcher from "../ui/LanguageSwitcher.vue";
 import { getUsers } from "../../../lib/users";
 
 function todayStr(): string {
@@ -66,6 +68,10 @@ const role = getSessionUser()?.role;
 // A CLEANER cannot manage others but may check themselves in and out; the
 // API pins those requests to their own profile, so the board shows only them.
 const isSelfService = role === "CLEANER";
+// Cleaners see this page in their chosen language; office staff in English.
+function L(key: MessageKey, english: string): string {
+  return isSelfService ? t(key) : english;
+}
 const canManage = computed(() => isSelfService || hasPermission(role, "attendance.manage"));
 // The staff roster comes from /users, so the tab needs that permission too.
 const canSeeStaff = computed(() => hasPermission(role, "users.read"));
@@ -104,9 +110,9 @@ function statusFor(personId: number): DayStatus {
 }
 
 function statusLabel(s: DayStatus): string {
-  if (s === "checked-in") return "Checked-in";
-  if (s === "checked-out") return "Checked-out";
-  return "Not in";
+  if (s === "checked-in") return L("att.checkedIn", "Checked-in");
+  if (s === "checked-out") return L("att.checkedOut", "Checked-out");
+  return L("att.notIn", "Not in");
 }
 
 function statusPill(s: DayStatus): string {
@@ -128,7 +134,7 @@ const notInCount = computed(
 const isToday = computed(() => selectedDate.value === todayStr());
 
 const emptyLabel = computed(() => {
-  if (isSelfService) return "Your login is not linked to a cleaner profile — ask the office.";
+  if (isSelfService) return t("att.noProfile");
   return activeTab.value === "staff" ? "No team staff found." : "No cleaners found.";
 });
 
@@ -271,11 +277,12 @@ onMounted(async () => {
 
 <template>
   <div class="space-y-4">
+    <LanguageSwitcher v-if="isSelfService" />
     <!-- Day navigator -->
     <section class="rounded-3xl bg-white p-6 shadow-sm ring-1 ring-gray-100 sm:p-7">
       <div class="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h2 class="font-semibold tracking-tight text-gray-900">Daily check-in</h2>
+          <h2 class="font-semibold tracking-tight text-gray-900">{{ L("att.title", "Daily check-in") }}</h2>
           <p class="text-xs text-gray-400">{{ formatDate(selectedDate) }}</p>
         </div>
         <div class="flex flex-wrap items-center gap-2">
@@ -407,13 +414,13 @@ onMounted(async () => {
 
         <div class="mt-4 flex items-center gap-4 text-sm tabular-nums">
           <div>
-            <p class="text-[11px] font-medium uppercase tracking-wider text-gray-400">In</p>
+            <p class="text-[11px] font-medium uppercase tracking-wider text-gray-400">{{ L("att.in", "In") }}</p>
             <p class="font-semibold text-gray-900">
               {{ formatTime(recordByPerson.get(person.id)?.checkInAt ?? null) }}
             </p>
           </div>
           <div>
-            <p class="text-[11px] font-medium uppercase tracking-wider text-gray-400">Out</p>
+            <p class="text-[11px] font-medium uppercase tracking-wider text-gray-400">{{ L("att.out", "Out") }}</p>
             <p class="font-semibold text-gray-900">
               {{ formatTime(recordByPerson.get(person.id)?.checkOutAt ?? null) }}
             </p>
@@ -429,7 +436,7 @@ onMounted(async () => {
             class="field-tap flex-1 rounded-xl bg-gradient-to-r from-emerald-400 to-green-600 px-3 py-3 text-sm font-semibold text-white shadow-sm transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40 sm:py-2 sm:text-xs"
             @click="doCheckIn(person.id)"
           >
-            {{ actingId === person.id ? "Working…" : "Check in" }}
+            {{ actingId === person.id ? L("jobs.working", "Working…") : L("jobs.checkIn", "Check in") }}
           </button>
           <button
             type="button"
@@ -441,7 +448,7 @@ onMounted(async () => {
             class="field-tap flex-1 rounded-xl bg-gradient-to-r from-navy-500 to-blue-600 px-3 py-3 text-sm font-semibold text-white shadow-sm transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40 sm:py-2 sm:text-xs"
             @click="doCheckOut(person.id)"
           >
-            {{ actingId === person.id ? "Working…" : "Check out" }}
+            {{ actingId === person.id ? L("jobs.working", "Working…") : L("jobs.checkOut", "Check out") }}
           </button>
         </div>
       </article>
@@ -455,7 +462,7 @@ onMounted(async () => {
     <section class="rounded-3xl bg-white p-6 shadow-sm ring-1 ring-gray-100 sm:p-7">
       <div class="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h2 class="font-semibold tracking-tight text-gray-900">History</h2>
+          <h2 class="font-semibold tracking-tight text-gray-900">{{ L("att.history", "History") }}</h2>
           <p class="text-xs text-gray-400">
             Recent check-in / check-out records ·
             {{ activeTab === "staff" ? "Team staff" : "Cleaners" }}
