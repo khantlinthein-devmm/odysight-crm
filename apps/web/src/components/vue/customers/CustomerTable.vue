@@ -176,8 +176,11 @@ async function handleDelete() {
       (c) => c.id !== pendingDelete.value!.id,
     );
     showToast("Customer deleted", "success");
-  } catch {
-    showToast("Failed to delete customer", "error");
+  } catch (err) {
+    showToast(
+      err instanceof Error ? `Failed to delete customer: ${err.message}` : "Failed to delete customer",
+      "error",
+    );
   } finally {
     deleting.value = false;
     pendingDelete.value = null;

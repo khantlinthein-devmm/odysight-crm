@@ -284,8 +284,11 @@ async function handleDelete(e: Expense) {
     await deleteExpense(e.id);
     expenses.value = expenses.value.filter((x) => x.id !== e.id);
     showToast("Expense deleted");
-  } catch {
-    showToast("Failed to delete expense", "error");
+  } catch (err) {
+    showToast(
+      err instanceof Error ? `Failed to delete expense: ${err.message}` : "Failed to delete expense",
+      "error",
+    );
   } finally {
     deleting.value = false;
     pendingDelete.value = null;

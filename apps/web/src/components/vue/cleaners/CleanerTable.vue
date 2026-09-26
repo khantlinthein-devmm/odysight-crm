@@ -179,8 +179,11 @@ async function handleDelete() {
       (c) => c.id !== pendingDelete.value!.id,
     );
     showToast("Cleaner deleted", "success");
-  } catch {
-    showToast("Failed to delete cleaner", "error");
+  } catch (err) {
+    showToast(
+      err instanceof Error ? `Failed to delete cleaner: ${err.message}` : "Failed to delete cleaner",
+      "error",
+    );
   } finally {
     deleting.value = false;
     pendingDelete.value = null;

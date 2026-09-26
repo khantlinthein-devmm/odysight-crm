@@ -192,8 +192,11 @@ async function handleDelete() {
       (b) => b.id !== pendingDelete.value!.id,
     );
     showToast("Booking deleted", "success");
-  } catch {
-    showToast("Failed to delete booking", "error");
+  } catch (err) {
+    showToast(
+      err instanceof Error ? `Failed to delete booking: ${err.message}` : "Failed to delete booking",
+      "error",
+    );
   } finally {
     deleting.value = false;
     pendingDelete.value = null;

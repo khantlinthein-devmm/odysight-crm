@@ -137,8 +137,11 @@ async function handleDelete() {
     await deleteLead(pendingDelete.value.id);
     leads.value = leads.value.filter((l) => l.id !== pendingDelete.value!.id);
     showToast("Lead deleted", "success");
-  } catch {
-    showToast("Failed to delete lead", "error");
+  } catch (err) {
+    showToast(
+      err instanceof Error ? `Failed to delete lead: ${err.message}` : "Failed to delete lead",
+      "error",
+    );
   } finally {
     deleting.value = false;
     pendingDelete.value = null;
