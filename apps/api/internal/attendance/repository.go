@@ -15,6 +15,7 @@ var (
 	ErrNotFound          = errors.New("attendance record not found")
 	ErrAlreadyCheckedIn  = errors.New("already checked in")
 	ErrAlreadyCheckedOut = errors.New("already checked out")
+	ErrNoCleanerProfile  = errors.New("no cleaner profile linked to this user")
 )
 
 type Repository struct {
@@ -221,4 +222,25 @@ func joinWith(parts []string, sep string) string {
 		out += s
 	}
 	return out
+}
+
+// CleanerIDForUser returns the cleaner profile linked to a login: by user_id
+// first, then by an unlinked profile with the login's email (the same rule
+// the bookings module uses). ErrNoCleanerProfile when there is none.
+func (r *Repository) CleanerIDForUser(ctx context.Context, userID int64) (int64, error) {
+	var id int64
+	err := r.pool.QueryRow(ctx,
+		`SELECT id FROM (
+		   SELECT c.id, 0 AS rank FROM cleaners c WHERE c.user_id = $1
+		   UNION ALL
+		   SELECT c.id, 1 FROM cleaners c JOIN users u ON lower(c.email) = lower(u.email)
+		    WHERE u.id = $1 AND c.user_id IS NULL AND c.email <> ''
+		 ) m ORDER BY rank, id LIMIT 1`, userID).Scan(&id)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return 0, ErrNoCleanerProfile
+	}
+	if err != nil {
+		return 0, fmt.Errorf("find cleaner for user %d: %w", userID, err)
+	}
+	return id, nil
 }

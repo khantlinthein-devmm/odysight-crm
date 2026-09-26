@@ -166,6 +166,12 @@ var rolePermissions = map[Role]map[Permission]struct{}{
 	),
 }
 
+// HasPermission reports whether role is granted p. Handlers that allow a
+// narrower self-service path for roles lacking p use it to pick the branch.
+func HasPermission(role Role, p Permission) bool {
+	return roleHasPermission(role, p)
+}
+
 func roleHasPermission(role Role, p Permission) bool {
 	set, ok := rolePermissions[role]
 	if !ok {

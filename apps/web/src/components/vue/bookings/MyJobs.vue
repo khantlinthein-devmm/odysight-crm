@@ -7,7 +7,7 @@ import {
   type Booking,
 } from "../../../lib/bookings";
 import { checkIn, checkOut, getAttendance } from "../../../lib/attendance";
-import { getCleaners } from "../../../lib/cleaners";
+import { getCleaners, getMyCleanerProfile } from "../../../lib/cleaners";
 import { getSessionUser } from "../../../lib/auth";
 import { hasPermission } from "../../../lib/roles";
 import { isOfflineQueued } from "../../../lib/offline";
@@ -32,6 +32,13 @@ function todayStr(): string {
 
 async function resolveProfile(): Promise<void> {
   try {
+    // CLEANER logins cannot list all cleaners, so resolve the profile linked
+    // to this login first; staff previewing the page fall back to email.
+    const mine = await getMyCleanerProfile().catch(() => null);
+    if (mine) {
+      profileId.value = mine.id;
+      return;
+    }
     const email = (user?.email ?? "").trim().toLowerCase();
     if (!email) return;
     const cleaners = await getCleaners();

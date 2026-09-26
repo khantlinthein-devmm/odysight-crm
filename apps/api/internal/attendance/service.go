@@ -21,6 +21,11 @@ func NewService(repo *Repository) *Service {
 	return &Service{repo: repo}
 }
 
+// CleanerIDForUser returns the cleaner profile linked to a login.
+func (s *Service) CleanerIDForUser(ctx context.Context, userID int64) (int64, error) {
+	return s.repo.CleanerIDForUser(ctx, userID)
+}
+
 func (s *Service) List(ctx context.Context, f Filters, params pagination.Params) ([]Record, int, error) {
 	items, total, err := s.repo.List(ctx, f, params)
 	if err != nil {

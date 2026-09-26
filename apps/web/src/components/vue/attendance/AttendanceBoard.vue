@@ -9,7 +9,7 @@ import {
   type PersonType,
 } from "../../../lib/attendance";
 import { getSessionUser } from "../../../lib/auth";
-import { getCleaners } from "../../../lib/cleaners";
+import { getCleaners, getMyCleanerProfile } from "../../../lib/cleaners";
 import { isOfflineQueued } from "../../../lib/offline";
 import { hasPermission } from "../../../lib/roles";
 import { showToast } from "../../../lib/toast";
@@ -63,7 +63,10 @@ interface Person {
 }
 
 const role = getSessionUser()?.role;
-const canManage = computed(() => hasPermission(role, "attendance.manage"));
+// A CLEANER cannot manage others but may check themselves in and out; the
+// API pins those requests to their own profile, so the board shows only them.
+const isSelfService = role === "CLEANER";
+const canManage = computed(() => isSelfService || hasPermission(role, "attendance.manage"));
 // The staff roster comes from /users, so the tab needs that permission too.
 const canSeeStaff = computed(() => hasPermission(role, "users.read"));
 
@@ -124,11 +127,19 @@ const notInCount = computed(
 
 const isToday = computed(() => selectedDate.value === todayStr());
 
-const emptyLabel = computed(() =>
-  activeTab.value === "staff" ? "No team staff found." : "No cleaners found.",
-);
+const emptyLabel = computed(() => {
+  if (isSelfService) return "Your login is not linked to a cleaner profile — ask the office.";
+  return activeTab.value === "staff" ? "No team staff found." : "No cleaners found.";
+});
 
 async function loadPeople(): Promise<void> {
+  if (isSelfService) {
+    const me = await getMyCleanerProfile();
+    cleaners.value = me
+      ? [{ id: me.id, name: `${me.firstName} ${me.lastName}`.trim(), subtitle: me.phone }]
+      : [];
+    return;
+  }
   const jobs: Promise<void>[] = [
     getCleaners({ limit: 200 }).then((rows) => {
       cleaners.value = rows.map((c) => ({
