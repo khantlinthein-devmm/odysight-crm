@@ -134,15 +134,16 @@ onMounted(loadLeads);
   >
     <div class="absolute inset-0 bg-black/50" @click="emit('cancel')"></div>
 
-    <div class="relative w-full max-w-lg rounded-xl bg-white shadow-xl">
-      <div class="border-b border-gray-200 px-6 py-4">
+    <!-- Capped to the viewport: the fields scroll, header and buttons stay put. -->
+    <div class="relative flex max-h-[calc(100dvh-2rem)] w-full max-w-2xl flex-col rounded-xl bg-white shadow-xl">
+      <div class="shrink-0 border-b border-gray-200 px-6 py-4">
         <h2 :id="titleId" class="text-base font-semibold text-gray-900">
           {{ customer ? "Edit Customer" : "New Customer" }}
         </h2>
       </div>
 
-      <form @submit.prevent="handleSubmit">
-        <div class="grid grid-cols-1 gap-4 px-6 py-5 sm:grid-cols-2">
+      <form class="flex min-h-0 flex-1 flex-col" @submit.prevent="handleSubmit">
+        <div class="grid min-h-0 flex-1 grid-cols-1 gap-4 overflow-y-auto px-6 py-5 sm:grid-cols-2">
           <div v-if="isCreating" class="sm:col-span-2">
             <label
               class="mb-1 block text-sm font-medium text-gray-700"
@@ -360,7 +361,7 @@ onMounted(loadLeads);
           </div>
         </div>
 
-        <div class="flex justify-end gap-3 border-t border-gray-200 px-6 py-4">
+        <div class="flex shrink-0 justify-end gap-3 border-t border-gray-200 px-6 py-4">
           <button
             type="button"
             class="rounded-lg border border-gray-200 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100"
