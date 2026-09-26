@@ -104,11 +104,22 @@ func (r *Repository) GetByID(ctx context.Context, id int64) (Customer, error) {
 	return c, nil
 }
 
+// Create inserts the customer together with its Default Site in one
+// statement, matching the backfill in migration 000025, so every customer
+// has a site to book against.
 func (r *Repository) Create(ctx context.Context, c Customer) (Customer, error) {
 	created, err := scanCustomer(r.pool.QueryRow(ctx,
-		`INSERT INTO customers (first_name, last_name, email, phone, address, property_type, area, status, lead_id)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-		 RETURNING `+customerColumns,
+		`WITH c AS (
+		   INSERT INTO customers (first_name, last_name, email, phone, address, property_type, area, status, lead_id)
+		   VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+		   RETURNING *
+		 ), site AS (
+		   INSERT INTO sites (customer_id, name, address, contact_name, phone, email, status, is_default)
+		   SELECT id, 'Default Site', COALESCE(NULLIF(address, ''), 'Address on file'),
+		          TRIM(first_name || ' ' || last_name), COALESCE(phone, ''), COALESCE(email, ''), 'active', TRUE
+		     FROM c
+		 )
+		 SELECT `+customerColumns+` FROM c`,
 		c.FirstName, c.LastName, c.Email, c.Phone, c.Address, c.PropertyType, c.Area, c.Status, c.LeadID))
 	if err != nil {
 		return Customer{}, fmt.Errorf("create customer: %w", err)
