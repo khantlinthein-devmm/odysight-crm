@@ -428,8 +428,8 @@ onMounted(fetchCleaners);
 
   <ConfirmDialog
     v-if="pendingDelete"
-    title="Delete cleaner"
-    :message="`Are you sure you want to delete ${pendingDelete.firstName} ${pendingDelete.lastName}? This action cannot be undone.`"
+    :title="`${pendingDelete.firstName} ${pendingDelete.lastName}`.trim()"
+    message="Are you sure you want to delete this cleaner? This action cannot be undone."
     confirm-label="Delete cleaner"
     :busy="deleting"
     @confirm="handleDelete"

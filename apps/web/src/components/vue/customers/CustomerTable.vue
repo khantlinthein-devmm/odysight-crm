@@ -390,8 +390,8 @@ onMounted(fetchCustomers);
 
   <ConfirmDialog
     v-if="pendingDelete"
-    title="Delete customer"
-    :message="`Are you sure you want to delete ${pendingDelete.firstName} ${pendingDelete.lastName}? This action cannot be undone.`"
+    :title="`${pendingDelete.firstName} ${pendingDelete.lastName}`.trim()"
+    message="Are you sure you want to delete this customer? This action cannot be undone."
     confirm-label="Delete customer"
     :busy="deleting"
     @confirm="handleDelete"
