@@ -103,7 +103,9 @@ func (s *Service) notifyCreated(b Booking) {
 		}
 		phone := ""
 		if b.CustomerID != nil {
-			phone, _ = s.repo.CustomerPhone(ctx, *b.CustomerID)
+			c, _ := s.repo.CustomerContact(ctx, *b.CustomerID)
+			phone = c.Phone
+			s.notifier.EmitLINE(ctx, notifications.EventBookingCreated, c.LineUserID, c.Name, lineConfirmationText(b))
 		}
 		phone = strings.TrimSpace(phone)
 		if phone == "" {
@@ -281,6 +283,7 @@ func (s *Service) Update(ctx context.Context, id int64, req UpdateBookingRequest
 	if err != nil {
 		return Booking{}, mapRepoError(err)
 	}
+	s.notifyCompletedOnce(updated)
 	return updated, nil
 }
 

@@ -3,6 +3,8 @@
   import { getBookings } from '../../lib/bookings';
   import { getLeads } from '../../lib/leads';
   import { getPayments } from '../../lib/payments';
+  import { getSessionUser } from '../../lib/auth';
+  import { hasPermission } from '../../lib/roles';
   import { formatMoney } from '../../lib/settings';
 
   type Kind = 'lead' | 'booking' | 'payment';
@@ -64,10 +66,13 @@
     loading = true;
     failed = false;
     try {
+      // Only ask for what this role may read, so e.g. a dispatcher without
+      // payments.read still gets lead and booking notifications.
+      const role = getSessionUser()?.role;
       const [leads, bookings, payments] = await Promise.all([
-        getLeads({ limit: 4 }),
-        getBookings({ limit: 4 }),
-        getPayments({ limit: 4 }),
+        hasPermission(role, 'leads.read') ? getLeads({ limit: 4 }) : Promise.resolve([]),
+        hasPermission(role, 'bookings.read') ? getBookings({ limit: 4 }) : Promise.resolve([]),
+        hasPermission(role, 'payments.read') ? getPayments({ limit: 4 }) : Promise.resolve([]),
       ]);
 
       const next: NotificationItem[] = [];

@@ -120,6 +120,24 @@ func (h *Handler) PDF(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write(pdfBytes)
 }
 
+// PromptPay handles GET /api/v1/invoices/{id}/promptpay.png — the payment QR
+// for the invoice's net payable amount.
+func (h *Handler) PromptPay(w http.ResponseWriter, r *http.Request) {
+	id, ok := parseID(w, r)
+	if !ok {
+		return
+	}
+	img, err := h.service.PromptPayQR(r.Context(), id)
+	if err != nil {
+		response.HandleError(w, r, err)
+		return
+	}
+	w.Header().Set("Content-Type", "image/png")
+	w.Header().Set("Cache-Control", "private, max-age=300")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(img)
+}
+
 func parseID(w http.ResponseWriter, r *http.Request) (int64, bool) {
 	raw := chi.URLParam(r, "id")
 	id, err := strconv.ParseInt(raw, 10, 64)

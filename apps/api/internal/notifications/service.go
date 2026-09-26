@@ -22,7 +22,13 @@ const (
 	EventInvoiceOverdue   = "invoice.overdue"
 	EventPaymentReceived  = "payment.received"
 	EventFeedbackRequest  = "feedback.request"
+	EventBookingCompleted = "booking.completed"
 )
+
+// LinePusher sends a LINE text message to a user (see line.Client.Push).
+type LinePusher interface {
+	Push(ctx context.Context, to, text string) error
+}
 
 // Emailer abstracts the SMTP sender so the service stays testable.
 type Emailer interface {
@@ -38,6 +44,7 @@ type SMSClient interface {
 
 // Service orchestrates email and SMS/WhatsApp delivery with an audit log.
 type Service struct {
+	line     LinePusher
 	repo     *Repository
 	settings *settings.Service
 	mailer   func() Emailer
@@ -53,6 +60,49 @@ func NewService(repo *Repository, settingsSvc *settings.Service, newMailer func(
 		sms:      NewHTTPClient(10 * time.Second),
 		timeout:  10 * time.Second,
 	}
+}
+
+// WithLINE enables LINE pushes to customers. Without it EmitLINE logs the
+// message as skipped.
+func (s *Service) WithLINE(p LinePusher) *Service {
+	s.line = p
+	return s
+}
+
+// EmitLINE pushes a text message to a customer's LINE chat, best-effort, and
+// records the outcome in the notification log. The recipient is logged as
+// "LINE <name>" because raw LINE user ids mean nothing to staff.
+func (s *Service) EmitLINE(ctx context.Context, eventType, lineUserID, displayName, message string) {
+	if strings.TrimSpace(lineUserID) == "" {
+		return
+	}
+	recipient := "LINE " + displayName
+	log := LogEntry{Channel: ChannelLINE, EventType: eventType, Recipient: recipient, Subject: firstLine(message)}
+	if s.line == nil {
+		log.Status = StatusSkipped
+		log.Error = "LINE not configured"
+		_ = s.repo.Log(ctx, log)
+		return
+	}
+	ctx, cancel := context.WithTimeout(ctx, s.timeout)
+	defer cancel()
+	if err := s.line.Push(ctx, lineUserID, message); err != nil {
+		log.Status = StatusFailed
+		log.Error = err.Error()
+	} else {
+		log.Status = StatusSent
+	}
+	_ = s.repo.Log(ctx, log)
+}
+
+func firstLine(s string) string {
+	if i := strings.IndexByte(s, '\n'); i >= 0 {
+		s = s[:i]
+	}
+	if r := []rune(s); len(r) > 120 {
+		s = string(r[:120])
+	}
+	return s
 }
 
 // List returns the notification-log page.

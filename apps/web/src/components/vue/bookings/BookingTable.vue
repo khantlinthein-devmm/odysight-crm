@@ -21,7 +21,9 @@ import MyJobs from "./MyJobs.vue";
 
 const role = getSessionUser()?.role;
 const canCreate = computed(() => hasPermission(role, "bookings.create"));
-const canEdit = computed(() => hasPermission(role, "bookings.update"));
+// Cleaners hold bookings.update only to progress their own jobs (My Jobs);
+// the full edit form is office-only and the API rejects it for them.
+const canEdit = computed(() => role !== "CLEANER" && hasPermission(role, "bookings.update"));
 const canDelete = computed(() => hasPermission(role, "bookings.delete"));
 const canInvoice = computed(() => hasPermission(role, "invoices.create"));
 
@@ -192,8 +194,11 @@ async function handleDelete() {
       (b) => b.id !== pendingDelete.value!.id,
     );
     showToast("Booking deleted", "success");
-  } catch {
-    showToast("Failed to delete booking", "error");
+  } catch (err) {
+    showToast(
+      err instanceof Error ? `Failed to delete booking: ${err.message}` : "Failed to delete booking",
+      "error",
+    );
   } finally {
     deleting.value = false;
     pendingDelete.value = null;

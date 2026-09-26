@@ -92,7 +92,7 @@ services:
     build:
       context: ./apps/web
       args:
-        PUBLIC_API_URL: ${PUBLIC_API_URL:?PUBLIC_API_URL is required (browser-reachable API base, e.g. http://localhost:8080 or https://crm.example.com/api)}
+        PUBLIC_API_URL: ${PUBLIC_API_URL:?PUBLIC_API_URL is required (browser-reachable API base, e.g. http://localhost:8080 or https://crm.example.com, no /api suffix)}
         PUBLIC_USE_MOCKS: ${PUBLIC_USE_MOCKS:-false}
     container_name: odysight-web
     restart: unless-stopped

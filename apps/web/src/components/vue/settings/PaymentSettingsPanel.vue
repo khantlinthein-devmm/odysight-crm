@@ -15,6 +15,8 @@ const editable = computed(() =>
 );
 
 const taxRate = ref(7);
+const promptPayId = ref("");
+const bankAccount = ref("");
 const methodsText = ref("");
 const loading = ref(true);
 const saving = ref(false);
@@ -25,6 +27,8 @@ onMounted(async () => {
     const p = (await getWorkspaceSettings()).payments;
     taxRate.value = p.taxRatePercent;
     methodsText.value = p.methods.join("\n");
+    promptPayId.value = p.promptPayId ?? "";
+    bankAccount.value = p.bankAccount ?? "";
   } catch (e) {
     error.value = e instanceof Error ? e.message : "Failed to load";
   } finally {
@@ -42,10 +46,20 @@ async function save() {
     error.value = "At least one payment method is required.";
     return;
   }
+  const ppDigits = promptPayId.value.replace(/\D/g, "");
+  if (ppDigits && ![10, 13, 15].includes(ppDigits.length)) {
+    error.value = "PromptPay ID must be a 10-digit mobile, 13-digit tax ID or 15-digit e-wallet ID.";
+    return;
+  }
   saving.value = true;
   try {
     await updateWorkspaceSettings({
-      payments: { taxRatePercent: Number(taxRate.value), methods },
+      payments: {
+        taxRatePercent: Number(taxRate.value),
+        methods,
+        promptPayId: ppDigits,
+        bankAccount: bankAccount.value.trim(),
+      },
     });
     showToast("Payment settings saved — New Payment form uses these methods", "success");
   } catch (e) {
@@ -72,7 +86,14 @@ const input =
         <span class="mb-1 block text-xs font-medium text-gray-600">Tax rate (%)</span>
         <input v-model.number="taxRate" type="number" min="0" max="100" step="0.01" :class="input" :disabled="!editable" />
       </label>
-      <div class="hidden sm:block"></div>
+      <label class="block">
+        <span class="mb-1 block text-xs font-medium text-gray-600">PromptPay ID (QR on invoices)</span>
+        <input v-model="promptPayId" type="text" inputmode="numeric" placeholder="0812345678 or 13-digit tax ID" :class="input" :disabled="!editable" />
+      </label>
+      <label class="block sm:col-span-2">
+        <span class="mb-1 block text-xs font-medium text-gray-600">Bank account shown on invoices</span>
+        <input v-model="bankAccount" type="text" placeholder="KBank 123-4-56789-0 · Smile Clean Co., Ltd." :class="input" :disabled="!editable" />
+      </label>
       <label class="block sm:col-span-2">
         <span class="mb-1 block text-xs font-medium text-gray-600">Payment methods (one id per line)</span>
         <textarea v-model="methodsText" rows="6" :class="input" :disabled="!editable"></textarea>

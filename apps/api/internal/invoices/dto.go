@@ -8,52 +8,63 @@ import (
 )
 
 type InvoiceDTO struct {
-	ID            int64      `json:"id"`
-	InvoiceNumber string     `json:"invoiceNumber"`
-	BookingID     int64      `json:"bookingId"`
-	BookingNumber string     `json:"bookingNumber"`
-	CustomerName  string     `json:"customerName"`
-	CustomerEmail string     `json:"customerEmail"`
-	Address       string     `json:"address"`
-	ServiceType   string     `json:"serviceType"`
-	ServiceName   string     `json:"serviceName"`
-	Subtotal      float64    `json:"subtotal"`
-	TaxRate       float64    `json:"taxRate"`
-	TaxAmount     float64    `json:"taxAmount"`
-	Total         float64    `json:"total"`
-	Currency      string     `json:"currency"`
-	Status        Status     `json:"status"`
-	ContractID    *int64     `json:"contractId"`
-	IdempotencyKey *string   `json:"idempotencyKey"`
-	BillingPeriodStart *string `json:"billingPeriodStart"`
-	BillingPeriodEnd   *string `json:"billingPeriodEnd"`
-	IssuedAt      time.Time  `json:"issuedAt"`
-	PaidAt        *time.Time `json:"paidAt"`
-	CreatedAt     time.Time  `json:"createdAt"`
+	ID                int64   `json:"id"`
+	InvoiceNumber     string  `json:"invoiceNumber"`
+	BookingID         int64   `json:"bookingId"`
+	BookingNumber     string  `json:"bookingNumber"`
+	CustomerName      string  `json:"customerName"`
+	CustomerEmail     string  `json:"customerEmail"`
+	Address           string  `json:"address"`
+	ServiceType       string  `json:"serviceType"`
+	ServiceName       string  `json:"serviceName"`
+	Subtotal          float64 `json:"subtotal"`
+	TaxRate           float64 `json:"taxRate"`
+	TaxAmount         float64 `json:"taxAmount"`
+	Total             float64 `json:"total"`
+	Currency          string  `json:"currency"`
+	Status            Status  `json:"status"`
+	CustomerTaxID     string  `json:"customerTaxId"`
+	CustomerTaxBranch string  `json:"customerTaxBranch"`
+	WithholdingRate   float64 `json:"withholdingRate"`
+	WithholdingAmount float64 `json:"withholdingAmount"`
+	// NetPayable is Total minus withholding tax: what the customer transfers.
+	NetPayable         float64    `json:"netPayable"`
+	ContractID         *int64     `json:"contractId"`
+	IdempotencyKey     *string    `json:"idempotencyKey"`
+	BillingPeriodStart *string    `json:"billingPeriodStart"`
+	BillingPeriodEnd   *string    `json:"billingPeriodEnd"`
+	IssuedAt           time.Time  `json:"issuedAt"`
+	PaidAt             *time.Time `json:"paidAt"`
+	CreatedAt          time.Time  `json:"createdAt"`
 }
 
 func toDTO(inv Invoice) InvoiceDTO {
 	dto := InvoiceDTO{
-		ID:            inv.ID,
-		InvoiceNumber: inv.InvoiceNumber,
-		BookingID:     inv.BookingID,
-		BookingNumber: inv.BookingNumber,
-		CustomerName:  inv.CustomerName,
-		CustomerEmail: inv.CustomerEmail,
-		Address:       inv.Address,
-		ServiceType:   inv.ServiceType,
-		ServiceName:   inv.ServiceName,
-		Subtotal:      inv.Subtotal,
-		TaxRate:       inv.TaxRate,
-		TaxAmount:     inv.TaxAmount,
-		Total:         inv.Total,
-		Currency:      inv.Currency,
-		Status:        inv.Status,
-		ContractID:    inv.ContractID,
-		IdempotencyKey: inv.IdempotencyKey,
-		IssuedAt:      inv.IssuedAt,
-		PaidAt:        inv.PaidAt,
-		CreatedAt:     inv.CreatedAt,
+		ID:                inv.ID,
+		InvoiceNumber:     inv.InvoiceNumber,
+		BookingID:         inv.BookingID,
+		BookingNumber:     inv.BookingNumber,
+		CustomerName:      inv.CustomerName,
+		CustomerEmail:     inv.CustomerEmail,
+		Address:           inv.Address,
+		ServiceType:       inv.ServiceType,
+		ServiceName:       inv.ServiceName,
+		Subtotal:          inv.Subtotal,
+		TaxRate:           inv.TaxRate,
+		TaxAmount:         inv.TaxAmount,
+		Total:             inv.Total,
+		Currency:          inv.Currency,
+		Status:            inv.Status,
+		CustomerTaxID:     inv.CustomerTaxID,
+		CustomerTaxBranch: inv.CustomerTaxBranch,
+		WithholdingRate:   inv.WithholdingRate,
+		WithholdingAmount: inv.WithholdingAmount,
+		NetPayable:        inv.NetPayable(),
+		ContractID:        inv.ContractID,
+		IdempotencyKey:    inv.IdempotencyKey,
+		IssuedAt:          inv.IssuedAt,
+		PaidAt:            inv.PaidAt,
+		CreatedAt:         inv.CreatedAt,
 	}
 	if inv.BillingPeriodStart != nil {
 		v := inv.BillingPeriodStart.Format("2006-01-02")
@@ -76,6 +87,9 @@ type CreateInvoiceRequest struct {
 	IdempotencyKey     *string `json:"idempotencyKey"`
 	BillingPeriodStart *string `json:"billingPeriodStart"`
 	BillingPeriodEnd   *string `json:"billingPeriodEnd"`
+	// WithholdingRate overrides the customer's default withholding-tax
+	// percent for this invoice (e.g. 0 for a one-off individual payer).
+	WithholdingRate *float64 `json:"withholdingRate"`
 }
 
 func (r *CreateInvoiceRequest) Validate() error {
@@ -84,6 +98,9 @@ func (r *CreateInvoiceRequest) Validate() error {
 	}
 	if r.Subtotal != nil && *r.Subtotal < 0 {
 		return response.NewAPIError(400, "subtotal must be zero or greater")
+	}
+	if r.WithholdingRate != nil && (*r.WithholdingRate < 0 || *r.WithholdingRate > 15) {
+		return response.NewAPIError(400, "withholdingRate must be between 0 and 15 percent")
 	}
 	if r.IdempotencyKey != nil {
 		key := strings.TrimSpace(*r.IdempotencyKey)

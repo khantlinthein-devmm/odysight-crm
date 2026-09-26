@@ -22,6 +22,19 @@ func NewHandler(service *Service) *Handler {
 
 func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 	params := pagination.Parse(r, 20, nil)
+	if ident, ok := auth.IdentityFromContext(r.Context()); ok && ident.Role == auth.RoleCleaner {
+		c, linked, err := h.service.cleanerFor(r.Context(), ident.UserID)
+		if err != nil {
+			response.HandleError(w, r, err)
+			return
+		}
+		if !linked {
+			response.JSON(w, http.StatusOK, pagination.Page[BookingDTO]{Data: []BookingDTO{}, Limit: params.Limit, Offset: params.Offset})
+			return
+		}
+		params.CleanerID = c.ID
+		params.Available = false
+	}
 	items, total, err := h.service.List(r.Context(), params)
 	if err != nil {
 		response.HandleError(w, r, err)
@@ -45,6 +58,17 @@ func (h *Handler) Get(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		response.HandleError(w, r, err)
 		return
+	}
+	if ident, ok := auth.IdentityFromContext(r.Context()); ok && ident.Role == auth.RoleCleaner {
+		c, linked, err := h.service.cleanerFor(r.Context(), ident.UserID)
+		if err != nil {
+			response.HandleError(w, r, err)
+			return
+		}
+		if !inPool(booking) && (!linked || !assignedTo(booking, c)) {
+			response.Error(w, http.StatusNotFound, "booking not found")
+			return
+		}
 	}
 	response.JSON(w, http.StatusOK, toDTO(booking))
 }
@@ -72,6 +96,27 @@ func (h *Handler) Update(w http.ResponseWriter, r *http.Request) {
 	req, ok := decodeJSON[UpdateBookingRequest](w, r)
 	if !ok {
 		return
+	}
+
+	if ident, ok := auth.IdentityFromContext(r.Context()); ok && ident.Role == auth.RoleCleaner {
+		c, linked, err := h.service.cleanerFor(r.Context(), ident.UserID)
+		if err != nil {
+			response.HandleError(w, r, err)
+			return
+		}
+		if !linked {
+			response.Error(w, http.StatusForbidden, "no cleaner profile linked to this login; ask the office to link your account")
+			return
+		}
+		current, err := h.service.Get(r.Context(), id)
+		if err != nil {
+			response.HandleError(w, r, err)
+			return
+		}
+		if err := checkCleanerUpdate(current, c, req); err != nil {
+			response.HandleError(w, r, err)
+			return
+		}
 	}
 
 	booking, err := h.service.Update(r.Context(), id, req)

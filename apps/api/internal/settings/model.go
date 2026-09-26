@@ -38,6 +38,12 @@ type Company struct {
 	Address       string `json:"address"`
 	InvoiceFooter string `json:"invoiceFooter"`
 	LogoURL       string `json:"logoUrl"`
+	// Thai tax identity printed on tax invoices. LegalName is the registered
+	// name (e.g. "บริษัท สไมล์ คลีน จำกัด"); Name stays the trading name.
+	LegalName     string `json:"legalName"`
+	TaxID         string `json:"taxId"`
+	TaxBranch     string `json:"taxBranch"`
+	VATRegistered bool   `json:"vatRegistered"`
 }
 
 type Localization struct {
@@ -53,11 +59,19 @@ type BookingDefaults struct {
 	WorkStart              string   `json:"workStart"`
 	WorkEnd                string   `json:"workEnd"`
 	Holidays               []string `json:"holidays"`
+	// CheckInRadiusMeters is how close to a job site a cleaner's phone must
+	// be to check in (sites need coordinates). 0 turns the geofence off.
+	CheckInRadiusMeters int `json:"checkInRadiusMeters"`
 }
 
 type PaymentSettings struct {
 	TaxRatePercent float64  `json:"taxRatePercent"`
 	Methods        []string `json:"methods"`
+	// PromptPayID receives invoice payments by QR: a 10-digit mobile, the
+	// 13-digit company tax ID or a 15-digit e-wallet ID. Empty = no QR.
+	PromptPayID string `json:"promptPayId"`
+	// BankAccount is free text printed on invoices (bank, name, number).
+	BankAccount string `json:"bankAccount"`
 }
 
 type ServiceItem struct {
@@ -156,7 +170,26 @@ func validateCompany(v Company) error {
 	if strings.TrimSpace(v.Name) == "" {
 		return response.NewAPIError(400, "company.name is required")
 	}
+	if id := digits(v.TaxID); id != "" && len(id) != 13 {
+		return response.NewAPIError(400, "company.taxId must be a 13-digit Thai tax ID")
+	}
+	if b := digits(v.TaxBranch); len(b) > 5 {
+		return response.NewAPIError(400, "company.taxBranch must be up to 5 digits")
+	}
+	if v.VATRegistered && digits(v.TaxID) == "" {
+		return response.NewAPIError(400, "company.taxId is required when VAT registered")
+	}
 	return nil
+}
+
+func digits(s string) string {
+	var b strings.Builder
+	for _, r := range s {
+		if r >= '0' && r <= '9' {
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
 }
 
 func validateLocalization(v Localization) error {
@@ -185,6 +218,9 @@ func validateBooking(v BookingDefaults) error {
 	if !isHHMM(v.WorkStart) || !isHHMM(v.WorkEnd) {
 		return response.NewAPIError(400, "booking.workStart/workEnd must be HH:MM")
 	}
+	if v.CheckInRadiusMeters < 0 || v.CheckInRadiusMeters > 5000 {
+		return response.NewAPIError(400, "booking.checkInRadiusMeters must be 0..5000")
+	}
 	return nil
 }
 
@@ -210,6 +246,9 @@ func validatePayments(v PaymentSettings) error {
 		if strings.TrimSpace(m) == "" {
 			return response.NewAPIError(400, "payments.methods must not contain blanks")
 		}
+	}
+	if id := digits(v.PromptPayID); id != "" && len(id) != 10 && len(id) != 13 && len(id) != 15 {
+		return response.NewAPIError(400, "payments.promptPayId must be a 10-digit mobile, 13-digit tax ID or 15-digit e-wallet ID")
 	}
 	return nil
 }

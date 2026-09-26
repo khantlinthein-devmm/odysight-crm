@@ -4,9 +4,10 @@ import "time"
 
 // Channel identifiers for notification delivery.
 const (
-	ChannelEmail   = "email"
-	ChannelSMS     = "sms"
+	ChannelEmail    = "email"
+	ChannelSMS      = "sms"
 	ChannelWhatsApp = "whatsapp"
+	ChannelLINE     = "line"
 )
 
 // Status values for the notification log.

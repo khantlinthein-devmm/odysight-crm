@@ -179,8 +179,11 @@ async function handleDelete() {
       (c) => c.id !== pendingDelete.value!.id,
     );
     showToast("Cleaner deleted", "success");
-  } catch {
-    showToast("Failed to delete cleaner", "error");
+  } catch (err) {
+    showToast(
+      err instanceof Error ? `Failed to delete cleaner: ${err.message}` : "Failed to delete cleaner",
+      "error",
+    );
   } finally {
     deleting.value = false;
     pendingDelete.value = null;
@@ -425,8 +428,8 @@ onMounted(fetchCleaners);
 
   <ConfirmDialog
     v-if="pendingDelete"
-    title="Delete cleaner"
-    :message="`Are you sure you want to delete ${pendingDelete.firstName} ${pendingDelete.lastName}? This action cannot be undone.`"
+    :title="`${pendingDelete.firstName} ${pendingDelete.lastName}`.trim()"
+    message="Are you sure you want to delete this cleaner? This action cannot be undone."
     confirm-label="Delete cleaner"
     :busy="deleting"
     @confirm="handleDelete"

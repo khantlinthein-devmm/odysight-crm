@@ -1,3 +1,4 @@
+import type { GeoFix } from "./geo";
 import { ApiError, USE_MOCKS, apiFetch, delay, toQuery, unwrapPage, type Page } from "./api";
 import { OfflineQueued, enqueue, isOnline } from "./offline";
 
@@ -14,6 +15,11 @@ export interface AttendanceRecord {
   checkOutAt: string | null;
   note: string;
   createdAt: string;
+  checkInLat?: number | null;
+  checkInLng?: number | null;
+  /** Metres from the nearest job site at check-in, when known. */
+  checkInDistanceM?: number | null;
+  checkInSiteName?: string;
 }
 
 export interface ListParams {
@@ -163,9 +169,14 @@ function mockPerson(personType: PersonType, personId: number): string {
   return personType === "staff" ? `Staff ${personId}` : `Cleaner ${personId}`;
 }
 
+function geoBody(fix?: GeoFix | null): Record<string, number> {
+  return fix ? { latitude: fix.latitude, longitude: fix.longitude, accuracy: fix.accuracy } : {};
+}
+
 export async function checkIn(
   personType: PersonType,
   personId: number,
+  fix?: GeoFix | null,
 ): Promise<AttendanceRecord> {
   if (USE_MOCKS) {
     await delay(300);
@@ -196,18 +207,19 @@ export async function checkIn(
     return clone(record);
   }
   if (!isOnline()) {
-    const entryId = await enqueue("attendance.check-in", { personType, personId });
+    const entryId = await enqueue("attendance.check-in", { personType, personId, ...geoBody(fix) });
     throw new OfflineQueued("attendance.check-in", entryId);
   }
   return apiFetch<AttendanceRecord>("/api/v1/attendance/check-in", {
     method: "POST",
-    body: JSON.stringify({ personType, personId }),
+    body: JSON.stringify({ personType, personId, ...geoBody(fix) }),
   });
 }
 
 export async function checkOut(
   personType: PersonType,
   personId: number,
+  fix?: GeoFix | null,
 ): Promise<AttendanceRecord> {
   if (USE_MOCKS) {
     await delay(300);
@@ -225,11 +237,11 @@ export async function checkOut(
     return clone(existing);
   }
   if (!isOnline()) {
-    const entryId = await enqueue("attendance.check-out", { personType, personId });
+    const entryId = await enqueue("attendance.check-out", { personType, personId, ...geoBody(fix) });
     throw new OfflineQueued("attendance.check-out", entryId);
   }
   return apiFetch<AttendanceRecord>("/api/v1/attendance/check-out", {
     method: "POST",
-    body: JSON.stringify({ personType, personId }),
+    body: JSON.stringify({ personType, personId, ...geoBody(fix) }),
   });
 }

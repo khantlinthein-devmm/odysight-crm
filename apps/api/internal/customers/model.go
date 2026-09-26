@@ -37,17 +37,24 @@ func (p PropertyType) Valid() bool {
 }
 
 type Customer struct {
-	ID           int64
-	FirstName    string
-	LastName     string
-	Email        string
-	Phone        string
-	Address      string
-	PropertyType PropertyType
-	Area         string
-	Status       Status
-	LeadID       *int64
-	PasswordHash string
+	ID            int64
+	FirstName     string
+	LastName      string
+	Email         string
+	Phone         string
+	Address       string
+	PropertyType  PropertyType
+	Area          string
+	Status        Status
+	LeadID        *int64
+	PasswordHash  string
 	PortalEnabled bool
-	CreatedAt    time.Time
+	// Thai tax identity: 13-digit TIN, branch ("00000" = head office) and the
+	// withholding-tax percent this customer deducts when paying.
+	TaxID           string
+	TaxBranch       string
+	WithholdingRate float64
+	// LineLinked reports that the customer can receive LINE messages.
+	LineLinked bool
+	CreatedAt  time.Time
 }

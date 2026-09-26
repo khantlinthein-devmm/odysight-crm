@@ -24,6 +24,7 @@ import (
 	"github.com/odysight/crm/internal/bookings"
 	"github.com/odysight/crm/internal/checklists"
 	"github.com/odysight/crm/internal/cleaners"
+	"github.com/odysight/crm/internal/complaints"
 	"github.com/odysight/crm/internal/contracts"
 	"github.com/odysight/crm/internal/customers"
 	"github.com/odysight/crm/internal/expenses"
@@ -33,12 +34,14 @@ import (
 	"github.com/odysight/crm/internal/line"
 	"github.com/odysight/crm/internal/notifications"
 	"github.com/odysight/crm/internal/payments"
+	"github.com/odysight/crm/internal/payroll"
 	"github.com/odysight/crm/internal/portal"
 	"github.com/odysight/crm/internal/quotes"
 	"github.com/odysight/crm/internal/reports"
 	"github.com/odysight/crm/internal/servicerecords"
 	"github.com/odysight/crm/internal/settings"
 	"github.com/odysight/crm/internal/sites"
+	"github.com/odysight/crm/internal/supplies"
 	"github.com/odysight/crm/internal/users"
 	"github.com/odysight/crm/pkg/database"
 	"github.com/odysight/crm/pkg/mailer"
@@ -165,6 +168,8 @@ func run() error {
 	notifHandler := notifications.NewHandler(notifService)
 
 	bookingService := bookings.NewService(bookingRepo, notifService)
+	bookingReminders := bookings.NewReminderRunner(bookingService, 30*time.Minute)
+	go bookingReminders.Run(ctx)
 	bookingHandler := bookings.NewHandler(bookingService)
 
 	portalRepo := portal.NewRepository(pool)
@@ -186,7 +191,7 @@ func run() error {
 	paymentHandler := payments.NewHandler(paymentService)
 
 	attendanceRepo := attendance.NewRepository(pool)
-	attendanceService := attendance.NewService(attendanceRepo)
+	attendanceService := attendance.NewService(attendanceRepo).WithGeofence(settingsService.CheckInRadius)
 	attendanceHandler := attendance.NewHandler(attendanceService)
 
 	expenseRepo := expenses.NewRepository(pool)
@@ -213,6 +218,11 @@ func run() error {
 	// comes from the X-Line-Signature HMAC. With no channel secret
 	// configured the endpoint answers 503 and everything else is unchanged.
 	lineClient := line.NewClient(cfg.LineChannelAccessToken)
+	if cfg.LineChannelAccessToken != "" {
+		// Push booking confirmations, reminders, job-done notices and
+		// invoices to customers who reached us through LINE.
+		notifService.WithLINE(lineClient)
+	}
 	lineService := line.NewService(leadRepo, lineClient, lineClient, cfg.LineAutoReply)
 	lineHandler := line.NewHandler(lineService, cfg.LineChannelSecret)
 
@@ -261,6 +271,9 @@ func run() error {
 			r.Mount("/feedback", feedback.Routes(feedbackHandler, authorizer))
 			r.Mount("/notifications", notifications.Routes(notifHandler, authorizer))
 			r.Mount("/attendance", attendance.Routes(attendanceHandler, authorizer))
+			r.Mount("/payroll", payroll.Routes(payroll.NewHandler(payroll.NewService(payroll.NewRepository(pool))), authorizer))
+			r.Mount("/complaints", complaints.Routes(complaints.NewHandler(complaints.NewService(complaints.NewRepository(pool), bookingService)), authorizer))
+			r.Mount("/supplies", supplies.Routes(supplies.NewHandler(supplies.NewService(supplies.NewRepository(pool))), authorizer))
 			r.Mount("/expenses", expenses.Routes(expenseHandler, authorizer))
 			r.Mount("/sites", sites.Routes(siteHandler, authorizer))
 			r.Mount("/contracts", contracts.Routes(contractHandler, authorizer))

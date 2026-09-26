@@ -9,10 +9,13 @@ import {
   type PersonType,
 } from "../../../lib/attendance";
 import { getSessionUser } from "../../../lib/auth";
-import { getCleaners } from "../../../lib/cleaners";
+import { getCleaners, getMyCleanerProfile } from "../../../lib/cleaners";
 import { isOfflineQueued } from "../../../lib/offline";
 import { hasPermission } from "../../../lib/roles";
 import { showToast } from "../../../lib/toast";
+import { t, type MessageKey } from "../../../lib/i18n";
+import { getPosition } from "../../../lib/geo";
+import LanguageSwitcher from "../ui/LanguageSwitcher.vue";
 import { getUsers } from "../../../lib/users";
 
 function todayStr(): string {
@@ -63,7 +66,14 @@ interface Person {
 }
 
 const role = getSessionUser()?.role;
-const canManage = computed(() => hasPermission(role, "attendance.manage"));
+// A CLEANER cannot manage others but may check themselves in and out; the
+// API pins those requests to their own profile, so the board shows only them.
+const isSelfService = role === "CLEANER";
+// Cleaners see this page in their chosen language; office staff in English.
+function L(key: MessageKey, english: string): string {
+  return isSelfService ? t(key) : english;
+}
+const canManage = computed(() => isSelfService || hasPermission(role, "attendance.manage"));
 // The staff roster comes from /users, so the tab needs that permission too.
 const canSeeStaff = computed(() => hasPermission(role, "users.read"));
 
@@ -101,9 +111,9 @@ function statusFor(personId: number): DayStatus {
 }
 
 function statusLabel(s: DayStatus): string {
-  if (s === "checked-in") return "Checked-in";
-  if (s === "checked-out") return "Checked-out";
-  return "Not in";
+  if (s === "checked-in") return L("att.checkedIn", "Checked-in");
+  if (s === "checked-out") return L("att.checkedOut", "Checked-out");
+  return L("att.notIn", "Not in");
 }
 
 function statusPill(s: DayStatus): string {
@@ -124,11 +134,19 @@ const notInCount = computed(
 
 const isToday = computed(() => selectedDate.value === todayStr());
 
-const emptyLabel = computed(() =>
-  activeTab.value === "staff" ? "No team staff found." : "No cleaners found.",
-);
+const emptyLabel = computed(() => {
+  if (isSelfService) return t("att.noProfile");
+  return activeTab.value === "staff" ? "No team staff found." : "No cleaners found.";
+});
 
 async function loadPeople(): Promise<void> {
+  if (isSelfService) {
+    const me = await getMyCleanerProfile();
+    cleaners.value = me
+      ? [{ id: me.id, name: `${me.firstName} ${me.lastName}`.trim(), subtitle: me.phone }]
+      : [];
+    return;
+  }
   const jobs: Promise<void>[] = [
     getCleaners({ limit: 200 }).then((rows) => {
       cleaners.value = rows.map((c) => ({
@@ -216,8 +234,15 @@ function errorMessage(err: unknown, fallback: string): string {
 async function doCheckIn(personId: number): Promise<void> {
   actingId.value = personId;
   try {
-    await checkIn(activeTab.value, personId);
-    showToast("Checked in", "success");
+    // Cleaners on their own phone send GPS for the site geofence; office
+    // staff marking someone else present do not.
+    let fix = null;
+    if (isSelfService) {
+      showToast(t("att.locating"), "info");
+      fix = await getPosition();
+    }
+    await checkIn(activeTab.value, personId, fix);
+    showToast(L("jobs.checkedIn", "Checked in"), "success");
     await Promise.all([loadDay(), loadHistory()]);
   } catch (err) {
     if (isOfflineQueued(err)) {
@@ -234,8 +259,8 @@ async function doCheckIn(personId: number): Promise<void> {
 async function doCheckOut(personId: number): Promise<void> {
   actingId.value = personId;
   try {
-    await checkOut(activeTab.value, personId);
-    showToast("Checked out", "success");
+    await checkOut(activeTab.value, personId, isSelfService ? await getPosition(8000) : null);
+    showToast(L("jobs.checkedOut", "Checked out"), "success");
     await Promise.all([loadDay(), loadHistory()]);
   } catch (err) {
     if (isOfflineQueued(err)) {
@@ -260,11 +285,12 @@ onMounted(async () => {
 
 <template>
   <div class="space-y-4">
+    <LanguageSwitcher v-if="isSelfService" />
     <!-- Day navigator -->
     <section class="rounded-3xl bg-white p-6 shadow-sm ring-1 ring-gray-100 sm:p-7">
       <div class="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h2 class="font-semibold tracking-tight text-gray-900">Daily check-in</h2>
+          <h2 class="font-semibold tracking-tight text-gray-900">{{ L("att.title", "Daily check-in") }}</h2>
           <p class="text-xs text-gray-400">{{ formatDate(selectedDate) }}</p>
         </div>
         <div class="flex flex-wrap items-center gap-2">
@@ -396,13 +422,13 @@ onMounted(async () => {
 
         <div class="mt-4 flex items-center gap-4 text-sm tabular-nums">
           <div>
-            <p class="text-[11px] font-medium uppercase tracking-wider text-gray-400">In</p>
+            <p class="text-[11px] font-medium uppercase tracking-wider text-gray-400">{{ L("att.in", "In") }}</p>
             <p class="font-semibold text-gray-900">
               {{ formatTime(recordByPerson.get(person.id)?.checkInAt ?? null) }}
             </p>
           </div>
           <div>
-            <p class="text-[11px] font-medium uppercase tracking-wider text-gray-400">Out</p>
+            <p class="text-[11px] font-medium uppercase tracking-wider text-gray-400">{{ L("att.out", "Out") }}</p>
             <p class="font-semibold text-gray-900">
               {{ formatTime(recordByPerson.get(person.id)?.checkOutAt ?? null) }}
             </p>
@@ -418,7 +444,7 @@ onMounted(async () => {
             class="field-tap flex-1 rounded-xl bg-gradient-to-r from-emerald-400 to-green-600 px-3 py-3 text-sm font-semibold text-white shadow-sm transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40 sm:py-2 sm:text-xs"
             @click="doCheckIn(person.id)"
           >
-            {{ actingId === person.id ? "Working…" : "Check in" }}
+            {{ actingId === person.id ? L("jobs.working", "Working…") : L("jobs.checkIn", "Check in") }}
           </button>
           <button
             type="button"
@@ -430,7 +456,7 @@ onMounted(async () => {
             class="field-tap flex-1 rounded-xl bg-gradient-to-r from-navy-500 to-blue-600 px-3 py-3 text-sm font-semibold text-white shadow-sm transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40 sm:py-2 sm:text-xs"
             @click="doCheckOut(person.id)"
           >
-            {{ actingId === person.id ? "Working…" : "Check out" }}
+            {{ actingId === person.id ? L("jobs.working", "Working…") : L("jobs.checkOut", "Check out") }}
           </button>
         </div>
       </article>
@@ -444,7 +470,7 @@ onMounted(async () => {
     <section class="rounded-3xl bg-white p-6 shadow-sm ring-1 ring-gray-100 sm:p-7">
       <div class="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h2 class="font-semibold tracking-tight text-gray-900">History</h2>
+          <h2 class="font-semibold tracking-tight text-gray-900">{{ L("att.history", "History") }}</h2>
           <p class="text-xs text-gray-400">
             Recent check-in / check-out records ·
             {{ activeTab === "staff" ? "Team staff" : "Cleaners" }}
@@ -517,6 +543,10 @@ onMounted(async () => {
               {{ r.workDate }} · In {{ formatTime(r.checkInAt) }} · Out
               {{ formatTime(r.checkOutAt) }}
             </p>
+            <p v-if="r.checkInDistanceM != null" class="text-[11px] text-gray-400">
+              📍 {{ r.checkInDistanceM >= 1000 ? (r.checkInDistanceM / 1000).toFixed(1) + " km" : r.checkInDistanceM + " m" }}
+              from {{ r.checkInSiteName || "site" }} at check-in
+            </p>
           </div>
           <span
             :class="[
@@ -535,10 +565,6 @@ onMounted(async () => {
 
       <p v-if="!loadingHistory && history.length === 0" class="mt-4 text-sm text-gray-400">
         No attendance records for these filters.
-      </p>
-
-      <p class="mt-4 text-xs text-gray-400">
-        Live data from the Go API · GET /api/v1/attendance
       </p>
     </section>
   </div>

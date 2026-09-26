@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { onMounted, ref } from "vue";
+import { onBeforeUnmount, onMounted, ref } from "vue";
 import {
   getInvoice,
+  getPromptPayQrUrl,
   updateInvoice,
   downloadInvoicePdf,
   sendInvoiceEmail,
@@ -25,11 +26,38 @@ const actionError = ref("");
 const busy = ref(false);
 const emailing = ref(false);
 
+const qrUrl = ref<string | null>(null);
+
+async function loadQr() {
+  if (qrUrl.value) URL.revokeObjectURL(qrUrl.value);
+  qrUrl.value = null;
+  const inv = invoice.value;
+  if (!inv || inv.status === "paid" || inv.status === "void" || inv.currency !== "THB") return;
+  qrUrl.value = await getPromptPayQrUrl(inv.id).catch(() => null);
+}
+
+onBeforeUnmount(() => {
+  if (qrUrl.value) URL.revokeObjectURL(qrUrl.value);
+});
+
+function formatTaxId(id: string): string {
+  const d = id.replace(/\D/g, "");
+  return d.length === 13
+    ? `${d[0]}-${d.slice(1, 5)}-${d.slice(5, 10)}-${d.slice(10, 12)}-${d[12]}`
+    : id;
+}
+
+function branchLabel(b?: string): string {
+  const d = (b ?? "").replace(/\D/g, "");
+  return !d || /^0+$/.test(d) ? "Head office" : `Branch ${d.padStart(5, "0")}`;
+}
+
 async function load() {
   loading.value = true;
   error.value = "";
   try {
     invoice.value = await getInvoice(props.invoiceId);
+    void loadQr();
   } catch (e) {
     error.value = e instanceof ApiError ? e.message : "Invoice not found";
   } finally {
@@ -52,6 +80,7 @@ async function setStatus(next: "paid" | "void") {
   actionError.value = "";
   try {
     invoice.value = await updateInvoice(invoice.value.id, { status: next });
+    void loadQr();
   } catch (e) {
     actionError.value =
       e instanceof ApiError ? e.message : "Failed to update invoice";
@@ -168,6 +197,9 @@ onMounted(load);
             <p class="mt-1 text-sm font-medium text-gray-900">{{ invoice.customerName }}</p>
             <p class="mt-1 text-sm text-gray-500">{{ invoice.address }}</p>
             <p v-if="invoice.customerEmail" class="mt-1 text-sm text-gray-500">{{ invoice.customerEmail }}</p>
+            <p v-if="invoice.customerTaxId" class="mt-1 text-xs text-gray-500">
+              Tax ID {{ formatTaxId(invoice.customerTaxId) }} · {{ branchLabel(invoice.customerTaxBranch) }}
+            </p>
           </div>
           <div class="text-right">
             <h4 class="text-xs font-semibold uppercase text-gray-400">Service</h4>
@@ -188,6 +220,25 @@ onMounted(load);
           <div class="mt-2 flex justify-between border-t border-gray-200 pt-3 text-base font-semibold text-gray-900">
             <span>Total</span>
             <span>{{ money(invoice.total, invoice.currency) }}</span>
+          </div>
+          <template v-if="(invoice.withholdingAmount ?? 0) > 0">
+            <div class="flex justify-between py-1 text-sm text-gray-500">
+              <span>Withholding tax ({{ invoice.withholdingRate }}%) — customer remits to Revenue Dept.</span>
+              <span>-{{ money(invoice.withholdingAmount ?? 0, invoice.currency) }}</span>
+            </div>
+            <div class="flex justify-between py-1 text-base font-semibold text-navy-700">
+              <span>Net payable</span>
+              <span>{{ money(invoice.netPayable ?? invoice.total, invoice.currency) }}</span>
+            </div>
+          </template>
+        </div>
+
+        <div v-if="qrUrl" class="mt-8 flex items-center gap-4 rounded-lg border border-gray-200 p-4">
+          <img :src="qrUrl" alt="PromptPay QR code" class="h-32 w-32" />
+          <div class="text-sm text-gray-600">
+            <p class="font-semibold text-gray-900">Pay with PromptPay</p>
+            <p>Scan with any Thai banking app.</p>
+            <p class="mt-1">Amount: {{ money(invoice.netPayable ?? invoice.total, invoice.currency) }}</p>
           </div>
         </div>
 

@@ -176,8 +176,11 @@ async function handleDelete() {
       (c) => c.id !== pendingDelete.value!.id,
     );
     showToast("Customer deleted", "success");
-  } catch {
-    showToast("Failed to delete customer", "error");
+  } catch (err) {
+    showToast(
+      err instanceof Error ? `Failed to delete customer: ${err.message}` : "Failed to delete customer",
+      "error",
+    );
   } finally {
     deleting.value = false;
     pendingDelete.value = null;
@@ -329,6 +332,11 @@ onMounted(fetchCustomers);
               />
               Portal: {{ customer.portalEnabled ? "Enabled" : "Off" }}
             </button>
+            <span
+              v-if="customer.lineLinked"
+              class="ml-2 inline-flex items-center gap-1 rounded-lg border border-green-300 bg-green-50 px-2.5 py-1 text-xs font-semibold text-green-700"
+              title="Booking confirmations, reminders and invoices are sent to this customer's LINE chat"
+            >LINE ✓</span>
           </div>
 
           <div class="mt-4 flex flex-wrap items-center gap-2 border-t border-gray-100 pt-3">
@@ -387,8 +395,8 @@ onMounted(fetchCustomers);
 
   <ConfirmDialog
     v-if="pendingDelete"
-    title="Delete customer"
-    :message="`Are you sure you want to delete ${pendingDelete.firstName} ${pendingDelete.lastName}? This action cannot be undone.`"
+    :title="`${pendingDelete.firstName} ${pendingDelete.lastName}`.trim()"
+    message="Are you sure you want to delete this customer? This action cannot be undone."
     confirm-label="Delete customer"
     :busy="deleting"
     @confirm="handleDelete"

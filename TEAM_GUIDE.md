@@ -108,14 +108,44 @@ Nobody is forced to use checklists. When a commercial client wants proof:
 
 ---
 
+## 5a. More tools
+
+- **Thai tax invoice** — set *Settings → Company* (legal name, 13-digit tax
+  ID, branch, *VAT registered*) and *Settings → Payments* (PromptPay ID,
+  bank account). Invoice PDFs then print as ใบกำกับภาษี/ใบเสร็จรับเงิน with
+  a PromptPay QR. Give company customers their tax ID and *Withholding tax
+  3%* on the customer form; invoices show the deduction and net payable.
+- **LINE messages** — customers who came through LINE get booking
+  confirmation, a reminder the day before, a job-done message and their
+  invoice in that chat automatically. Look for the **LINE ✓** badge.
+- **Cleaner app language** — cleaners tap English / ไทย / မြန်မာ at the top
+  of My Jobs or Check-in.
+- **GPS check-in** — set *Settings → Booking defaults → check-in radius*
+  (e.g. 200 m) and pin each site (*Sites → GPS pin*: paste a Google Maps
+  link or use your location on site). Cleaners then must be at the site to
+  check in; history shows how far they were.
+- **Dispatch drag & drop** — drag a job to another day/time, or use *By
+  cleaner* and drag it onto another cleaner. Clashes are refused.
+- **Payroll** (ADMIN, ACCOUNTANT) — set each cleaner's rate (per hour / day /
+  job / monthly, overtime ×) and read pay for any period; *Export CSV* for
+  the bank. Days without a check-out are flagged and not paid.
+- **Complaints** — *Log complaint* on the customer (and job). High = fix in
+  24h, medium 48h, low 72h. *Book re-clean* makes a free follow-up job;
+  write what was done, then *Mark resolved*.
+- **Supplies** — add items with opening stock and a reorder level; *Buy*,
+  *Use* (on a job or site) and *Adjust* keep stock right. *Cost by site*
+  compares supply cost with each site's revenue.
+
+---
+
 ## 6. Daily rhythm per role
 
 - **MANAGER** — Dashboard: new leads, today's bookings, expiring contracts,
   quote win rate (**Reports → Commercial**).
-- **DISPATCH** — Dispatch board assignments; **Attendance** check-ins.
-- **CLEANER** — Accept jobs, check in/out, complete + checklist + photos.
-- **ACCOUNTANT** — Completed bookings → invoice → paid; revenue by
-  site/contract in **Reports → Commercial**.
+- **DISPATCH** — Dispatch board (drag to reschedule/reassign); complaints and re-cleans; record supply usage.
+- **CLEANER** — Accept jobs, check in/out (at the site), complete + checklist + photos.
+- **ACCOUNTANT** — Completed bookings → invoice → paid; payroll each period;
+  revenue by site/contract in **Reports → Commercial**.
 - **ADMIN / SUPER_ADMIN** — Team accounts, settings, audit log
   (SUPER_ADMIN only), contract approvals and renewals.
 
@@ -132,6 +162,10 @@ Nobody is forced to use checklists. When a commercial client wants proof:
 | Quote can't be reopened | Accepted quotes are terminal by design — create a new version |
 | Invoice button missing | Booking must be `completed` first |
 | Duplicate invoice warning | The booking already has an active invoice — open it instead |
+| Cleaner can't check in: "you are … from …" | They are outside the site's check-in radius; move closer, or check the site's GPS pin |
+| Cleaner check-in: "location is required" | Allow location access for the site in the phone's browser |
+| No QR on the invoice | Set a PromptPay ID under Settings → Payments; paid/void invoices have no QR |
+| Supply usage refused "only N in stock" | Record the purchase (Buy) or a stock count (Adjust) first |
 
 ---
 

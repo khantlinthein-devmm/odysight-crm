@@ -7,6 +7,13 @@ export interface CompanySettings {
   address: string;
   invoiceFooter: string;
   logoUrl: string;
+  /** Registered legal name printed on tax invoices. */
+  legalName: string;
+  /** 13-digit Thai tax ID. */
+  taxId: string;
+  /** Branch code; "00000" = head office. */
+  taxBranch: string;
+  vatRegistered: boolean;
 }
 
 export interface LocalizationSettings {
@@ -22,11 +29,17 @@ export interface BookingSettings {
   workStart: string;
   workEnd: string;
   holidays: string[];
+  /** Cleaners must be this close to a job site to check in (0 = off). */
+  checkInRadiusMeters: number;
 }
 
 export interface PaymentSettings {
   taxRatePercent: number;
   methods: string[];
+  /** PromptPay mobile / tax ID / e-wallet ID; empty = no QR on invoices. */
+  promptPayId: string;
+  /** Free-text bank details printed on invoices. */
+  bankAccount: string;
 }
 
 export interface ServiceItem {
@@ -85,6 +98,10 @@ export const DEFAULT_SETTINGS: WorkspaceSettings = {
     address: "",
     invoiceFooter: "Thank you for your business!",
     logoUrl: "",
+    legalName: "",
+    taxId: "",
+    taxBranch: "00000",
+    vatRegistered: false,
   },
   localization: {
     timezone: "Asia/Bangkok",
@@ -98,8 +115,11 @@ export const DEFAULT_SETTINGS: WorkspaceSettings = {
     workStart: "08:00",
     workEnd: "18:00",
     holidays: [],
+    checkInRadiusMeters: 0,
   },
   payments: {
+    promptPayId: "",
+    bankAccount: "",
     taxRatePercent: 7,
     methods: [
       "cash",

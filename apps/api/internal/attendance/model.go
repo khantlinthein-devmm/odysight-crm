@@ -52,4 +52,10 @@ type Record struct {
 	CheckOutAt *time.Time
 	Note       string
 	CreatedAt  time.Time
+	// Where the stamps were made (nil when the device sent no position).
+	CheckInLat, CheckInLng   *float64
+	CheckOutLat, CheckOutLng *float64
+	// Distance from the nearest job site at check-in, when known.
+	CheckInDistanceM *int
+	CheckInSiteName  string
 }

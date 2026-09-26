@@ -3,6 +3,9 @@ interface NavItem {
   label: string;
   href: string;
   icon: string;
+  // Permission needed to use the page; items without one show for everyone.
+  // Hidden client-side for roles that lack it (the API enforces it anyway).
+  perm?: string;
 }
 
 const navItems: NavItem[] = [
@@ -13,36 +16,43 @@ const navItems: NavItem[] = [
   },
   {
     label: "Leads",
+    perm: "leads.read",
     href: "/leads",
     icon: "M17 20h5v-2a4 4 0 00-3-3.87M9 20H4v-2a4 4 0 013-3.87m6-1.13a4 4 0 10-4-4 4 4 0 004 4zm6-4a3 3 0 11-3-3",
   },
   {
     label: "Customers",
+    perm: "customers.read",
     href: "/customers",
     icon: "M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197",
   },
   {
     label: "Bookings",
+    perm: "bookings.read",
     href: "/bookings",
     icon: "M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z",
   },
   {
     label: "Sites",
+    perm: "sites.read",
     href: "/sites",
     icon: "M17.657 16.657L13.414 20.9a2 2 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z M15 11a3 3 0 11-6 0 3 3 0 016 0z",
   },
   {
     label: "Contracts",
+    perm: "contracts.read",
     href: "/contracts",
     icon: "M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z",
   },
   {
     label: "Quotes",
+    perm: "quotes.read",
     href: "/quotes",
     icon: "M9 7h6m-5 4h4m5-7H5a2 2 0 00-2 2v12a2 2 0 002 2h14a2 2 0 002-2V6a2 2 0 00-2-2zm-3 14h-2v-2h2v2z",
   },
   {
     label: "Checklists",
+    perm: "checklists.read",
     href: "/checklists",
     icon: "M9 12l2 2 4-4M7.835 4.697a3.42 3.42 0 001.946-.806 3.42 3.42 0 014.438 0 3.42 3.42 0 001.946.806 3.42 3.42 0 013.138 3.138 3.42 3.42 0 00.806 1.946 3.42 3.42 0 010 4.438 3.42 3.42 0 00-.806 1.946 3.42 3.42 0 01-3.138 3.138 3.42 3.42 0 00-1.946.806 3.42 3.42 0 01-4.438 0 3.42 3.42 0 00-1.946-.806 3.42 3.42 0 01-3.138-3.138 3.42 3.42 0 00-.806-1.946 3.42 3.42 0 010-4.438 3.42 3.42 0 00.806-1.946 3.42 3.42 0 013.138-3.138z",
   },
@@ -53,56 +63,85 @@ const navItems: NavItem[] = [
   },
   {
     label: "Dispatch",
+    perm: "cleaners.read",
     href: "/dispatch",
     icon: "M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z",
   },
   {
     label: "Cleaners",
+    perm: "cleaners.read",
     href: "/cleaners",
     icon: "M17 20h5v-2a4 4 0 00-3-3.87M9 20H4v-2a4 4 0 013-3.87m6-1.13a4 4 0 10-4-4 4 4 0 004 4zm6-4a3 3 0 11-3-3",
   },
   {
     label: "Attendance",
+    perm: "attendance.read",
     href: "/attendance",
     icon: "M9 12l2 2 4-4M7.835 4.697a3.42 3.42 0 001.946-.806 3.42 3.42 0 014.438 0 3.42 3.42 0 001.946.806 3.42 3.42 0 013.138 3.138 3.42 3.42 0 00.806 1.946 3.42 3.42 0 010 4.438 3.42 3.42 0 00-.806 1.946 3.42 3.42 0 01-3.138 3.138 3.42 3.42 0 00-1.946.806 3.42 3.42 0 01-4.438 0 3.42 3.42 0 00-1.946-.806 3.42 3.42 0 01-3.138-3.138 3.42 3.42 0 00-.806-1.946 3.42 3.42 0 010-4.438 3.42 3.42 0 00.806-1.946 3.42 3.42 0 013.138-3.138z",
   },
   {
     label: "Service Records",
+    perm: "service_records.read",
     href: "/service-records",
     icon: "M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z",
   },
   {
+    label: "Supplies",
+    perm: "supplies.read",
+    href: "/supplies",
+    icon: "M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4",
+  },
+  {
     label: "Invoices",
+    perm: "invoices.read",
     href: "/invoices",
     icon: "M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z",
   },
   {
     label: "Payments",
+    perm: "payments.read",
     href: "/payments",
     icon: "M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z",
   },
   {
+    label: "Payroll",
+    perm: "payroll.read",
+    href: "/payroll",
+    icon: "M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z",
+  },
+  {
     label: "Finance",
+    perm: "expenses.read",
     href: "/finance",
     icon: "M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z",
   },
   {
     label: "Reports",
+    perm: "reports.read",
     href: "/reports",
     icon: "M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z",
   },
   {
     label: "Notifications",
+    perm: "notifications.read",
     href: "/notifications",
     icon: "M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9",
   },
   {
+    label: "Complaints",
+    perm: "complaints.read",
+    href: "/complaints",
+    icon: "M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z",
+  },
+  {
     label: "Feedback",
+    perm: "feedback.read",
     href: "/feedback",
     icon: "M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z",
   },
   {
     label: "Settings",
+    perm: "settings.read",
     href: "/settings",
     icon: "M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z M15 12a3 3 0 11-6 0 3 3 0 016 0z",
   },
@@ -121,10 +160,10 @@ const isActive = (href: string) =>
   <div class="flex h-16 items-center gap-3 border-b border-gray-200 px-6">
     <img
       src="/logo/logo.png"
-      alt="Odysight logo"
+      alt="Smile Clean logo"
       class="h-9 w-9 rounded-xl bg-white object-contain ring-1 ring-gray-200"
     />
-    <span class="text-lg font-semibold text-gray-900">Odysight CRM</span>
+    <span class="text-lg font-semibold text-gray-900">Smile Clean</span>
   </div>
 
   <nav class="flex-1 space-y-1 overflow-y-auto px-3 py-4">
@@ -132,6 +171,7 @@ const isActive = (href: string) =>
       navItems.map((item) => (
         <a
           href={item.href}
+          data-perm={item.perm}
           aria-current={isActive(item.href) ? "page" : undefined}
           class:list={[
             "group flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
@@ -187,10 +227,18 @@ const isActive = (href: string) =>
 
 <script>
   import { getInitials, getSessionUser } from "../../lib/auth";
+  import { hasPermission } from "../../lib/roles";
 
   const user = getSessionUser();
 
   if (user) {
+    // CLEANERs record their own attendance without attendance.read.
+    document.querySelectorAll<HTMLElement>("#app-sidebar [data-perm]").forEach((el) => {
+      const perm = el.dataset.perm ?? "";
+      const selfAttendance = perm === "attendance.read" && user.role === "CLEANER";
+      if (!selfAttendance && !hasPermission(user.role, perm)) el.remove();
+    });
+
     const avatar = document.getElementById("sidebar-avatar");
     const name = document.getElementById("sidebar-name");
     const role = document.getElementById("sidebar-role");

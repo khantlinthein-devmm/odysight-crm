@@ -119,6 +119,11 @@ func (a *Authorizer) Require(p Permission) func(http.Handler) http.Handler {
 	}
 }
 
+// WithIdentity returns ctx carrying identity, as Authenticate would set it.
+func WithIdentity(ctx context.Context, identity Identity) context.Context {
+	return context.WithValue(ctx, identityKey, identity)
+}
+
 // IdentityFromContext extracts the authenticated Identity, if present.
 func IdentityFromContext(ctx context.Context) (Identity, bool) {
 	identity, ok := ctx.Value(identityKey).(Identity)

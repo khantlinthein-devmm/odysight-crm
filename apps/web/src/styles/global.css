@@ -25,7 +25,7 @@
   --color-green-900: #14532d;
   --color-green-950: #052e16;
 
-  --font-sans: "Poppins", "Prompt", "Inter", "Segoe UI", "Helvetica Neue", Arial, system-ui,
+  --font-sans: "Poppins", "Noto Sans Thai", "Noto Sans Myanmar", "Prompt", "Inter", "Segoe UI", "Helvetica Neue", Arial, system-ui,
     -apple-system, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol",
     sans-serif;
 }

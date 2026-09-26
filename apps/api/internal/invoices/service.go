@@ -14,6 +14,7 @@ import (
 	"github.com/odysight/crm/internal/settings"
 	"github.com/odysight/crm/pkg/mailer"
 	"github.com/odysight/crm/pkg/pagination"
+	"github.com/odysight/crm/pkg/promptpay"
 	"github.com/odysight/crm/pkg/response"
 )
 
@@ -61,13 +62,42 @@ func (s *Service) PDF(ctx context.Context, id int64) (Invoice, []byte, error) {
 
 // renderPDF renders an invoice PDF with company branding from settings.
 func (s *Service) renderPDF(ctx context.Context, inv Invoice) ([]byte, error) {
+	company, pay := s.billingSettings(ctx)
+	return renderInvoicePDF(inv, company, pay)
+}
+
+// billingSettings loads the company identity and payment details printed on
+// invoices. Missing or unreadable settings fall back to zero values.
+func (s *Service) billingSettings(ctx context.Context) (settings.Company, settings.PaymentSettings) {
 	var company settings.Company
+	var pay settings.PaymentSettings
 	if raw, err := s.settings.GetAll(ctx); err == nil {
 		if v, ok := raw[settings.KeyCompany]; ok {
 			_ = json.Unmarshal(v, &company)
 		}
+		if v, ok := raw[settings.KeyPayments]; ok {
+			_ = json.Unmarshal(v, &pay)
+		}
 	}
-	return renderInvoicePDF(inv, company)
+	return company, pay
+}
+
+// PromptPayQR renders the PromptPay QR (PNG) for an invoice's net payable
+// amount. It fails when no PromptPay ID is configured.
+func (s *Service) PromptPayQR(ctx context.Context, id int64) ([]byte, error) {
+	inv, err := s.repo.GetByID(ctx, id)
+	if err != nil {
+		return nil, mapRepoError(err)
+	}
+	_, pay := s.billingSettings(ctx)
+	if strings.TrimSpace(pay.PromptPayID) == "" {
+		return nil, response.NewAPIError(404, "PromptPay is not configured; set it under Settings → Payments")
+	}
+	payload, err := promptpay.Payload(pay.PromptPayID, inv.NetPayable())
+	if err != nil {
+		return nil, response.NewAPIError(422, err.Error())
+	}
+	return promptpay.PNG(payload, 512)
 }
 
 // Create bills a completed booking, pricing it from the service catalog.
@@ -109,23 +139,32 @@ func (s *Service) Create(ctx context.Context, req CreateInvoiceRequest) (Invoice
 		subtotal = *req.Subtotal
 	}
 	taxAmount := round2(subtotal * taxRate / 100)
+	// Withholding tax is computed on the pre-VAT amount (Thai WHT rules).
+	whtRate := b.WithholdingRate
+	if req.WithholdingRate != nil {
+		whtRate = *req.WithholdingRate
+	}
 
 	inv := Invoice{
-		BookingID:     b.ID,
-		BookingNumber: b.BookingNumber,
-		CustomerName:  b.CustomerName,
-		CustomerEmail: b.CustomerEmail,
-		Address:       b.Address,
-		ServiceType:   b.ServiceType,
-		ServiceName:   serviceName,
-		Subtotal:      round2(subtotal),
-		TaxRate:       taxRate,
-		TaxAmount:     taxAmount,
-		Total:         round2(subtotal + taxAmount),
-		Currency:      currency,
-		Status:        StatusIssued,
-		ContractID:    req.ContractID,
-		IdempotencyKey: req.IdempotencyKey,
+		BookingID:         b.ID,
+		BookingNumber:     b.BookingNumber,
+		CustomerName:      b.CustomerName,
+		CustomerEmail:     b.CustomerEmail,
+		Address:           b.Address,
+		ServiceType:       b.ServiceType,
+		ServiceName:       serviceName,
+		Subtotal:          round2(subtotal),
+		TaxRate:           taxRate,
+		TaxAmount:         taxAmount,
+		Total:             round2(subtotal + taxAmount),
+		Currency:          currency,
+		Status:            StatusIssued,
+		CustomerTaxID:     b.CustomerTaxID,
+		CustomerTaxBranch: b.CustomerTaxBranch,
+		WithholdingRate:   whtRate,
+		WithholdingAmount: round2(round2(subtotal) * whtRate / 100),
+		ContractID:        req.ContractID,
+		IdempotencyKey:    req.IdempotencyKey,
 	}
 	if req.BillingPeriodStart != nil {
 		if v, err := time.Parse("2006-01-02", strings.TrimSpace(*req.BillingPeriodStart)); err == nil {
@@ -244,6 +283,8 @@ func (s *Service) deliver(ctx context.Context, inv Invoice, kind, body string) {
 		subject = "Payment received — Invoice " + inv.InvoiceNumber
 	}
 
+	s.deliverLINE(ctx, inv, kind)
+
 	if strings.TrimSpace(inv.CustomerEmail) == "" {
 		slog.Debug("invoice email skipped: no customer email", "invoice", inv.InvoiceNumber)
 		s.record(ctx, eventType, inv, "skipped", "no customer email")
@@ -268,6 +309,38 @@ func (s *Service) deliver(ctx context.Context, inv Invoice, kind, body string) {
 		return
 	}
 	s.record(ctx, eventType, inv, "sent", "")
+}
+
+// deliverLINE pushes the invoice (or receipt) summary to the customer's LINE
+// chat when they have one, including the PromptPay ID to pay to.
+func (s *Service) deliverLINE(ctx context.Context, inv Invoice, kind string) {
+	if s.notifier == nil {
+		return
+	}
+	name, lineID, err := s.repo.LineContactForBooking(ctx, inv.BookingID)
+	if err != nil || lineID == "" {
+		return
+	}
+	var text string
+	if kind == "Receipt" {
+		text = fmt.Sprintf("🧾 ได้รับชำระเงินเรียบร้อยแล้ว ขอบคุณค่ะ\nใบแจ้งหนี้: %s\nยอดชำระ: %s %s",
+			inv.InvoiceNumber, inv.Currency, amount(inv.NetPayable()))
+		s.notifier.EmitLINE(ctx, notifications.EventPaymentReceived, lineID, name, text)
+		return
+	}
+	_, pay := s.billingSettings(ctx)
+	text = fmt.Sprintf("🧾 ใบแจ้งหนี้ %s\nงาน: %s (%s)\nยอดชำระ: %s %s",
+		inv.InvoiceNumber, inv.ServiceName, inv.BookingNumber, inv.Currency, amount(inv.NetPayable()))
+	if inv.WithholdingAmount > 0 {
+		text += fmt.Sprintf("\n(หักภาษี ณ ที่จ่าย %s%% แล้ว)", trimRate(inv.WithholdingRate))
+	}
+	if id, ok := promptpay.Normalize(pay.PromptPayID); ok {
+		text += "\n\nชำระผ่าน PromptPay: " + id
+	}
+	if b := strings.TrimSpace(pay.BankAccount); b != "" {
+		text += "\nหรือโอนเข้าบัญชี: " + b
+	}
+	s.notifier.EmitLINE(ctx, notifications.EventInvoiceIssued, lineID, name, text)
 }
 
 // record writes the email outcome to the notification log (best-effort).
