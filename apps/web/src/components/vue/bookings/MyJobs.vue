@@ -13,6 +13,7 @@ import { hasPermission } from "../../../lib/roles";
 import { isOfflineQueued } from "../../../lib/offline";
 import { showToast } from "../../../lib/toast";
 import { dateLocale, t, tStatus } from "../../../lib/i18n";
+import { getPosition } from "../../../lib/geo";
 import LanguageSwitcher from "../ui/LanguageSwitcher.vue";
 
 const props = defineProps<{ bookings: Booking[]; loading: boolean }>();
@@ -128,7 +129,10 @@ async function doCheckIn(b: Booking): Promise<void> {
   }
   busyId.value = b.id;
   try {
-    await checkIn("cleaner", profileId.value);
+    // The office can require check-in at the job site; send the GPS fix.
+    showToast(t("att.locating"), "info");
+    const fix = await getPosition();
+    await checkIn("cleaner", profileId.value, fix);
     checkedInToday.value = true;
     showToast(t("jobs.checkedIn"), "success");
     emit("changed");
@@ -147,7 +151,7 @@ async function doCheckOut(b: Booking): Promise<void> {
   }
   busyId.value = b.id;
   try {
-    await checkOut("cleaner", profileId.value);
+    await checkOut("cleaner", profileId.value, await getPosition(8000));
     checkedOutToday.value = true;
     showToast(t("jobs.checkedOut"), "success");
     emit("changed");

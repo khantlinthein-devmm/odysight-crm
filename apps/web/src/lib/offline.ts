@@ -346,6 +346,9 @@ async function defaultSender(entry: OutboxEntry): Promise<unknown> {
         body: JSON.stringify({
           personType: entry.payload.personType,
           personId: entry.payload.personId,
+          latitude: entry.payload.latitude,
+          longitude: entry.payload.longitude,
+          accuracy: entry.payload.accuracy,
         }),
       });
     case "attendance.check-out":
@@ -354,6 +357,9 @@ async function defaultSender(entry: OutboxEntry): Promise<unknown> {
         body: JSON.stringify({
           personType: entry.payload.personType,
           personId: entry.payload.personId,
+          latitude: entry.payload.latitude,
+          longitude: entry.payload.longitude,
+          accuracy: entry.payload.accuracy,
         }),
       });
     case "checklist.item":

@@ -29,6 +29,8 @@ export interface BookingSettings {
   workStart: string;
   workEnd: string;
   holidays: string[];
+  /** Cleaners must be this close to a job site to check in (0 = off). */
+  checkInRadiusMeters: number;
 }
 
 export interface PaymentSettings {
@@ -113,6 +115,7 @@ export const DEFAULT_SETTINGS: WorkspaceSettings = {
     workStart: "08:00",
     workEnd: "18:00",
     holidays: [],
+    checkInRadiusMeters: 0,
   },
   payments: {
     promptPayId: "",

@@ -14,6 +14,7 @@ import { isOfflineQueued } from "../../../lib/offline";
 import { hasPermission } from "../../../lib/roles";
 import { showToast } from "../../../lib/toast";
 import { t, type MessageKey } from "../../../lib/i18n";
+import { getPosition } from "../../../lib/geo";
 import LanguageSwitcher from "../ui/LanguageSwitcher.vue";
 import { getUsers } from "../../../lib/users";
 
@@ -233,8 +234,15 @@ function errorMessage(err: unknown, fallback: string): string {
 async function doCheckIn(personId: number): Promise<void> {
   actingId.value = personId;
   try {
-    await checkIn(activeTab.value, personId);
-    showToast("Checked in", "success");
+    // Cleaners on their own phone send GPS for the site geofence; office
+    // staff marking someone else present do not.
+    let fix = null;
+    if (isSelfService) {
+      showToast(t("att.locating"), "info");
+      fix = await getPosition();
+    }
+    await checkIn(activeTab.value, personId, fix);
+    showToast(L("jobs.checkedIn", "Checked in"), "success");
     await Promise.all([loadDay(), loadHistory()]);
   } catch (err) {
     if (isOfflineQueued(err)) {
@@ -251,8 +259,8 @@ async function doCheckIn(personId: number): Promise<void> {
 async function doCheckOut(personId: number): Promise<void> {
   actingId.value = personId;
   try {
-    await checkOut(activeTab.value, personId);
-    showToast("Checked out", "success");
+    await checkOut(activeTab.value, personId, isSelfService ? await getPosition(8000) : null);
+    showToast(L("jobs.checkedOut", "Checked out"), "success");
     await Promise.all([loadDay(), loadHistory()]);
   } catch (err) {
     if (isOfflineQueued(err)) {
@@ -534,6 +542,10 @@ onMounted(async () => {
             <p class="text-xs tabular-nums text-gray-500">
               {{ r.workDate }} · In {{ formatTime(r.checkInAt) }} · Out
               {{ formatTime(r.checkOutAt) }}
+            </p>
+            <p v-if="r.checkInDistanceM != null" class="text-[11px] text-gray-400">
+              📍 {{ r.checkInDistanceM >= 1000 ? (r.checkInDistanceM / 1000).toFixed(1) + " km" : r.checkInDistanceM + " m" }}
+              from {{ r.checkInSiteName || "site" }} at check-in
             </p>
           </div>
           <span

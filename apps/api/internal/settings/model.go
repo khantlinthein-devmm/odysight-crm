@@ -59,6 +59,9 @@ type BookingDefaults struct {
 	WorkStart              string   `json:"workStart"`
 	WorkEnd                string   `json:"workEnd"`
 	Holidays               []string `json:"holidays"`
+	// CheckInRadiusMeters is how close to a job site a cleaner's phone must
+	// be to check in (sites need coordinates). 0 turns the geofence off.
+	CheckInRadiusMeters int `json:"checkInRadiusMeters"`
 }
 
 type PaymentSettings struct {
@@ -214,6 +217,9 @@ func validateBooking(v BookingDefaults) error {
 	}
 	if !isHHMM(v.WorkStart) || !isHHMM(v.WorkEnd) {
 		return response.NewAPIError(400, "booking.workStart/workEnd must be HH:MM")
+	}
+	if v.CheckInRadiusMeters < 0 || v.CheckInRadiusMeters > 5000 {
+		return response.NewAPIError(400, "booking.checkInRadiusMeters must be 0..5000")
 	}
 	return nil
 }

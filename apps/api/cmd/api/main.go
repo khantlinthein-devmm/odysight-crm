@@ -188,7 +188,7 @@ func run() error {
 	paymentHandler := payments.NewHandler(paymentService)
 
 	attendanceRepo := attendance.NewRepository(pool)
-	attendanceService := attendance.NewService(attendanceRepo)
+	attendanceService := attendance.NewService(attendanceRepo).WithGeofence(settingsService.CheckInRadius)
 	attendanceHandler := attendance.NewHandler(attendanceService)
 
 	expenseRepo := expenses.NewRepository(pool)

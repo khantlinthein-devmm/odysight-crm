@@ -116,7 +116,8 @@ func (h *Handler) CheckIn(w http.ResponseWriter, r *http.Request) {
 	if !allowSelf(w, r, req) {
 		return
 	}
-	rec, err := h.service.CheckIn(r.Context(), req)
+	_, self := selfCleaner(r)
+	rec, err := h.service.CheckIn(r.Context(), req, self)
 	if err != nil {
 		response.HandleError(w, r, err)
 		return
