@@ -165,6 +165,8 @@ func run() error {
 	notifHandler := notifications.NewHandler(notifService)
 
 	bookingService := bookings.NewService(bookingRepo, notifService)
+	bookingReminders := bookings.NewReminderRunner(bookingService, 30*time.Minute)
+	go bookingReminders.Run(ctx)
 	bookingHandler := bookings.NewHandler(bookingService)
 
 	portalRepo := portal.NewRepository(pool)
@@ -213,6 +215,11 @@ func run() error {
 	// comes from the X-Line-Signature HMAC. With no channel secret
 	// configured the endpoint answers 503 and everything else is unchanged.
 	lineClient := line.NewClient(cfg.LineChannelAccessToken)
+	if cfg.LineChannelAccessToken != "" {
+		// Push booking confirmations, reminders, job-done notices and
+		// invoices to customers who reached us through LINE.
+		notifService.WithLINE(lineClient)
+	}
 	lineService := line.NewService(leadRepo, lineClient, lineClient, cfg.LineAutoReply)
 	lineHandler := line.NewHandler(lineService, cfg.LineChannelSecret)
 

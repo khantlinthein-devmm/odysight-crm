@@ -332,18 +332,6 @@ func (r *Repository) GetByID(ctx context.Context, id int64) (Booking, error) {
 
 // CustomerPhone returns the phone number for a linked customer, or "" when the
 // booking has no customer link or the customer has no phone stored.
-func (r *Repository) CustomerPhone(ctx context.Context, id int64) (string, error) {
-	var phone string
-	err := r.pool.QueryRow(ctx, `SELECT COALESCE(phone, '') FROM customers WHERE id = $1`, id).Scan(&phone)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return "", nil
-	}
-	if err != nil {
-		return "", fmt.Errorf("get customer %d phone: %w", id, err)
-	}
-	return phone, nil
-}
-
 // ValidateSiteContract ensures an optional site belongs to the booking's
 // customer and an optional contract belongs to the same customer. Either link
 // may be nil (one-time bookings need neither). A booking for Customer A can

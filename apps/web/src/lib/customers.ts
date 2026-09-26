@@ -27,6 +27,8 @@ export interface Customer {
   taxBranch?: string;
   /** Withholding tax % this customer deducts (usually 3 for companies). */
   withholdingRate?: number;
+  /** True when the customer came through LINE and gets LINE messages. */
+  lineLinked?: boolean;
   createdAt: string;
 }
 

@@ -293,3 +293,20 @@ func (r *Repository) GetByBookingNumber(ctx context.Context, bookingNumber strin
 	}
 	return inv, nil
 }
+
+// LineContactForBooking returns the booking customer's name and LINE user id
+// ("" when the customer has no LINE chat).
+func (r *Repository) LineContactForBooking(ctx context.Context, bookingID int64) (string, string, error) {
+	var name, lineID string
+	err := r.pool.QueryRow(ctx,
+		`SELECT TRIM(c.first_name || ' ' || c.last_name), c.line_user_id
+		   FROM bookings b JOIN customers c ON c.id = b.customer_id
+		  WHERE b.id = $1`, bookingID).Scan(&name, &lineID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", "", nil
+	}
+	if err != nil {
+		return "", "", fmt.Errorf("line contact for booking %d: %w", bookingID, err)
+	}
+	return name, lineID, nil
+}

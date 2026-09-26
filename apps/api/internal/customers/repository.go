@@ -20,13 +20,13 @@ func NewRepository(pool *pgxpool.Pool) *Repository {
 	return &Repository{pool: pool}
 }
 
-const customerColumns = `id, first_name, last_name, email, phone, address, property_type, area, status, lead_id, portal_enabled, tax_id, tax_branch, withholding_rate::float8, created_at`
+const customerColumns = `id, first_name, last_name, email, phone, address, property_type, area, status, lead_id, portal_enabled, tax_id, tax_branch, withholding_rate::float8, line_user_id <> '', created_at`
 
 func scanCustomer(row pgx.Row) (Customer, error) {
 	var c Customer
 	err := row.Scan(&c.ID, &c.FirstName, &c.LastName, &c.Email, &c.Phone,
 		&c.Address, &c.PropertyType, &c.Area, &c.Status, &c.LeadID, &c.PortalEnabled,
-		&c.TaxID, &c.TaxBranch, &c.WithholdingRate, &c.CreatedAt)
+		&c.TaxID, &c.TaxBranch, &c.WithholdingRate, &c.LineLinked, &c.CreatedAt)
 	return c, err
 }
 
@@ -112,8 +112,9 @@ func (r *Repository) Create(ctx context.Context, c Customer) (Customer, error) {
 	created, err := scanCustomer(r.pool.QueryRow(ctx,
 		`WITH c AS (
 		   INSERT INTO customers (first_name, last_name, email, phone, address, property_type, area, status, lead_id,
-		                          tax_id, tax_branch, withholding_rate)
-		   VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+		                          tax_id, tax_branch, withholding_rate, line_user_id)
+		   VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12,
+		           COALESCE((SELECT line_user_id FROM leads WHERE id = $9), ''))
 		   RETURNING *
 		 ), site AS (
 		   INSERT INTO sites (customer_id, name, address, contact_name, phone, email, status, is_default)

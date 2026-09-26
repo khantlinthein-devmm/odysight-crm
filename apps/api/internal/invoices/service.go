@@ -283,6 +283,8 @@ func (s *Service) deliver(ctx context.Context, inv Invoice, kind, body string) {
 		subject = "Payment received — Invoice " + inv.InvoiceNumber
 	}
 
+	s.deliverLINE(ctx, inv, kind)
+
 	if strings.TrimSpace(inv.CustomerEmail) == "" {
 		slog.Debug("invoice email skipped: no customer email", "invoice", inv.InvoiceNumber)
 		s.record(ctx, eventType, inv, "skipped", "no customer email")
@@ -307,6 +309,38 @@ func (s *Service) deliver(ctx context.Context, inv Invoice, kind, body string) {
 		return
 	}
 	s.record(ctx, eventType, inv, "sent", "")
+}
+
+// deliverLINE pushes the invoice (or receipt) summary to the customer's LINE
+// chat when they have one, including the PromptPay ID to pay to.
+func (s *Service) deliverLINE(ctx context.Context, inv Invoice, kind string) {
+	if s.notifier == nil {
+		return
+	}
+	name, lineID, err := s.repo.LineContactForBooking(ctx, inv.BookingID)
+	if err != nil || lineID == "" {
+		return
+	}
+	var text string
+	if kind == "Receipt" {
+		text = fmt.Sprintf("🧾 ได้รับชำระเงินเรียบร้อยแล้ว ขอบคุณค่ะ\nใบแจ้งหนี้: %s\nยอดชำระ: %s %s",
+			inv.InvoiceNumber, inv.Currency, amount(inv.NetPayable()))
+		s.notifier.EmitLINE(ctx, notifications.EventPaymentReceived, lineID, name, text)
+		return
+	}
+	_, pay := s.billingSettings(ctx)
+	text = fmt.Sprintf("🧾 ใบแจ้งหนี้ %s\nงาน: %s (%s)\nยอดชำระ: %s %s",
+		inv.InvoiceNumber, inv.ServiceName, inv.BookingNumber, inv.Currency, amount(inv.NetPayable()))
+	if inv.WithholdingAmount > 0 {
+		text += fmt.Sprintf("\n(หักภาษี ณ ที่จ่าย %s%% แล้ว)", trimRate(inv.WithholdingRate))
+	}
+	if id, ok := promptpay.Normalize(pay.PromptPayID); ok {
+		text += "\n\nชำระผ่าน PromptPay: " + id
+	}
+	if b := strings.TrimSpace(pay.BankAccount); b != "" {
+		text += "\nหรือโอนเข้าบัญชี: " + b
+	}
+	s.notifier.EmitLINE(ctx, notifications.EventInvoiceIssued, lineID, name, text)
 }
 
 // record writes the email outcome to the notification log (best-effort).

@@ -46,7 +46,7 @@ func NewClientWithBase(channelAccessToken, apiBase string) *Client {
 }
 
 // GetProfile fetches the LINE display name (and avatar) for a user ID.
-// LINE never shares phone numbers: the lead starts with phone '' and staff
+// LINE never shares phone numbers: the lead starts with phone ” and staff
 // collect it on first contact.
 func (c *Client) GetProfile(ctx context.Context, userID string) (Profile, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet,
@@ -101,6 +101,39 @@ func (c *Client) Reply(ctx context.Context, replyToken, text string) error {
 	io.Copy(io.Discard, io.LimitReader(res.Body, 16<<10))
 	if res.StatusCode != http.StatusOK {
 		return fmt.Errorf("line reply status %d", res.StatusCode)
+	}
+	return nil
+}
+
+// Push sends a text message to a user outside a reply window. It counts
+// against the channel's monthly message quota.
+func (c *Client) Push(ctx context.Context, to, text string) error {
+	if c.token == "" {
+		return fmt.Errorf("line push: channel access token not configured")
+	}
+	payload, err := json.Marshal(map[string]any{
+		"to":       to,
+		"messages": []any{map[string]any{"type": "text", "text": text}},
+	})
+	if err != nil {
+		return fmt.Errorf("line push encode: %w", err)
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
+		c.apiBase+"/v2/bot/message/push", bytes.NewReader(payload))
+	if err != nil {
+		return fmt.Errorf("line push request: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+c.token)
+	req.Header.Set("Content-Type", "application/json")
+
+	res, err := c.http.Do(req)
+	if err != nil {
+		return fmt.Errorf("line push call: %w", err)
+	}
+	defer res.Body.Close()
+	body, _ := io.ReadAll(io.LimitReader(res.Body, 16<<10))
+	if res.StatusCode != http.StatusOK {
+		return fmt.Errorf("line push status %d: %s", res.StatusCode, bytes.TrimSpace(body))
 	}
 	return nil
 }

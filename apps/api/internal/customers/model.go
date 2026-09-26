@@ -54,5 +54,7 @@ type Customer struct {
 	TaxID           string
 	TaxBranch       string
 	WithholdingRate float64
-	CreatedAt       time.Time
+	// LineLinked reports that the customer can receive LINE messages.
+	LineLinked bool
+	CreatedAt  time.Time
 }

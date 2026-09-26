@@ -23,6 +23,7 @@ type CustomerDTO struct {
 	TaxID           string    `json:"taxId"`
 	TaxBranch       string    `json:"taxBranch"`
 	WithholdingRate float64   `json:"withholdingRate"`
+	LineLinked      bool      `json:"lineLinked"`
 	CreatedAt       time.Time `json:"createdAt"`
 }
 
@@ -42,6 +43,7 @@ func toDTO(c Customer) CustomerDTO {
 		TaxID:           c.TaxID,
 		TaxBranch:       c.TaxBranch,
 		WithholdingRate: c.WithholdingRate,
+		LineLinked:      c.LineLinked,
 		CreatedAt:       c.CreatedAt,
 	}
 }
