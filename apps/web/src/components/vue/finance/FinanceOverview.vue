@@ -664,9 +664,5 @@ const presetTabs: { key: Preset; label: string }[] = [
     >
       <p class="text-sm text-gray-500">This permanently removes this expense record.</p>
     </ConfirmDialog>
-
-    <p class="mt-4 text-xs text-gray-400">
-      Live data from the Go API · GET /api/v1/expenses · GET /api/v1/payments?status=paid
-    </p>
   </div>
 </template>

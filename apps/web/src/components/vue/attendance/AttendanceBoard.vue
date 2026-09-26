@@ -547,10 +547,6 @@ onMounted(async () => {
       <p v-if="!loadingHistory && history.length === 0" class="mt-4 text-sm text-gray-400">
         No attendance records for these filters.
       </p>
-
-      <p class="mt-4 text-xs text-gray-400">
-        Live data from the Go API · GET /api/v1/attendance
-      </p>
     </section>
   </div>
 </template>

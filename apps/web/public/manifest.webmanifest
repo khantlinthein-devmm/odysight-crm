@@ -1,6 +1,6 @@
 {
-  "name": "Odysight CRM",
-  "short_name": "Odysight",
+  "name": "Smile Clean",
+  "short_name": "Smile Clean",
   "description": "Smile Clean field CRM — bookings, checklists, attendance, calculator. Works offline.",
   "start_url": "/dashboard",
   "scope": "/",
