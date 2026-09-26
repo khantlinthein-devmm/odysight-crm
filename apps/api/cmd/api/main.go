@@ -41,6 +41,7 @@ import (
 	"github.com/odysight/crm/internal/servicerecords"
 	"github.com/odysight/crm/internal/settings"
 	"github.com/odysight/crm/internal/sites"
+	"github.com/odysight/crm/internal/supplies"
 	"github.com/odysight/crm/internal/users"
 	"github.com/odysight/crm/pkg/database"
 	"github.com/odysight/crm/pkg/mailer"
@@ -272,6 +273,7 @@ func run() error {
 			r.Mount("/attendance", attendance.Routes(attendanceHandler, authorizer))
 			r.Mount("/payroll", payroll.Routes(payroll.NewHandler(payroll.NewService(payroll.NewRepository(pool))), authorizer))
 			r.Mount("/complaints", complaints.Routes(complaints.NewHandler(complaints.NewService(complaints.NewRepository(pool), bookingService)), authorizer))
+			r.Mount("/supplies", supplies.Routes(supplies.NewHandler(supplies.NewService(supplies.NewRepository(pool))), authorizer))
 			r.Mount("/expenses", expenses.Routes(expenseHandler, authorizer))
 			r.Mount("/sites", sites.Routes(siteHandler, authorizer))
 			r.Mount("/contracts", contracts.Routes(contractHandler, authorizer))
