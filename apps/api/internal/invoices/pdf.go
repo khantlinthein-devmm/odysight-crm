@@ -24,12 +24,152 @@ var (
 
 const fontFamily = "Sarabun"
 
-// renderInvoicePDF produces a single-page A4 bilingual (Thai/English)
-// invoice. A VAT-registered company gets a full tax invoice / receipt
-// (ใบกำกับภาษี/ใบเสร็จรับเงิน) with both parties' tax IDs; otherwise a plain
-// invoice (ใบแจ้งหนี้). When a PromptPay ID is configured, a QR for the net
-// payable amount is printed so the customer can pay from any Thai bank app.
+// docSpec describes one printed document; invoices and receipts share the
+// layout (seller header, customer box, one line item, totals, signatures).
+type docSpec struct {
+	thTitle, enTitle string
+	meta             [][2]string
+	buyerName        string
+	buyerAddress     string
+	buyerTaxID       string
+	buyerBranch      string
+	description      string
+	lineAmount       float64
+	totals           [][2]string
+	words            float64
+	currency         string
+	// Payment block (QR + bank details); skipped when payAmount is zero.
+	payAmount float64
+	imageKey  string
+	stamp     string
+	stampRGB  [3]int
+	// note is printed under the amount in words (e.g. how it was paid).
+	note       string
+	signLabels [2]string
+}
+
+// renderInvoicePDF produces a bilingual (Thai/English) invoice — ใบแจ้งหนี้,
+// the request for payment. VAT is shown when the invoice carries it; the tax
+// invoice itself is the receipt issued once money is received. While money
+// is still owed, a PromptPay QR for the balance is printed.
 func renderInvoicePDF(inv Invoice, company settings.Company, pay settings.PaymentSettings) ([]byte, error) {
+	meta := [][2]string{
+		{"เลขที่ / No.", inv.InvoiceNumber},
+		{"วันที่ / Date", inv.IssuedAt.Format("02/01/2006")},
+		{"อ้างอิง / Booking", inv.BookingNumber},
+	}
+	if inv.BillingPeriodStart != nil && inv.BillingPeriodEnd != nil {
+		meta = append(meta, [2]string{"งวด / Period",
+			inv.BillingPeriodStart.Format("02/01/2006") + " – " + inv.BillingPeriodEnd.Format("02/01/2006")})
+	}
+	totals := [][2]string{{"รวมเป็นเงิน / Subtotal", amount(inv.Subtotal)}}
+	if inv.TaxAmount > 0 {
+		totals = append(totals, [2]string{fmt.Sprintf("ภาษีมูลค่าเพิ่ม / VAT %s%%", trimRate(inv.TaxRate)), amount(inv.TaxAmount)})
+	}
+	totals = append(totals, [2]string{"จำนวนเงินรวมทั้งสิ้น / Grand total", amount(inv.Total)})
+	if inv.WithholdingAmount > 0 {
+		totals = append(totals,
+			[2]string{fmt.Sprintf("หักภาษี ณ ที่จ่าย / WHT %s%%", trimRate(inv.WithholdingRate)), "-" + amount(inv.WithholdingAmount)},
+			[2]string{"ยอดชำระสุทธิ / Net payable", amount(inv.NetPayable())})
+	}
+	if inv.AmountPaid > 0 && inv.Status != StatusPaid {
+		totals = append(totals,
+			[2]string{"ชำระแล้ว / Paid", "-" + amount(inv.AmountPaid)},
+			[2]string{"ยอดคงค้าง / Balance due", amount(inv.BalanceDue())})
+	}
+	spec := docSpec{
+		thTitle: "ใบแจ้งหนี้", enTitle: "INVOICE",
+		meta:      meta,
+		buyerName: inv.CustomerName, buyerAddress: inv.Address,
+		buyerTaxID: inv.CustomerTaxID, buyerBranch: inv.CustomerTaxBranch,
+		description: inv.ServiceName, lineAmount: inv.Subtotal,
+		totals: totals, words: inv.Total, currency: inv.Currency,
+		imageKey:   inv.InvoiceNumber,
+		signLabels: [2]string{"ผู้วางบิล / Issued by", "ผู้รับวางบิล / Received by"},
+	}
+	if inv.Status.Open() {
+		spec.payAmount = inv.BalanceDue()
+	}
+	switch inv.Status {
+	case StatusPaid:
+		spec.stamp, spec.stampRGB = "ชำระแล้ว / PAID", [3]int{22, 163, 74}
+	case StatusVoid:
+		spec.stamp, spec.stampRGB = "ยกเลิก / VOID", [3]int{220, 38, 38}
+	}
+	return renderDoc(spec, company, pay)
+}
+
+// renderReceiptPDF produces the receipt for one payment. A VAT-registered
+// company's receipt doubles as the tax invoice (ใบเสร็จรับเงิน/ใบกำกับภาษี):
+// for services the tax point is when payment is received.
+func renderReceiptPDF(rc Receipt, inv Invoice, company settings.Company) ([]byte, error) {
+	thTitle, enTitle := "ใบเสร็จรับเงิน", "RECEIPT"
+	if rc.VATRegistered {
+		thTitle, enTitle = "ใบเสร็จรับเงิน / ใบกำกับภาษี", "RECEIPT / TAX INVOICE"
+	}
+	method := methodLabel(rc.Method)
+	if ref := strings.TrimSpace(rc.Reference); ref != "" {
+		method += " (" + ref + ")"
+	}
+	meta := [][2]string{
+		{"เลขที่ / No.", rc.ReceiptNumber},
+		{"วันที่ / Date", rc.PaidAt.Format("02/01/2006")},
+		{"ใบแจ้งหนี้ / Invoice", rc.InvoiceNumber},
+		{"อ้างอิง / Booking", rc.BookingNumber},
+	}
+	desc := rc.ServiceName
+	if rc.Gross() < inv.Total-0.005 {
+		desc += "\n(ชำระบางส่วน / Partial payment)"
+	}
+	totals := [][2]string{{"มูลค่าบริการ / Value", amount(rc.Subtotal)}}
+	if rc.VAT > 0 {
+		totals = append(totals, [2]string{fmt.Sprintf("ภาษีมูลค่าเพิ่ม / VAT %s%%", trimRate(rc.TaxRate)), amount(rc.VAT)})
+	}
+	totals = append(totals, [2]string{"จำนวนเงินรวม / Total", amount(rc.Gross())})
+	if rc.WHT > 0 {
+		totals = append(totals, [2]string{fmt.Sprintf("หักภาษี ณ ที่จ่าย / WHT %s%%", trimRate(rc.WithholdingRate)), "-" + amount(rc.WHT)})
+	}
+	totals = append(totals, [2]string{"รับชำระ / Amount received", amount(rc.Amount)})
+	if bal := inv.BalanceDue(); bal > 0 && rc.Status == ReceiptValid {
+		totals = append(totals, [2]string{"ยอดคงค้าง / Balance due", amount(bal)})
+	}
+	spec := docSpec{
+		thTitle: thTitle, enTitle: enTitle,
+		meta:      meta,
+		buyerName: rc.CustomerName, buyerAddress: rc.Address,
+		buyerTaxID: rc.CustomerTaxID, buyerBranch: rc.CustomerTaxBranch,
+		description: desc, lineAmount: rc.Subtotal,
+		totals: totals, words: rc.Gross(), currency: rc.Currency,
+		imageKey: rc.ReceiptNumber,
+		stamp:    "ได้รับเงินแล้ว / RECEIVED", stampRGB: [3]int{22, 163, 74},
+		note:       "ชำระโดย / Paid by: " + method,
+		signLabels: [2]string{"ผู้รับเงิน / Collector", "ผู้มีอำนาจลงนาม / Authorized signature"},
+	}
+	if rc.Status == ReceiptCancelled {
+		spec.stamp, spec.stampRGB = "ยกเลิก / CANCELLED", [3]int{220, 38, 38}
+	}
+	return renderDoc(spec, company, settings.PaymentSettings{})
+}
+
+func methodLabel(m string) string {
+	switch m {
+	case "cash":
+		return "เงินสด / Cash"
+	case "bank_transfer":
+		return "โอนเงิน / Bank transfer"
+	case "promptpay":
+		return "PromptPay"
+	case "credit_card":
+		return "บัตรเครดิต / Card"
+	case "line_pay":
+		return "LINE Pay"
+	case "cheque":
+		return "เช็ค / Cheque"
+	}
+	return m
+}
+
+func renderDoc(spec docSpec, company settings.Company, pay settings.PaymentSettings) ([]byte, error) {
 	pdf := gofpdf.New("P", "mm", "A4", "")
 	pdf.AddUTF8FontFromBytes(fontFamily, "", fontRegular)
 	pdf.AddUTF8FontFromBytes(fontFamily, "B", fontBold)
@@ -67,29 +207,16 @@ func renderInvoicePDF(inv Invoice, company settings.Company, pay settings.Paymen
 	sellerBottom := pdf.GetY()
 
 	// Title + meta (right).
-	thTitle, enTitle := "ใบแจ้งหนี้", "INVOICE"
-	if company.VATRegistered {
-		thTitle, enTitle = "ใบกำกับภาษี / ใบเสร็จรับเงิน", "TAX INVOICE / RECEIPT"
-	}
 	pdf.SetXY(115, 15)
 	font("B", 15)
 	ink(30, 58, 95)
-	pdf.CellFormat(80, 7, thTitle, "", 2, "R", false, 0, "")
+	pdf.CellFormat(80, 7, spec.thTitle, "", 2, "R", false, 0, "")
 	font("B", 10)
-	pdf.CellFormat(80, 5, enTitle, "", 2, "R", false, 0, "")
+	pdf.CellFormat(80, 5, spec.enTitle, "", 2, "R", false, 0, "")
 	pdf.Ln(2)
 	font("", 9.5)
 	ink(30, 41, 59)
-	meta := [][2]string{
-		{"เลขที่ / No.", inv.InvoiceNumber},
-		{"วันที่ / Date", inv.IssuedAt.Format("02/01/2006")},
-		{"อ้างอิง / Booking", inv.BookingNumber},
-	}
-	if inv.BillingPeriodStart != nil && inv.BillingPeriodEnd != nil {
-		meta = append(meta, [2]string{"งวด / Period",
-			inv.BillingPeriodStart.Format("02/01/2006") + " – " + inv.BillingPeriodEnd.Format("02/01/2006")})
-	}
-	for _, m := range meta {
+	for _, m := range spec.meta {
 		pdf.SetX(115)
 		pdf.CellFormat(35, 5, m[0], "", 0, "L", false, 0, "")
 		pdf.CellFormat(45, 5, m[1], "", 1, "R", false, 0, "")
@@ -103,13 +230,12 @@ func renderInvoicePDF(inv Invoice, company settings.Company, pay settings.Paymen
 	y += 5
 	pdf.SetDrawColor(203, 213, 225)
 	pdf.SetFillColor(248, 250, 252)
-	var buyer []string
-	buyer = append(buyer, inv.CustomerName)
-	if a := strings.TrimSpace(inv.Address); a != "" {
+	buyer := []string{spec.buyerName}
+	if a := strings.TrimSpace(spec.buyerAddress); a != "" {
 		buyer = append(buyer, a)
 	}
-	if id := digitsOf(inv.CustomerTaxID); id != "" {
-		buyer = append(buyer, "เลขประจำตัวผู้เสียภาษี / Tax ID: "+formatTaxID(id)+"  "+branchLabel(inv.CustomerTaxBranch))
+	if id := digitsOf(spec.buyerTaxID); id != "" {
+		buyer = append(buyer, "เลขประจำตัวผู้เสียภาษี / Tax ID: "+formatTaxID(id)+"  "+branchLabel(spec.buyerBranch))
 	}
 	boxH := 9 + float64(len(buyer))*5
 	pdf.Rect(left, y, width, boxH, "FD")
@@ -147,7 +273,7 @@ func renderInvoicePDF(inv Invoice, company settings.Company, pay settings.Paymen
 	y += 9
 	font("", 10)
 	ink(30, 41, 59)
-	row := []string{"1", inv.ServiceName, "1", amount(inv.Subtotal), amount(inv.Subtotal)}
+	row := []string{"1", spec.description, "1", amount(spec.lineAmount), amount(spec.lineAmount)}
 	x = left
 	for i, c := range cols {
 		pdf.SetXY(x, y+1)
@@ -159,19 +285,9 @@ func renderInvoicePDF(inv Invoice, company settings.Company, pay settings.Paymen
 
 	// Totals (right) and amount in words (left).
 	y += 3
-	totals := [][2]string{{"รวมเป็นเงิน / Subtotal", amount(inv.Subtotal)}}
-	if inv.TaxRate > 0 {
-		totals = append(totals, [2]string{fmt.Sprintf("ภาษีมูลค่าเพิ่ม / VAT %s%%", trimRate(inv.TaxRate)), amount(inv.TaxAmount)})
-	}
-	totals = append(totals, [2]string{"จำนวนเงินรวมทั้งสิ้น / Grand total", amount(inv.Total)})
-	if inv.WithholdingAmount > 0 {
-		totals = append(totals,
-			[2]string{fmt.Sprintf("หักภาษี ณ ที่จ่าย / WHT %s%%", trimRate(inv.WithholdingRate)), "-" + amount(inv.WithholdingAmount)},
-			[2]string{"ยอดชำระสุทธิ / Net payable", amount(inv.NetPayable())})
-	}
 	ty := y
-	for i, t := range totals {
-		last := i == len(totals)-1
+	for i, t := range spec.totals {
+		last := i == len(spec.totals)-1
 		if last {
 			font("B", 11)
 			pdf.SetFillColor(241, 245, 249)
@@ -189,28 +305,35 @@ func renderInvoicePDF(inv Invoice, company settings.Company, pay settings.Paymen
 	pdf.CellFormat(90, 5, "จำนวนเงินตัวอักษร / Amount in words", "", 2, "L", false, 0, "")
 	font("B", 10.5)
 	ink(30, 41, 59)
-	pdf.MultiCell(90, 5.5, "("+thaibaht.Text(inv.Total)+")", "", "L", false)
-	if inv.Currency != "" && inv.Currency != "THB" {
+	pdf.MultiCell(90, 5.5, "("+thaibaht.Text(spec.words)+")", "", "L", false)
+	if spec.currency != "" && spec.currency != "THB" {
 		font("", 8.5)
 		ink(100, 116, 139)
 		pdf.SetX(left)
-		pdf.MultiCell(90, 4.5, "Amounts in "+inv.Currency, "", "L", false)
+		pdf.MultiCell(90, 4.5, "Amounts in "+spec.currency, "", "L", false)
+	}
+	if spec.note != "" {
+		pdf.Ln(2)
+		font("", 9.5)
+		ink(71, 85, 105)
+		pdf.SetX(left)
+		pdf.MultiCell(90, 5, spec.note, "", "L", false)
 	}
 	y = ty + 6
 
-	// Payment: PromptPay QR for the net payable, plus bank details.
+	// Payment: PromptPay QR for the amount due, plus bank details.
 	payTarget := strings.TrimSpace(pay.PromptPayID)
 	bank := strings.TrimSpace(pay.BankAccount)
-	if (payTarget != "" || bank != "") && inv.Status != StatusPaid && inv.Status != StatusVoid {
+	if (payTarget != "" || bank != "") && spec.payAmount > 0 {
 		font("B", 10)
 		ink(30, 41, 59)
 		pdf.SetXY(left, y)
 		pdf.CellFormat(0, 6, "ช่องทางการชำระเงิน / Payment", "", 1, "L", false, 0, "")
 		textX := left
-		if payTarget != "" && (inv.Currency == "" || inv.Currency == "THB") {
-			if payload, err := promptpay.Payload(payTarget, inv.NetPayable()); err == nil {
+		if payTarget != "" && (spec.currency == "" || spec.currency == "THB") {
+			if payload, err := promptpay.Payload(payTarget, spec.payAmount); err == nil {
 				if png, err := promptpay.PNG(payload, 360); err == nil {
-					name := "promptpay-" + inv.InvoiceNumber
+					name := "promptpay-" + spec.imageKey
 					pdf.RegisterImageOptionsReader(name, gofpdf.ImageOptions{ImageType: "PNG"}, bytes.NewReader(png))
 					pdf.ImageOptions(name, left, y+7, 34, 34, false, gofpdf.ImageOptions{ImageType: "PNG"}, 0, "")
 					textX = left + 38
@@ -224,7 +347,7 @@ func renderInvoicePDF(inv Invoice, company settings.Company, pay settings.Paymen
 		if payTarget != "" {
 			d, _ := promptpay.Normalize(payTarget)
 			lines = append(lines, "สแกนเพื่อชำระด้วย PromptPay / Scan to pay with PromptPay",
-				"PromptPay: "+d, "ยอดชำระ / Amount: "+inv.Currency+" "+amount(inv.NetPayable()))
+				"PromptPay: "+d, "ยอดชำระ / Amount: "+spec.currency+" "+amount(spec.payAmount))
 		}
 		if bank != "" {
 			lines = append(lines, "", "โอนเงินเข้าบัญชี / Bank transfer:", bank)
@@ -233,15 +356,15 @@ func renderInvoicePDF(inv Invoice, company settings.Company, pay settings.Paymen
 		y += 45
 	}
 
-	// Paid stamp.
-	if inv.Status == StatusPaid {
-		pdf.SetDrawColor(22, 163, 74)
-		ink(22, 163, 74)
-		font("B", 16)
+	if spec.stamp != "" {
+		c := spec.stampRGB
+		pdf.SetDrawColor(c[0], c[1], c[2])
+		ink(c[0], c[1], c[2])
+		font("B", 14)
 		pdf.SetLineWidth(0.8)
-		pdf.Rect(140, y, 55, 14, "D")
-		pdf.SetXY(140, y+3.5)
-		pdf.CellFormat(55, 7, "ชำระแล้ว / PAID", "", 0, "C", false, 0, "")
+		pdf.Rect(130, y, 65, 14, "D")
+		pdf.SetXY(130, y+3.5)
+		pdf.CellFormat(65, 7, spec.stamp, "", 0, "C", false, 0, "")
 		pdf.SetLineWidth(0.2)
 		pdf.SetDrawColor(203, 213, 225)
 	}
@@ -250,7 +373,7 @@ func renderInvoicePDF(inv Invoice, company settings.Company, pay settings.Paymen
 	sy := 245.0
 	font("", 9.5)
 	ink(71, 85, 105)
-	for i, label := range []string{"ผู้รับเงิน / Collector", "ผู้มีอำนาจลงนาม / Authorized signature"} {
+	for i, label := range spec.signLabels {
 		sx := left + float64(i)*95
 		pdf.Line(sx+5, sy, sx+80, sy)
 		pdf.SetXY(sx, sy+1)

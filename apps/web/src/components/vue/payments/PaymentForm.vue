@@ -194,6 +194,10 @@ function inputClassFor(field: keyof CreatePaymentInput) {
               <option value="paid">Paid</option>
             </select>
           </div>
+          <p class="text-xs text-gray-500 sm:col-span-2">
+            A paid payment for a booking with an open invoice is applied to that
+            invoice (partial payments allowed) and a receipt is issued.
+          </p>
         </div>
 
         <div class="flex justify-end gap-3 border-t border-gray-200 px-6 py-4">

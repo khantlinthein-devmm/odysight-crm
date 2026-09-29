@@ -261,6 +261,7 @@ const form = reactive<CreateBookingInput>({
     ? toDatetimeLocal(props.booking.scheduledFor)
     : "",
   durationMinutes: props.booking?.durationMinutes ?? 180,
+  price: props.booking?.price ?? null,
   address: props.booking?.address ?? "",
   assignedCleaner: props.booking?.assignedCleaner ?? "",
   status: props.booking?.status ?? "pending",
@@ -284,6 +285,7 @@ const errors = computed(() => {
   if (!form.durationMinutes || form.durationMinutes <= 0)
     e.durationMinutes = "Duration must be greater than zero";
   if (!form.address.trim()) e.address = "Address is required";
+  if (priceValue() !== null && priceValue()! < 0) e.price = "Price cannot be negative";
   if (typeof primaryCleanerId.value !== "number") {
     e.assignedCleaner = "Primary cleaner is required";
   } else if (
@@ -298,6 +300,14 @@ const errors = computed(() => {
 
 const isValid = computed(() => Object.keys(errors.value).length === 0);
 
+// An emptied number input yields "" rather than null.
+function priceValue(): number | null {
+  const raw = form.price as number | string | null | undefined;
+  if (raw === "" || raw === null || raw === undefined) return null;
+  const n = Number(raw);
+  return Number.isFinite(n) ? n : null;
+}
+
 function handleSubmit() {
   submitted.value = true;
   if (!isValid.value) return;
@@ -306,8 +316,13 @@ function handleSubmit() {
     : "";
   const cleanerIds = builderCleanerIds();
   const isRecurring = form.recurrence !== "";
+  const price = priceValue();
+  // Blanking the price of an existing booking goes back to the catalog price.
+  const clearPrice = !!props.booking && price === null && props.booking.price != null;
   emit("save", {
     ...form,
+    ...(clearPrice ? { clearPrice: true } : {}),
+    price,
     scheduledFor,
     durationMinutes: Number(form.durationMinutes),
     assignedCleaner: primaryCleanerName() || form.assignedCleaner,
@@ -547,6 +562,29 @@ function inputClassFor(field: keyof CreateBookingInput) {
               class="mt-1 text-xs text-red-600"
             >
               {{ errors.durationMinutes }}
+            </p>
+          </div>
+
+          <div>
+            <label
+              class="mb-1 block text-sm font-medium text-gray-700"
+              for="b-price"
+              >Price before VAT (optional)</label
+            >
+            <input
+              id="b-price"
+              v-model.number="form.price"
+              type="number"
+              min="0"
+              step="0.01"
+              placeholder="Catalog price"
+              :class="inputClassFor('price')"
+            />
+            <p
+              v-if="submitted && errors.price"
+              class="mt-1 text-xs text-red-600"
+            >
+              {{ errors.price }}
             </p>
           </div>
 

@@ -1,13 +1,20 @@
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, ref } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import {
   getInvoice,
+  getInvoiceReceipts,
   getPromptPayQrUrl,
   updateInvoice,
   downloadInvoicePdf,
+  downloadReceiptPdf,
   sendInvoiceEmail,
+  sendReceiptEmail,
   type Invoice,
+  type PaymentResult,
+  type Receipt,
 } from "../../../lib/invoices";
+import { paymentMethodLabel } from "../../../lib/settings";
+import RecordPaymentDialog from "./RecordPaymentDialog.vue";
 import { getSessionUser } from "../../../lib/auth";
 import { hasPermission } from "../../../lib/roles";
 import { ApiError } from "../../../lib/api";
@@ -26,13 +33,65 @@ const actionError = ref("");
 const busy = ref(false);
 const emailing = ref(false);
 
+const canPay = hasPermission(getSessionUser()?.role ?? "viewer", "payments.create");
+const canReadPayments = hasPermission(getSessionUser()?.role ?? "viewer", "payments.read");
+const receipts = ref<Receipt[]>([]);
+const paying = ref(false);
+
 const qrUrl = ref<string | null>(null);
+
+const OPEN = ["draft", "issued", "partially_paid"];
+const isOpen = computed(() => !!invoice.value && OPEN.includes(invoice.value.status));
+const balance = computed(() =>
+  invoice.value ? invoice.value.balanceDue ?? invoice.value.netPayable ?? invoice.value.total : 0,
+);
+
+const STATUS_STYLE: Record<string, string> = {
+  draft: "bg-gray-100 text-gray-700",
+  issued: "bg-blue-100 text-blue-700",
+  partially_paid: "bg-amber-100 text-amber-800",
+  paid: "bg-green-100 text-green-700",
+  void: "bg-red-100 text-red-700",
+};
+function statusLabel(s: string): string {
+  return s === "partially_paid" ? "PARTIALLY PAID" : s.toUpperCase();
+}
+
+async function loadReceipts() {
+  if (!invoice.value || !canReadPayments) return;
+  receipts.value = await getInvoiceReceipts(invoice.value.id).catch(() => []);
+}
+
+function onPaid(result: PaymentResult) {
+  paying.value = false;
+  invoice.value = result.invoice;
+  void loadQr();
+  void loadReceipts();
+  showToast(`Receipt ${result.receipt.receiptNumber} issued`, "success");
+}
+
+async function receiptPdf(rc: Receipt) {
+  try {
+    await downloadReceiptPdf(rc);
+  } catch {
+    showToast("Failed to download receipt PDF", "error");
+  }
+}
+
+async function emailReceipt(rc: Receipt) {
+  try {
+    await sendReceiptEmail(rc.id);
+    showToast(`Receipt ${rc.receiptNumber} emailed`, "success");
+  } catch (e) {
+    showToast(e instanceof ApiError ? e.message : "Failed to email receipt", "error");
+  }
+}
 
 async function loadQr() {
   if (qrUrl.value) URL.revokeObjectURL(qrUrl.value);
   qrUrl.value = null;
   const inv = invoice.value;
-  if (!inv || inv.status === "paid" || inv.status === "void" || inv.currency !== "THB") return;
+  if (!inv || !OPEN.includes(inv.status) || inv.currency !== "THB") return;
   qrUrl.value = await getPromptPayQrUrl(inv.id).catch(() => null);
 }
 
@@ -58,6 +117,7 @@ async function load() {
   try {
     invoice.value = await getInvoice(props.invoiceId);
     void loadQr();
+    void loadReceipts();
   } catch (e) {
     error.value = e instanceof ApiError ? e.message : "Invoice not found";
   } finally {
@@ -74,7 +134,7 @@ function fmtDate(iso: string | null): string {
   return new Date(iso).toLocaleString();
 }
 
-async function setStatus(next: "paid" | "void") {
+async function setStatus(next: "void") {
   if (!invoice.value) return;
   busy.value = true;
   actionError.value = "";
@@ -113,6 +173,10 @@ async function downloadPdf() {
   }
 }
 
+function printPage() {
+  window.print();
+}
+
 onMounted(load);
 </script>
 
@@ -132,7 +196,7 @@ onMounted(load);
             {{ invoice.invoiceNumber }}
           </h2>
           <p class="text-sm text-gray-500">
-            Booking {{ invoice.bookingNumber }} · {{ invoice.status.toUpperCase() }}
+            Booking {{ invoice.bookingNumber }} · {{ statusLabel(invoice.status) }}
           </p>
         </div>
         <div class="flex items-center gap-2">
@@ -149,16 +213,15 @@ onMounted(load);
           >{{ emailing ? "Emailing…" : "Email" }}</button>
           <button
             class="rounded-lg border border-gray-300 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
-            @click="window.print()"
+            @click="printPage"
           >Print</button>
           <button
-            v-if="canUpdate && invoice.status === 'issued'"
-            :disabled="busy"
-            class="rounded-lg bg-green-600 px-4 py-2 text-sm font-medium text-white hover:bg-green-700 disabled:opacity-50"
-            @click="setStatus('paid')"
-          >Mark Paid</button>
+            v-if="canPay && isOpen"
+            class="rounded-lg bg-green-600 px-4 py-2 text-sm font-medium text-white hover:bg-green-700"
+            @click="paying = true"
+          >Record payment</button>
           <button
-            v-if="canUpdate && ['issued', 'draft', 'paid'].includes(invoice.status)"
+            v-if="canUpdate && isOpen && !(invoice.amountPaid ?? 0)"
             :disabled="busy"
             class="rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-50"
             @click="setStatus('void')"
@@ -185,8 +248,8 @@ onMounted(load);
             <p>{{ invoice.invoiceNumber }}</p>
             <p>{{ invoice.bookingNumber }}</p>
             <p>{{ fmtDate(invoice.issuedAt) }}</p>
-            <p class="mt-1 inline-block rounded-full bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-700">
-              {{ invoice.status.toUpperCase() }}
+            <p class="mt-1 inline-block rounded-full px-2 py-0.5 text-xs font-medium" :class="STATUS_STYLE[invoice.status]">
+              {{ statusLabel(invoice.status) }}
             </p>
           </div>
         </div>
@@ -213,8 +276,8 @@ onMounted(load);
             <span class="text-gray-500">{{ invoice.serviceName }}</span>
             <span class="font-medium text-gray-900">{{ money(invoice.subtotal, invoice.currency) }}</span>
           </div>
-          <div class="flex justify-between py-1 text-sm text-gray-500">
-            <span>Tax ({{ invoice.taxRate.toFixed(2) }}%)</span>
+          <div v-if="invoice.taxAmount > 0" class="flex justify-between py-1 text-sm text-gray-500">
+            <span>VAT ({{ invoice.taxRate.toFixed(2) }}%)</span>
             <span>{{ money(invoice.taxAmount, invoice.currency) }}</span>
           </div>
           <div class="mt-2 flex justify-between border-t border-gray-200 pt-3 text-base font-semibold text-gray-900">
@@ -231,6 +294,16 @@ onMounted(load);
               <span>{{ money(invoice.netPayable ?? invoice.total, invoice.currency) }}</span>
             </div>
           </template>
+          <template v-if="(invoice.amountPaid ?? 0) > 0 && invoice.status !== 'paid'">
+            <div class="flex justify-between py-1 text-sm text-green-700">
+              <span>Paid so far</span>
+              <span>-{{ money(invoice.amountPaid ?? 0, invoice.currency) }}</span>
+            </div>
+            <div class="flex justify-between py-1 text-base font-semibold text-amber-700">
+              <span>Balance due</span>
+              <span>{{ money(balance, invoice.currency) }}</span>
+            </div>
+          </template>
         </div>
 
         <div v-if="qrUrl" class="mt-8 flex items-center gap-4 rounded-lg border border-gray-200 p-4">
@@ -238,7 +311,7 @@ onMounted(load);
           <div class="text-sm text-gray-600">
             <p class="font-semibold text-gray-900">Pay with PromptPay</p>
             <p>Scan with any Thai banking app.</p>
-            <p class="mt-1">Amount: {{ money(invoice.netPayable ?? invoice.total, invoice.currency) }}</p>
+            <p class="mt-1">Amount: {{ money(balance, invoice.currency) }}</p>
           </div>
         </div>
 
@@ -246,6 +319,59 @@ onMounted(load);
           Thank you for your business!
         </p>
       </div>
+
+      <section
+        v-if="canReadPayments"
+        class="mx-auto max-w-2xl rounded-xl border border-gray-200 bg-white p-5 shadow-sm"
+      >
+        <h3 class="text-sm font-semibold text-gray-900">Payments &amp; receipts</h3>
+        <p v-if="receipts.length === 0" class="mt-2 text-sm text-gray-500">
+          No payments recorded yet.
+        </p>
+        <ul v-else class="mt-3 divide-y divide-gray-100">
+          <li v-for="rc in receipts" :key="rc.id" class="flex flex-wrap items-center justify-between gap-2 py-2.5 text-sm">
+            <div>
+              <p class="font-medium text-gray-900">
+                {{ rc.receiptNumber }}
+                <span
+                  v-if="rc.status === 'cancelled'"
+                  class="ml-1 rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-700"
+                >Cancelled (refunded)</span>
+              </p>
+              <p class="text-xs text-gray-500">
+                {{ new Date(rc.paidAt).toLocaleDateString() }} · {{ paymentMethodLabel(rc.method) }}<span v-if="rc.reference"> · {{ rc.reference }}</span>
+              </p>
+            </div>
+            <div class="flex items-center gap-2">
+              <span class="font-semibold text-gray-900" :class="rc.status === 'cancelled' ? 'line-through text-gray-400' : ''">
+                {{ money(rc.amount, rc.currency) }}
+              </span>
+              <button
+                type="button"
+                class="rounded-lg border border-gray-300 px-2.5 py-1 text-xs text-gray-700 hover:bg-gray-50"
+                @click="receiptPdf(rc)"
+              >PDF</button>
+              <button
+                v-if="rc.status === 'valid' && invoice.customerEmail"
+                type="button"
+                class="rounded-lg border border-gray-300 px-2.5 py-1 text-xs text-gray-700 hover:bg-gray-50"
+                @click="emailReceipt(rc)"
+              >Email</button>
+            </div>
+          </li>
+        </ul>
+      </section>
+
+      <RecordPaymentDialog
+        v-if="paying"
+        :title="`Record payment — ${invoice.invoiceNumber}`"
+        :subtitle="invoice.customerName"
+        :invoice-id="invoice.id"
+        :balance="balance"
+        :currency="invoice.currency"
+        @done="onPaid"
+        @cancel="paying = false"
+      />
     </template>
   </div>
 </template>

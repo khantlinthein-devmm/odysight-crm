@@ -29,6 +29,8 @@ type InvoiceDTO struct {
 	WithholdingAmount float64 `json:"withholdingAmount"`
 	// NetPayable is Total minus withholding tax: what the customer transfers.
 	NetPayable         float64    `json:"netPayable"`
+	AmountPaid         float64    `json:"amountPaid"`
+	BalanceDue         float64    `json:"balanceDue"`
 	ContractID         *int64     `json:"contractId"`
 	IdempotencyKey     *string    `json:"idempotencyKey"`
 	BillingPeriodStart *string    `json:"billingPeriodStart"`
@@ -60,6 +62,8 @@ func toDTO(inv Invoice) InvoiceDTO {
 		WithholdingRate:   inv.WithholdingRate,
 		WithholdingAmount: inv.WithholdingAmount,
 		NetPayable:        inv.NetPayable(),
+		AmountPaid:        inv.AmountPaid,
+		BalanceDue:        inv.BalanceDue(),
 		ContractID:        inv.ContractID,
 		IdempotencyKey:    inv.IdempotencyKey,
 		IssuedAt:          inv.IssuedAt,
@@ -138,4 +142,47 @@ func (r *UpdateInvoiceRequest) Validate() error {
 
 func (r *UpdateInvoiceRequest) IsEmpty() bool {
 	return r.Status == nil
+}
+
+type ReceiptDTO struct {
+	ID              int64      `json:"id"`
+	ReceiptNumber   string     `json:"receiptNumber"`
+	InvoiceID       int64      `json:"invoiceId"`
+	InvoiceNumber   string     `json:"invoiceNumber"`
+	PaymentID       int64      `json:"paymentId"`
+	BookingNumber   string     `json:"bookingNumber"`
+	CustomerName    string     `json:"customerName"`
+	ServiceName     string     `json:"serviceName"`
+	Amount          float64    `json:"amount"`
+	Subtotal        float64    `json:"subtotal"`
+	VAT             float64    `json:"vat"`
+	WHT             float64    `json:"wht"`
+	TaxRate         float64    `json:"taxRate"`
+	WithholdingRate float64    `json:"withholdingRate"`
+	Currency        string     `json:"currency"`
+	Method          string     `json:"method"`
+	Reference       string     `json:"reference"`
+	VATRegistered   bool       `json:"vatRegistered"`
+	Status          string     `json:"status"`
+	PaidAt          time.Time  `json:"paidAt"`
+	CancelledAt     *time.Time `json:"cancelledAt"`
+	CreatedAt       time.Time  `json:"createdAt"`
+}
+
+func toReceiptDTO(rc Receipt) ReceiptDTO {
+	return ReceiptDTO{
+		ID: rc.ID, ReceiptNumber: rc.ReceiptNumber, InvoiceID: rc.InvoiceID, InvoiceNumber: rc.InvoiceNumber,
+		PaymentID: rc.PaymentID, BookingNumber: rc.BookingNumber, CustomerName: rc.CustomerName,
+		ServiceName: rc.ServiceName, Amount: rc.Amount, Subtotal: rc.Subtotal, VAT: rc.VAT, WHT: rc.WHT,
+		TaxRate: rc.TaxRate, WithholdingRate: rc.WithholdingRate, Currency: rc.Currency, Method: rc.Method,
+		Reference: rc.Reference, VATRegistered: rc.VATRegistered, Status: rc.Status, PaidAt: rc.PaidAt,
+		CancelledAt: rc.CancelledAt, CreatedAt: rc.CreatedAt,
+	}
+}
+
+// PaymentResultDTO is returned when a payment is recorded: the updated
+// invoice and the receipt issued for the payment.
+type PaymentResultDTO struct {
+	Invoice InvoiceDTO `json:"invoice"`
+	Receipt ReceiptDTO `json:"receipt"`
 }

@@ -83,7 +83,7 @@ const input =
     <div v-if="loading" class="mt-4 text-sm text-gray-500">Loading…</div>
     <div v-else class="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
       <label class="block">
-        <span class="mb-1 block text-xs font-medium text-gray-600">Tax rate (%)</span>
+        <span class="mb-1 block text-xs font-medium text-gray-600">VAT rate (%) — applied only when Company → Charge VAT is on</span>
         <input v-model.number="taxRate" type="number" min="0" max="100" step="0.01" :class="input" :disabled="!editable" />
       </label>
       <label class="block">

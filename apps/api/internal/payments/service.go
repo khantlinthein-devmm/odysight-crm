@@ -2,7 +2,6 @@ package payments
 
 import (
 	"context"
-	"log/slog"
 
 	"github.com/odysight/crm/pkg/dberror"
 	"github.com/odysight/crm/pkg/pagination"
@@ -10,17 +9,23 @@ import (
 )
 
 type Service struct {
-	repo    *Repository
-	settles InvoiceSettler
+	repo   *Repository
+	ledger InvoiceLedger
 }
 
-// InvoiceSettler marks invoices paid when a payment reaches the paid status.
-type InvoiceSettler interface {
-	MarkPaidForBooking(ctx context.Context, bookingNumber string) error
+// InvoiceLedger keeps invoices and receipts in step with payments: a paid
+// payment credits the booking's invoice and issues a receipt, a refund
+// cancels the receipt and re-opens the invoice.
+type InvoiceLedger interface {
+	// PayBooking records a paid payment against the booking's open invoice.
+	// handled=false means there is no open invoice to pay.
+	PayBooking(ctx context.Context, bookingNumber string, amount float64, method, reference string) (paymentID int64, handled bool, err error)
+	SettlePayment(ctx context.Context, paymentID int64) error
+	RefundPayment(ctx context.Context, paymentID int64) error
 }
 
-func NewService(repo *Repository, settles InvoiceSettler) *Service {
-	return &Service{repo: repo, settles: settles}
+func NewService(repo *Repository, ledger InvoiceLedger) *Service {
+	return &Service{repo: repo, ledger: ledger}
 }
 
 func (s *Service) List(ctx context.Context, params pagination.Params) ([]Payment, int, error) {
@@ -40,6 +45,18 @@ func (s *Service) Create(ctx context.Context, req CreatePaymentRequest) (Payment
 		return Payment{}, err
 	}
 
+	// Money received for a booking with an open invoice goes through the
+	// invoice ledger, which stores the payment and its receipt together.
+	if Status(req.Status) == StatusPaid && s.ledger != nil {
+		id, handled, err := s.ledger.PayBooking(ctx, req.BookingNumber, req.Amount, req.Method, req.Reference)
+		if err != nil {
+			return Payment{}, err
+		}
+		if handled {
+			return s.Get(ctx, id)
+		}
+	}
+
 	p := Payment{
 		CustomerName:  req.CustomerName,
 		BookingNumber: req.BookingNumber,
@@ -47,19 +64,11 @@ func (s *Service) Create(ctx context.Context, req CreatePaymentRequest) (Payment
 		Currency:      req.Currency,
 		Method:        Method(req.Method),
 		Status:        Status(req.Status),
+		Reference:     req.Reference,
 	}
-
 	created, err := s.repo.Create(ctx, p)
 	if err != nil {
 		return Payment{}, mapRepoError(err)
-	}
-	if created.Status == StatusPaid && s.settles != nil {
-		// Best-effort: the payment row is the money truth and is already
-		// committed. A settle failure must not turn into a 500 that invites
-		// a client retry (which would record the payment twice).
-		if settleErr := s.settles.MarkPaidForBooking(ctx, created.BookingNumber); settleErr != nil {
-			slog.Warn("payment recorded but invoice settle failed", "payment", created.ID, "error", settleErr)
-		}
 	}
 	return created, nil
 }
@@ -77,31 +86,45 @@ func (s *Service) Update(ctx context.Context, id int64, req UpdatePaymentRequest
 		return Payment{}, mapRepoError(err)
 	}
 
-	var patch Patch
+	var next *Status
 	if req.Status != nil {
 		status := Status(*req.Status)
-		if status != current.Status && !allowedTransition(current.Status, status) {
-			return Payment{}, response.NewAPIError(422,
-				"cannot change payment from "+string(current.Status)+" to "+string(status))
+		if status != current.Status {
+			if !allowedTransition(current.Status, status) {
+				return Payment{}, response.NewAPIError(422,
+					"cannot change payment from "+string(current.Status)+" to "+string(status))
+			}
+			next = &status
 		}
-		patch.Status = &status
 	}
+
+	var patch Patch
 	if req.Method != nil {
 		method := Method(*req.Method)
 		patch.Method = &method
 	}
-
-	updated, err := s.repo.Update(ctx, id, patch)
-	if err != nil {
-		return Payment{}, mapRepoError(err)
+	// Paid and refunded go through the ledger so the invoice balance and the
+	// receipts move in the same transaction as the payment status.
+	viaLedger := next != nil && s.ledger != nil && (*next == StatusPaid || *next == StatusRefunded)
+	if next != nil && !viaLedger {
+		patch.Status = next
 	}
-	if updated.Status == StatusPaid && s.settles != nil {
-		// Best-effort, see Create: never fail the request after commit.
-		if settleErr := s.settles.MarkPaidForBooking(ctx, updated.BookingNumber); settleErr != nil {
-			slog.Warn("payment updated but invoice settle failed", "payment", updated.ID, "error", settleErr)
+	if patch.Status != nil || patch.Method != nil {
+		if _, err := s.repo.Update(ctx, id, patch); err != nil {
+			return Payment{}, mapRepoError(err)
 		}
 	}
-	return updated, nil
+	if viaLedger {
+		if *next == StatusPaid {
+			err = s.ledger.SettlePayment(ctx, id)
+		} else {
+			err = s.ledger.RefundPayment(ctx, id)
+		}
+		if err != nil {
+			return Payment{}, err
+		}
+	}
+	return s.Get(ctx, id)
 }
 
 // allowedTransition guards the money trail: paid money can only move to

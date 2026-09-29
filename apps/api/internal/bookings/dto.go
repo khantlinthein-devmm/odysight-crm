@@ -25,6 +25,7 @@ type BookingDTO struct {
 	ServiceType     string            `json:"serviceType"`
 	ScheduledFor    time.Time         `json:"scheduledFor"`
 	DurationMinutes int               `json:"durationMinutes"`
+	Price           *float64          `json:"price"`
 	Address         string            `json:"address"`
 	Area            string            `json:"area"`
 	AssignedCleaner string            `json:"assignedCleaner"`
@@ -53,6 +54,7 @@ func toDTO(b Booking) BookingDTO {
 		ServiceType:     string(b.ServiceType),
 		ScheduledFor:    b.ScheduledFor,
 		DurationMinutes: b.DurationMinutes,
+		Price:           b.Price,
 		Address:         b.Address,
 		Area:            b.Area,
 		AssignedCleaner: b.AssignedCleaner,
@@ -75,11 +77,13 @@ type CreateBookingRequest struct {
 	ServiceType     string `json:"serviceType"`
 	ScheduledFor    string `json:"scheduledFor"`
 	DurationMinutes int    `json:"durationMinutes"`
-	Address         string `json:"address"`
-	Area            string `json:"area"`
-	AssignedCleaner string `json:"assignedCleaner"`
-	Status          string `json:"status"`
-	Notes           string `json:"notes"`
+	// Price is the agreed job price before VAT; omit to use the catalog price.
+	Price           *float64 `json:"price"`
+	Address         string   `json:"address"`
+	Area            string   `json:"area"`
+	AssignedCleaner string   `json:"assignedCleaner"`
+	Status          string   `json:"status"`
+	Notes           string   `json:"notes"`
 	// IsRecurring marks the booking as the next occurrence of a repeating
 	// schedule. Recurrence must be set whenever IsRecurring is true.
 	IsRecurring bool   `json:"isRecurring"`
@@ -120,6 +124,9 @@ func (r *CreateBookingRequest) Validate() error {
 	if r.DurationMinutes <= 0 {
 		return response.NewAPIError(400, "durationMinutes must be greater than zero")
 	}
+	if r.Price != nil && *r.Price < 0 {
+		return response.NewAPIError(400, "price must be zero or greater")
+	}
 	if !Status(r.Status).Valid() {
 		return response.NewAPIError(400, "invalid status")
 	}
@@ -133,16 +140,19 @@ func (r *CreateBookingRequest) Validate() error {
 }
 
 type UpdateBookingRequest struct {
-	CustomerName    *string `json:"customerName"`
-	CustomerEmail   *string `json:"customerEmail"`
-	CustomerID      *int64  `json:"customerId"`
-	SiteID          *int64  `json:"siteId"`
-	ContractID      *int64  `json:"contractId"`
-	ClearSiteID     *bool   `json:"clearSiteId"`
-	ClearContractID *bool   `json:"clearContractId"`
-	ServiceType     *string `json:"serviceType"`
-	ScheduledFor    *string `json:"scheduledFor"`
-	DurationMinutes *int    `json:"durationMinutes"`
+	CustomerName    *string  `json:"customerName"`
+	CustomerEmail   *string  `json:"customerEmail"`
+	CustomerID      *int64   `json:"customerId"`
+	SiteID          *int64   `json:"siteId"`
+	ContractID      *int64   `json:"contractId"`
+	ClearSiteID     *bool    `json:"clearSiteId"`
+	ClearContractID *bool    `json:"clearContractId"`
+	ServiceType     *string  `json:"serviceType"`
+	ScheduledFor    *string  `json:"scheduledFor"`
+	DurationMinutes *int     `json:"durationMinutes"`
+	Price           *float64 `json:"price"`
+	// ClearPrice removes the booking price so the catalog price applies again.
+	ClearPrice      *bool   `json:"clearPrice"`
 	Address         *string `json:"address"`
 	Area            *string `json:"area"`
 	AssignedCleaner *string `json:"assignedCleaner"`
@@ -181,6 +191,9 @@ func (r *UpdateBookingRequest) Validate() error {
 	if r.DurationMinutes != nil && *r.DurationMinutes <= 0 {
 		return response.NewAPIError(400, "durationMinutes must be greater than zero")
 	}
+	if r.Price != nil && *r.Price < 0 {
+		return response.NewAPIError(400, "price must be zero or greater")
+	}
 	if r.Status != nil && !Status(*r.Status).Valid() {
 		return response.NewAPIError(400, "invalid status")
 	}
@@ -198,7 +211,7 @@ func (r *UpdateBookingRequest) IsEmpty() bool {
 	return r.CustomerName == nil && r.CustomerEmail == nil && r.CustomerID == nil &&
 		r.SiteID == nil && r.ContractID == nil && r.ClearSiteID == nil && r.ClearContractID == nil &&
 		r.ServiceType == nil && r.ScheduledFor == nil &&
-		r.DurationMinutes == nil && r.Address == nil && r.Area == nil && r.AssignedCleaner == nil &&
+		r.DurationMinutes == nil && r.Price == nil && r.ClearPrice == nil && r.Address == nil && r.Area == nil && r.AssignedCleaner == nil &&
 		r.Status == nil && r.Notes == nil && r.CleanerIDs == nil &&
 		r.IsRecurring == nil && r.Recurrence == nil
 }

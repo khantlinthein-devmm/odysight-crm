@@ -263,6 +263,7 @@ func run() error {
 			r.Mount("/bookings", bookings.Routes(bookingHandler, authorizer))
 			r.Mount("/service-records", servicerecords.Routes(serviceRecordHandler, authorizer))
 			r.Mount("/invoices", invoices.Routes(invoiceHandler, authorizer))
+			r.Mount("/receipts", invoices.ReceiptRoutes(invoiceHandler, authorizer))
 			r.Mount("/payments", payments.Routes(paymentHandler, authorizer))
 			r.Mount("/reports", reports.Routes(reportHandler, authorizer))
 			r.Mount("/users", users.Routes(userHandler, authorizer))

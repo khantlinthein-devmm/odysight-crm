@@ -49,7 +49,7 @@ func checkCleanerUpdate(b Booking, c CleanerIdentity, req UpdateBookingRequest) 
 	}
 	if req.CustomerName != nil || req.CustomerEmail != nil || req.CustomerID != nil ||
 		req.SiteID != nil || req.ContractID != nil || req.ClearSiteID != nil || req.ClearContractID != nil ||
-		req.ServiceType != nil || req.ScheduledFor != nil || req.DurationMinutes != nil ||
+		req.ServiceType != nil || req.ScheduledFor != nil || req.DurationMinutes != nil || req.Price != nil || req.ClearPrice != nil ||
 		req.Address != nil || req.Area != nil || req.AssignedCleaner != nil ||
 		req.IsRecurring != nil || req.Recurrence != nil || req.CleanerIDs != nil {
 		return response.NewAPIError(403, "cleaners can only change a job's status or notes")
