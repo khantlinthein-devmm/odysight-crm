@@ -99,7 +99,7 @@ func (r *Repository) loadRevenueBuckets(ctx context.Context, from, to time.Time,
 		 LEFT JOIN (
 		     SELECT date_trunc('month', p.created_at) AS month, SUM(p.amount) AS collected
 		     FROM payments p
-		     JOIN invoices i ON i.invoice_number = p.invoice_number AND i.currency = $3
+		     JOIN invoices i ON i.id = p.invoice_id AND i.currency = $3
 		     WHERE p.status = 'paid' AND p.created_at BETWEEN $1 AND $2
 		     GROUP BY 1
 		 ) collected ON collected.month = m.period
@@ -134,8 +134,9 @@ func (r *Repository) loadTaxSummary(ctx context.Context, from, to time.Time, cur
 		`SELECT tax_rate,
 		        COALESCE(SUM(total), 0)             AS billed_total,
 		        COALESCE(SUM(tax_amount), 0)        AS tax_billed,
-		        COALESCE(SUM(total) FILTER (WHERE status = 'paid'), 0)   AS collected_total,
-		        COALESCE(SUM(tax_amount) FILTER (WHERE status = 'paid'), 0) AS tax_collected
+		        -- Partial payments collect their pro-rata share of total and VAT.
+		        COALESCE(SUM(total * amount_paid / NULLIF(total - withholding_amount, 0)), 0)      AS collected_total,
+		        COALESCE(SUM(tax_amount * amount_paid / NULLIF(total - withholding_amount, 0)), 0) AS tax_collected
 		 FROM invoices
 		 WHERE status <> 'void' AND currency = $3 AND issued_at BETWEEN $1 AND $2
 		 GROUP BY tax_rate
@@ -180,10 +181,11 @@ func (r *Repository) loadARAging(ctx context.Context, currency string) ([]ARAgin
 		         WHEN $2 - issued_at <= interval '90 days' THEN '61-90'
 		         ELSE '90+'
 		     END AS bucket,
-		     COALESCE(SUM(total), 0),
+		     -- The unpaid share of each invoice (partial payments reduce it).
+		     COALESCE(SUM(total - COALESCE(total * amount_paid / NULLIF(total - withholding_amount, 0), 0)), 0)::float8,
 		     COUNT(*)
 		 FROM invoices
-		 WHERE currency = $1 AND status = 'issued'
+		 WHERE currency = $1 AND status IN ('issued', 'partially_paid')
 		 GROUP BY 1`,
 		currency, time.Now())
 	if err != nil {

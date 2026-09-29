@@ -11,10 +11,11 @@ import {
 } from "../../../lib/bookings";
 import { showToast } from "../../../lib/toast";
 import { isOfflineQueued } from "../../../lib/offline";
-import { getWorkspaceSettings, serviceLabel } from "../../../lib/settings";
+import { currencyCode, getWorkspaceSettings, serviceLabel } from "../../../lib/settings";
 import { getSessionUser } from "../../../lib/auth";
 import { hasPermission } from "../../../lib/roles";
-import { createInvoice } from "../../../lib/invoices";
+import { createInvoice, type PaymentResult } from "../../../lib/invoices";
+import RecordPaymentDialog from "../invoices/RecordPaymentDialog.vue";
 import BookingForm from "./BookingForm.vue";
 import ConfirmDialog from "../ui/ConfirmDialog.vue";
 import MyJobs from "./MyJobs.vue";
@@ -26,6 +27,13 @@ const canCreate = computed(() => hasPermission(role, "bookings.create"));
 const canEdit = computed(() => role !== "CLEANER" && hasPermission(role, "bookings.update"));
 const canDelete = computed(() => hasPermission(role, "bookings.delete"));
 const canInvoice = computed(() => hasPermission(role, "invoices.create"));
+const canCollect = computed(() => canInvoice.value && hasPermission(role, "payments.create"));
+const collecting = ref<Booking | null>(null);
+
+function onCollected(result: PaymentResult) {
+  collecting.value = null;
+  showToast(`Paid — receipt ${result.receipt.receiptNumber} issued`, "success");
+}
 
 const statusLabels: Record<BookingStatus, string> = {
   pending: "Pending",
@@ -382,8 +390,18 @@ onMounted(fetchBookings);
             Edit
           </button>
           <button
+            v-if="canCollect && booking.status === 'completed'"
+            type="button"
+            title="Customer pays now: bill the job and issue the receipt"
+            class="rounded-lg bg-green-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-green-700"
+            @click="collecting = booking"
+          >
+            Collect payment
+          </button>
+          <button
             v-if="canInvoice && booking.status === 'completed'"
             type="button"
+            title="Customer pays later: send an invoice"
             :disabled="invoicingId === booking.id"
             class="rounded-lg bg-navy-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-navy-700 disabled:opacity-50"
             @click="handleInvoice(booking)"
@@ -442,6 +460,17 @@ onMounted(fetchBookings);
     :booking="editingBooking"
     @save="handleSave"
     @cancel="closeForm"
+  />
+
+  <RecordPaymentDialog
+    v-if="collecting"
+    :title="`Collect payment — ${collecting.bookingNumber}`"
+    :subtitle="`${collecting.customerName}${collecting.price != null ? ` · price ${collecting.price.toFixed(2)} before VAT` : ''}`"
+    :booking-id="collecting.id"
+    :price="collecting.price ?? null"
+    :currency="currencyCode()"
+    @done="onCollected"
+    @cancel="collecting = null"
   />
 
   <ConfirmDialog

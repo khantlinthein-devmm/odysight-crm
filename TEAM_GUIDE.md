@@ -56,7 +56,8 @@ jobs.
 ### Step 3 — Booking (manager / dispatch)
 **Bookings → New Booking.** Pick the customer (name, email and address
 pre-fill), choose service, date/time and the primary cleaner. Leave
-*Repeat* on “One-time” unless the customer asked for a schedule.
+*Repeat* on “One-time” unless the customer asked for a schedule. Enter the
+agreed *Price before VAT* (leave it blank to bill the catalog price).
 
 ### Step 4 — Dispatch (dispatch)
 **Dispatch** board → assign crew. A cleaner taps **Accept** on the booking —
@@ -66,10 +67,22 @@ first tap wins, double-booking the same cleaner at the same time is blocked.
 **My bookings → Accept → check in (Attendance) → do the work → set
 `completed`.** Optionally attach a checklist (see §5).
 
-### Step 6 — Invoice & payment (accountant)
-Booking row → **Invoice** (only `completed` bookings can be billed; one
-active invoice per booking — retries never duplicate). Mark `paid` when
-money arrives. Follow up open invoices in **Reports → Financial (AR aging)**.
+### Step 6 — Invoice, payment & receipt (accountant)
+Only `completed` bookings can be billed. Pick the flow that fits the customer:
+
+- **Pays now (one-time customer)** — booking row → **Collect payment**. Enter
+  the method (and slip number if any). The invoice is created and paid in one
+  step and the customer gets the **receipt** (ใบเสร็จรับเงิน) by email/LINE.
+- **Pays later (company / monthly)** — booking row → **Invoice**. The customer
+  gets the invoice (ใบแจ้งหนี้) with a PromptPay QR. When money arrives, open
+  the invoice → **Record payment**. Each payment issues its own receipt.
+- **Part payments** are fine: enter the amount received. The invoice shows
+  *Partially paid* and the balance due; record the rest later.
+
+Every receipt is listed under **Receipts** (PDF / email). A mistaken payment
+is undone with **Payments → Refund**: the receipt is cancelled and the amount
+goes back onto the invoice. An invoice can only be voided while nothing has
+been paid on it. Follow up open invoices in **Reports → Financial (AR aging)**.
 
 ---
 
@@ -110,11 +123,15 @@ Nobody is forced to use checklists. When a commercial client wants proof:
 
 ## 5a. More tools
 
-- **Thai tax invoice** — set *Settings → Company* (legal name, 13-digit tax
-  ID, branch, *VAT registered*) and *Settings → Payments* (PromptPay ID,
-  bank account). Invoice PDFs then print as ใบกำกับภาษี/ใบเสร็จรับเงิน with
-  a PromptPay QR. Give company customers their tax ID and *Withholding tax
-  3%* on the customer form; invoices show the deduction and net payable.
+- **Thai tax documents & VAT** — set *Settings → Company* (legal name, 13-digit
+  tax ID, branch) and *Settings → Payments* (PromptPay ID, bank account, VAT
+  rate). VAT is **optional**: tick *Charge VAT* in Settings → Company only if
+  the company is VAT registered. With it off, invoices carry no VAT and the
+  receipt is a plain ใบเสร็จรับเงิน. With it on, VAT is added and each receipt
+  is a ใบเสร็จรับเงิน/ใบกำกับภาษี (for services the tax invoice is issued when
+  payment is received). Invoices are always ใบแจ้งหนี้. Give company
+  customers their tax ID and *Withholding tax 3%* on the customer form;
+  invoices show the deduction and net payable.
 - **LINE messages** — customers who came through LINE get booking
   confirmation, a reminder the day before, a job-done message and their
   invoice in that chat automatically. Look for the **LINE ✓** badge.
@@ -144,7 +161,8 @@ Nobody is forced to use checklists. When a commercial client wants proof:
   quote win rate (**Reports → Commercial**).
 - **DISPATCH** — Dispatch board (drag to reschedule/reassign); complaints and re-cleans; record supply usage.
 - **CLEANER** — Accept jobs, check in/out (at the site), complete + checklist + photos.
-- **ACCOUNTANT** — Completed bookings → invoice → paid; payroll each period;
+- **ACCOUNTANT** — Completed bookings → collect payment or invoice → record
+  payments (receipts go out automatically); payroll each period;
   revenue by site/contract in **Reports → Commercial**.
 - **ADMIN / SUPER_ADMIN** — Team accounts, settings, audit log
   (SUPER_ADMIN only), contract approvals and renewals.
@@ -165,6 +183,10 @@ Nobody is forced to use checklists. When a commercial client wants proof:
 | Cleaner can't check in: "you are … from …" | They are outside the site's check-in radius; move closer, or check the site's GPS pin |
 | Cleaner check-in: "location is required" | Allow location access for the site in the phone's browser |
 | No QR on the invoice | Set a PromptPay ID under Settings → Payments; paid/void invoices have no QR |
+| "this booking has no price" | Set *Price before VAT* on the booking, or type the amount in the dialog |
+| "payment exceeds the balance due" | The amount is more than what is still owed — check the invoice balance |
+| Can't void an invoice | It has payments — refund them on **Payments** first |
+| VAT appears / doesn't appear | Controlled by *Charge VAT* in Settings → Company; existing invoices keep what they were issued with |
 | Supply usage refused "only N in stock" | Record the purchase (Buy) or a stock count (Adjust) first |
 
 ---
@@ -173,6 +195,6 @@ Nobody is forced to use checklists. When a commercial client wants proof:
 
 1. Never share logins — permissions keep money and customer data safe.
 2. Phone numbers: always with country code (`+66 …`).
-3. One-time jobs need only Lead → Customer → Booking → Invoice.
+3. One-time jobs need only Lead → Customer → Booking → Collect payment.
 4. Add Sites/Quotes/Contracts/Checklists only when the customer needs them.
 5. When in doubt, ask your ADMIN — don't work around permissions.

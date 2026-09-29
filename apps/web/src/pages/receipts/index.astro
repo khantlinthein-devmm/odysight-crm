@@ -1,0 +1,8 @@
+---
+import DashboardLayout from "../../layouts/DashboardLayout.astro";
+import ReceiptTable from "../../components/vue/invoices/ReceiptTable.vue";
+---
+
+<DashboardLayout title="Receipts">
+  <ReceiptTable client:load />
+</DashboardLayout>

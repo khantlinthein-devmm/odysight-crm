@@ -63,7 +63,10 @@ type Booking struct {
 	ServiceType     ServiceType
 	ScheduledFor    time.Time
 	DurationMinutes int
-	Address         string
+	// Price is the agreed job price (pre-VAT). Nil falls back to the
+	// service catalog's base price when the booking is invoiced.
+	Price   *float64
+	Address string
 	// Area is the dispatch zone (e.g. "Bang Na"), copied from the customer
 	// when the booking is created. Cleaners filter the available pool by it.
 	Area            string

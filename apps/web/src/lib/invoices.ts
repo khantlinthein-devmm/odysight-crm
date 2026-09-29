@@ -10,7 +10,7 @@ import {
 } from "./api";
 import { DEFAULT_SETTINGS } from "./settings";
 
-export type InvoiceStatus = "draft" | "issued" | "paid" | "void";
+export type InvoiceStatus = "draft" | "issued" | "partially_paid" | "paid" | "void";
 
 export interface Invoice {
   id: number;
@@ -35,6 +35,9 @@ export interface Invoice {
   withholdingAmount?: number;
   /** Total minus withholding tax — what the customer actually transfers. */
   netPayable?: number;
+  /** Cash received so far and what is still owed (partial payments). */
+  amountPaid?: number;
+  balanceDue?: number;
   contractId?: number | null;
   idempotencyKey?: string | null;
   billingPeriodStart?: string | null;
@@ -217,21 +220,24 @@ export async function downloadInvoicePdf(id: number, fileName?: string): Promise
   }
   const api = getApiBaseUrl();
   if (!api) throw new ApiError(0, "PUBLIC_API_URL is not configured");
-  const response = await fetch(`${api}/api/v1/invoices/${id}/pdf`, {
-    credentials: "include",
-  });
+  await downloadPdf(`${api}/api/v1/invoices/${id}/pdf`, fileName || `invoice-${id}.pdf`);
+}
+
+
+async function downloadPdf(url: string, fileName: string): Promise<void> {
+  const response = await fetch(url, { credentials: "include" });
   if (!response.ok) {
-    throw new ApiError(response.status, "Failed to download invoice PDF");
+    throw new ApiError(response.status, "Failed to download PDF");
   }
   const blob = await response.blob();
-  const url = URL.createObjectURL(blob);
+  const objectUrl = URL.createObjectURL(blob);
   const anchor = document.createElement("a");
-  anchor.href = url;
-  anchor.download = fileName || `invoice-${id}.pdf`;
+  anchor.href = objectUrl;
+  anchor.download = fileName;
   document.body.appendChild(anchor);
   anchor.click();
   anchor.remove();
-  URL.revokeObjectURL(url);
+  URL.revokeObjectURL(objectUrl);
 }
 
 export async function sendInvoiceEmail(id: number): Promise<void> {
@@ -242,4 +248,114 @@ export async function sendInvoiceEmail(id: number): Promise<void> {
   await apiFetch<{ status: string }>(`/api/v1/invoices/${id}/email`, {
     method: "POST",
   });
+}
+export type ReceiptStatus = "valid" | "cancelled";
+
+/** A receipt acknowledges one payment against an invoice. */
+export interface Receipt {
+  id: number;
+  receiptNumber: string;
+  invoiceId: number;
+  invoiceNumber: string;
+  paymentId: number;
+  bookingNumber: string;
+  customerName: string;
+  serviceName: string;
+  /** Cash received. subtotal + vat - wht === amount. */
+  amount: number;
+  subtotal: number;
+  vat: number;
+  wht: number;
+  taxRate: number;
+  withholdingRate: number;
+  currency: string;
+  method: string;
+  reference: string;
+  /** True when issued as a combined receipt / tax invoice. */
+  vatRegistered: boolean;
+  status: ReceiptStatus;
+  paidAt: string;
+  cancelledAt: string | null;
+  createdAt: string;
+}
+
+export type RecordPaymentInput = {
+  /** Defaults to the full balance due. */
+  amount?: number;
+  method: string;
+  reference?: string;
+  /** YYYY-MM-DD; defaults to today. */
+  paidAt?: string;
+};
+
+export type CollectPaymentInput = RecordPaymentInput & {
+  bookingId: number;
+  subtotal?: number;
+};
+
+export type PaymentResult = { invoice: Invoice; receipt: Receipt };
+
+export async function recordInvoicePayment(
+  id: number,
+  input: RecordPaymentInput,
+): Promise<PaymentResult> {
+  return apiFetch<PaymentResult>(`/api/v1/invoices/${id}/payments`, {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+/** Bill a completed booking and record its payment in one step. */
+export async function collectPayment(input: CollectPaymentInput): Promise<PaymentResult> {
+  return apiFetch<PaymentResult>("/api/v1/invoices/collect", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+export type ReceiptListParams = {
+  search?: string;
+  status?: ReceiptStatus;
+  limit?: number;
+  offset?: number;
+};
+
+export async function getReceipts(params: ReceiptListParams = {}): Promise<Receipt[]> {
+  if (USE_MOCKS) {
+    await delay(200);
+    return [];
+  }
+  const json = await apiFetch<Receipt[] | Page<Receipt>>(
+    "/api/v1/receipts" + toQuery(params as Record<string, string | number | undefined>),
+  );
+  return unwrapPage(json);
+}
+
+export async function getInvoiceReceipts(invoiceId: number): Promise<Receipt[]> {
+  if (USE_MOCKS) {
+    await delay(200);
+    return [];
+  }
+  const json = await apiFetch<Receipt[] | Page<Receipt>>(
+    `/api/v1/invoices/${invoiceId}/receipts?limit=100`,
+  );
+  return unwrapPage(json);
+}
+
+export async function downloadReceiptPdf(receipt: Pick<Receipt, "id" | "receiptNumber">): Promise<void> {
+  if (USE_MOCKS) {
+    await delay(300);
+    return;
+  }
+  const api = getApiBaseUrl();
+  if (!api) throw new ApiError(0, "PUBLIC_API_URL is not configured");
+  await downloadPdf(`${api}/api/v1/receipts/${receipt.id}/pdf`, `${receipt.receiptNumber}.pdf`);
+}
+
+export async function sendReceiptEmail(id: number): Promise<void> {
+  if (USE_MOCKS) {
+    await delay(300);
+    return;
+  }
+  await apiFetch<{ status: string }>(`/api/v1/receipts/${id}/email`, { method: "POST" });
 }

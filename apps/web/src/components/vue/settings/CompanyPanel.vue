@@ -91,8 +91,9 @@ const input =
       <div class="sm:col-span-2 mt-2 border-t border-gray-100 pt-4">
         <h3 class="text-sm font-semibold text-gray-900">Thai tax invoice</h3>
         <p class="mt-0.5 text-xs text-gray-500">
-          Printed on every invoice PDF. When VAT registered, invoices become
-          ใบกำกับภาษี / ใบเสร็จรับเงิน (tax invoice / receipt).
+          Printed on every invoice and receipt. Invoices are always ใบแจ้งหนี้;
+          when VAT registered, the receipt issued on payment is the
+          ใบเสร็จรับเงิน / ใบกำกับภาษี (receipt / tax invoice).
         </p>
       </div>
       <label class="block sm:col-span-2">
@@ -107,9 +108,15 @@ const input =
         <span class="mb-1 block text-xs font-medium text-gray-600">Branch (00000 = head office)</span>
         <input v-model="form.taxBranch" type="text" inputmode="numeric" maxlength="5" :class="input" :disabled="!editable" />
       </label>
-      <label class="flex items-center gap-2 sm:col-span-2">
-        <input v-model="form.vatRegistered" type="checkbox" class="h-4 w-4 rounded border-gray-300" :disabled="!editable" />
-        <span class="text-sm text-gray-700">VAT registered (จดทะเบียนภาษีมูลค่าเพิ่ม)</span>
+      <label class="flex items-start gap-2 sm:col-span-2">
+        <input v-model="form.vatRegistered" type="checkbox" class="mt-0.5 h-4 w-4 rounded border-gray-300" :disabled="!editable" />
+        <span class="text-sm text-gray-700">
+          Charge VAT — VAT registered (จดทะเบียนภาษีมูลค่าเพิ่ม)
+          <span class="block text-xs text-gray-500">
+            Off: new invoices carry no VAT. On: VAT at the rate under Payments is added.
+            Existing invoices keep what they were issued with.
+          </span>
+        </span>
       </label>
       <label class="block sm:col-span-2">
         <span class="mb-1 block text-xs font-medium text-gray-600">Logo URL (optional)</span>

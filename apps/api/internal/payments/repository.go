@@ -21,19 +21,22 @@ func NewRepository(pool *pgxpool.Pool) *Repository {
 	return &Repository{pool: pool}
 }
 
-const paymentColumns = `id, invoice_number, customer_name, booking_number, amount, currency, method, status, created_at`
+const paymentColumns = `id, invoice_id, invoice_number, customer_name, booking_number, amount::float8, currency, method, status, reference, created_at`
 
-// invoiceNumberExpr resolves the booking's real invoice number, falling back
-// to a PAY- reference derived from the payment's own id when no invoice exists
-// yet (keeps the column non-null, unique, and collision-free vs. INV- numbers).
+// invoiceNumberExpr resolves the booking's active invoice number, falling
+// back to a PAY- reference derived from the payment's own id when there is no
+// invoice (keeps the column non-null and collision-free vs. INV- numbers).
 const invoiceNumberExpr = `COALESCE(
-		(SELECT invoice_number FROM invoices WHERE booking_number = $2 ORDER BY id DESC LIMIT 1),
+		(SELECT invoice_number FROM invoices WHERE booking_number = $2 AND status <> 'void' ORDER BY id DESC LIMIT 1),
 		'PAY-' || to_char(created_at, 'YYYY') || '-' || lpad(id::text, 4, '0')
 	)`
 
+// invoiceIDExpr links the payment to the booking's active invoice, if any.
+const invoiceIDExpr = `(SELECT id FROM invoices WHERE booking_number = $2 AND status <> 'void' ORDER BY id DESC LIMIT 1)`
+
 func scanPayment(row pgx.Row) (Payment, error) {
 	var p Payment
-	err := row.Scan(&p.ID, &p.InvoiceNumber, &p.CustomerName, &p.BookingNumber, &p.Amount, &p.Currency, &p.Method, &p.Status, &p.CreatedAt)
+	err := row.Scan(&p.ID, &p.InvoiceID, &p.InvoiceNumber, &p.CustomerName, &p.BookingNumber, &p.Amount, &p.Currency, &p.Method, &p.Status, &p.Reference, &p.CreatedAt)
 	return p, err
 }
 
@@ -118,15 +121,15 @@ func (r *Repository) Create(ctx context.Context, p Payment) (Payment, error) {
 	temp := "TMP-" + fmt.Sprintf("%d", time.Now().UnixNano())
 	var id int64
 	if err := tx.QueryRow(ctx,
-		`INSERT INTO payments (invoice_number, customer_name, booking_number, amount, currency, method, status)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7)
+		`INSERT INTO payments (invoice_number, customer_name, booking_number, amount, currency, method, status, reference)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 		 RETURNING id`,
-		temp, p.CustomerName, p.BookingNumber, p.Amount, p.Currency, p.Method, p.Status).Scan(&id); err != nil {
+		temp, p.CustomerName, p.BookingNumber, p.Amount, p.Currency, p.Method, p.Status, p.Reference).Scan(&id); err != nil {
 		return Payment{}, fmt.Errorf("create payment: %w", err)
 	}
 
 	created, err := scanPayment(tx.QueryRow(ctx,
-		`UPDATE payments SET invoice_number = `+invoiceNumberExpr+`
+		`UPDATE payments SET invoice_number = `+invoiceNumberExpr+`, invoice_id = `+invoiceIDExpr+`
 		 WHERE id = $1
 		 RETURNING `+paymentColumns,
 		id, p.BookingNumber))

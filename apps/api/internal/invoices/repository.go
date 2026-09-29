@@ -31,7 +31,7 @@ func NewRepository(pool *pgxpool.Pool) *Repository {
 
 const invoiceColumns = `id, invoice_number, booking_id, booking_number, customer_name, customer_email, address,
 	service_type, service_name, subtotal, tax_rate, tax_amount, total, currency, status,
-	customer_tax_id, customer_tax_branch, withholding_rate::float8, withholding_amount::float8,
+	customer_tax_id, customer_tax_branch, withholding_rate::float8, withholding_amount::float8, amount_paid::float8,
 	contract_id, idempotency_key, billing_period_start, billing_period_end,
 	issued_at, paid_at, created_at, updated_at`
 
@@ -40,7 +40,7 @@ func scanInvoice(row pgx.Row) (Invoice, error) {
 	err := row.Scan(&inv.ID, &inv.InvoiceNumber, &inv.BookingID, &inv.BookingNumber,
 		&inv.CustomerName, &inv.CustomerEmail, &inv.Address, &inv.ServiceType, &inv.ServiceName,
 		&inv.Subtotal, &inv.TaxRate, &inv.TaxAmount, &inv.Total, &inv.Currency,
-		&inv.Status, &inv.CustomerTaxID, &inv.CustomerTaxBranch, &inv.WithholdingRate, &inv.WithholdingAmount,
+		&inv.Status, &inv.CustomerTaxID, &inv.CustomerTaxBranch, &inv.WithholdingRate, &inv.WithholdingAmount, &inv.AmountPaid,
 		&inv.ContractID, &inv.IdempotencyKey, &inv.BillingPeriodStart, &inv.BillingPeriodEnd,
 		&inv.IssuedAt, &inv.PaidAt, &inv.CreatedAt, &inv.UpdatedAt)
 	return inv, err
@@ -123,11 +123,12 @@ func (r *Repository) BookingForInvoice(ctx context.Context, bookingID int64) (Bo
 	err := r.pool.QueryRow(ctx,
 		`SELECT b.id, b.booking_number, b.customer_name, b.customer_email, b.address, b.service_type,
 		        b.duration_minutes, b.status,
-		        COALESCE(c.tax_id, ''), COALESCE(c.tax_branch, ''), COALESCE(c.withholding_rate, 0)::float8
+		        COALESCE(c.tax_id, ''), COALESCE(c.tax_branch, ''), COALESCE(c.withholding_rate, 0)::float8,
+		        b.price::float8
 		   FROM bookings b LEFT JOIN customers c ON c.id = b.customer_id
 		  WHERE b.id = $1`, bookingID).
 		Scan(&b.ID, &b.BookingNumber, &b.CustomerName, &b.CustomerEmail, &b.Address, &b.ServiceType,
-			&b.DurationMinutes, &b.Status, &b.CustomerTaxID, &b.CustomerTaxBranch, &b.WithholdingRate)
+			&b.DurationMinutes, &b.Status, &b.CustomerTaxID, &b.CustomerTaxBranch, &b.WithholdingRate, &b.Price)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return BookingSnapshot{}, ErrBookingNotFound
 	}
@@ -181,17 +182,25 @@ func (r *Repository) Create(ctx context.Context, inv Invoice) (Invoice, error) {
 	return created, nil
 }
 
-// Stack: status -> allowed next statuses.
+// allowedTransitions lists the manual status changes. Payment statuses
+// (partially_paid, paid) are only ever reached by recording a payment, and an
+// invoice that has received money must have it refunded before it is voided.
 var allowedTransitions = map[Status][]Status{
-	StatusDraft:  {StatusIssued, StatusVoid},
-	StatusIssued: {StatusPaid, StatusVoid},
-	StatusPaid:   {StatusVoid},
-	StatusVoid:   {},
+	StatusDraft:         {StatusIssued, StatusVoid},
+	StatusIssued:        {StatusVoid},
+	StatusPartiallyPaid: {StatusVoid},
+	StatusPaid:          {StatusVoid},
+	StatusVoid:          {},
 }
 
 // Update applies a status transition and returns the updated invoice.
 func (r *Repository) Update(ctx context.Context, id int64, next Status) (Invoice, error) {
-	current, err := r.GetByID(ctx, id)
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return Invoice{}, fmt.Errorf("begin tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	current, err := lockInvoice(ctx, tx, id)
 	if err != nil {
 		return Invoice{}, err
 	}
@@ -213,23 +222,17 @@ func (r *Repository) Update(ctx context.Context, id int64, next Status) (Invoice
 	if !permitted {
 		return Invoice{}, fmt.Errorf("cannot change invoice %d from %q to %q", id, current.Status, next)
 	}
+	if next == StatusVoid && current.AmountPaid > 0 {
+		return Invoice{}, ErrInvoiceHasPaid
+	}
 
-	var paidAt any
-	if next == StatusPaid {
-		paidAt = time.Now()
-	}
-	updated, err := scanInvoice(r.pool.QueryRow(ctx,
-		`UPDATE invoices SET
-			status = $2,
-			paid_at = COALESCE($3, paid_at)
-		 WHERE id = $1
-		 RETURNING `+invoiceColumns,
-		id, next, paidAt))
-	if errors.Is(err, pgx.ErrNoRows) {
-		return Invoice{}, ErrNotFound
-	}
+	updated, err := scanInvoice(tx.QueryRow(ctx,
+		`UPDATE invoices SET status = $2 WHERE id = $1 RETURNING `+invoiceColumns, id, next))
 	if err != nil {
 		return Invoice{}, fmt.Errorf("update invoice %d: %w", id, err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return Invoice{}, fmt.Errorf("commit invoice %d: %w", id, err)
 	}
 	return updated, nil
 }
@@ -239,7 +242,7 @@ func (r *Repository) Update(ctx context.Context, id int64, next Status) (Invoice
 func (r *Repository) OverdueIssued(ctx context.Context, before time.Time) ([]Invoice, error) {
 	rows, err := r.pool.Query(ctx,
 		`SELECT `+invoiceColumns+` FROM invoices
-		 WHERE status = 'issued' AND paid_at IS NULL AND reminder_sent_at IS NULL AND issued_at < $1
+		 WHERE status IN ('issued', 'partially_paid') AND reminder_sent_at IS NULL AND issued_at < $1
 		   AND customer_email IS NOT NULL AND customer_email <> ''
 		 ORDER BY issued_at ASC
 		 LIMIT 100`, before)
@@ -267,31 +270,6 @@ func (r *Repository) MarkReminderSent(ctx context.Context, id int64) error {
 		return fmt.Errorf("mark reminder sent for invoice %d: %w", id, err)
 	}
 	return nil
-}
-
-// MarkPaidForBooking settles any active invoices for a booking (payments hook).
-func (r *Repository) MarkPaidForBooking(ctx context.Context, bookingNumber string) error {
-	if _, err := r.pool.Exec(ctx,
-		`UPDATE invoices SET status = 'paid', paid_at = COALESCE(paid_at, now())
-		 WHERE booking_number = $1 AND status IN ('draft', 'issued')`,
-		bookingNumber); err != nil {
-		return fmt.Errorf("mark invoices paid for %s: %w", bookingNumber, err)
-	}
-	return nil
-}
-
-// GetByBookingNumber returns the most recent invoice for a booking.
-func (r *Repository) GetByBookingNumber(ctx context.Context, bookingNumber string) (Invoice, error) {
-	inv, err := scanInvoice(r.pool.QueryRow(ctx,
-		`SELECT `+invoiceColumns+` FROM invoices
-		 WHERE booking_number = $1 ORDER BY id DESC LIMIT 1`, bookingNumber))
-	if errors.Is(err, pgx.ErrNoRows) {
-		return Invoice{}, ErrNotFound
-	}
-	if err != nil {
-		return Invoice{}, fmt.Errorf("get invoice for booking %s: %w", bookingNumber, err)
-	}
-	return inv, nil
 }
 
 // LineContactForBooking returns the booking customer's name and LINE user id
