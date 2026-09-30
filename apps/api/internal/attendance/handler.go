@@ -60,6 +60,53 @@ func (h *Handler) scope(p auth.Permission) func(http.Handler) http.Handler {
 	}
 }
 
+// actor is who a self-service check-in/out may be recorded for: the caller
+// as office staff (their user id) and, when linked, their cleaner profile.
+type actor struct {
+	userID    int64
+	cleanerID int64 // 0 when the login has no cleaner profile
+	cleaner   bool  // CLEANER role: only ever on the cleaner profile
+}
+
+type actorKey struct{}
+
+// checkScope guards check-in/out. With attendance.manage the caller may act
+// for anyone ("check in / out for others"). Everyone else may only record
+// their own attendance: office staff as themselves, cleaners on their own
+// cleaner profile.
+func (h *Handler) checkScope(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		id, ok := auth.IdentityFromContext(r.Context())
+		if !ok {
+			response.Error(w, http.StatusUnauthorized, "authentication required")
+			return
+		}
+		if auth.HasPermission(id.Role, auth.PermAttendanceManage) {
+			next.ServeHTTP(w, r)
+			return
+		}
+		a := actor{userID: id.UserID, cleaner: id.Role == auth.RoleCleaner}
+		cleanerID, err := h.cleanerForUser(r.Context(), id.UserID)
+		switch {
+		case err == nil:
+			a.cleanerID = cleanerID
+		case errors.Is(err, ErrNoCleanerProfile):
+			if id.Role == auth.RoleCleaner {
+				response.Error(w, http.StatusForbidden, "your login is not linked to a cleaner profile; ask an admin")
+				return
+			}
+		default:
+			response.HandleError(w, r, err)
+			return
+		}
+		ctx := context.WithValue(r.Context(), actorKey{}, a)
+		if id.Role == auth.RoleCleaner {
+			ctx = context.WithValue(ctx, selfKey{}, cleanerID)
+		}
+		next.ServeHTTP(w, r.WithContext(ctx))
+	})
+}
+
 // selfCleaner returns the caller's own cleaner id when the request runs in
 // self-service mode.
 func selfCleaner(r *http.Request) (int64, bool) {
@@ -143,21 +190,24 @@ func (h *Handler) CheckOut(w http.ResponseWriter, r *http.Request) {
 }
 
 // allowSelf rejects a self-service request that targets anyone other than
-// the caller's own cleaner profile.
+// the caller (as staff, or on their own cleaner profile).
 func allowSelf(w http.ResponseWriter, r *http.Request, req CheckActionRequest) bool {
-	self, ok := selfCleaner(r)
+	a, ok := r.Context().Value(actorKey{}).(actor)
 	if !ok {
-		return true
+		return true // may act for others
 	}
 	pt := req.PersonType
 	if pt == "" {
 		pt = PersonCleaner
 	}
-	if pt != PersonCleaner || req.PersonID != self {
-		response.Error(w, http.StatusForbidden, "cleaners can only record their own attendance")
-		return false
+	switch {
+	case pt == PersonStaff && !a.cleaner && req.PersonID == a.userID:
+		return true
+	case pt == PersonCleaner && a.cleanerID != 0 && req.PersonID == a.cleanerID:
+		return true
 	}
-	return true
+	response.Error(w, http.StatusForbidden, "you can only check yourself in or out")
+	return false
 }
 
 // parsePersonType reads ?type=cleaner|staff. An empty value means both.

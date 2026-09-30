@@ -58,7 +58,7 @@ export const PERMISSION_MATRIX: PermissionGroup[] = [
     resource: "Attendance",
     permissions: [
       { key: "attendance.read", label: "View", roles: ["SUPER_ADMIN", "ADMIN", "MANAGER", "DISPATCH", "ACCOUNTANT"] },
-      { key: "attendance.manage", label: "Check in / out", roles: ["SUPER_ADMIN", "ADMIN", "MANAGER", "DISPATCH"] },
+      { key: "attendance.manage", label: "Check in / out for others", roles: ["SUPER_ADMIN", "ADMIN"] },
     ],
   },
   {

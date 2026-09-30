@@ -65,7 +65,8 @@ interface Person {
   subtitle: string;
 }
 
-const role = getSessionUser()?.role;
+const me = getSessionUser();
+const role = me?.role;
 // A CLEANER cannot manage others but may check themselves in and out; the
 // API pins those requests to their own profile, so the board shows only them.
 const isSelfService = role === "CLEANER";
@@ -73,11 +74,22 @@ const isSelfService = role === "CLEANER";
 function L(key: MessageKey, english: string): string {
   return isSelfService ? t(key) : english;
 }
-const canManage = computed(() => isSelfService || hasPermission(role, "attendance.manage"));
-// The staff roster comes from /users, so the tab needs that permission too.
+// Everyone checks in/out only themselves; attendance.manage ("for others")
+// lets Super admin/Admin record it for anyone, e.g. a forgotten check-out.
+const canManageOthers = computed(() => !isSelfService && hasPermission(role, "attendance.manage"));
+// The full staff roster comes from /users; without that permission an
+// office user sees just themselves on the staff tab.
 const canSeeStaff = computed(() => hasPermission(role, "users.read"));
 
-const activeTab = ref<PersonType>("cleaner");
+function canActOn(personId: number): boolean {
+  if (isSelfService) return true; // the board shows only the cleaner themself
+  if (canManageOthers.value) return true;
+  return activeTab.value === "staff" && personId === me?.id;
+}
+
+const activeTab = ref<PersonType>(
+  !isSelfService && !hasPermission(role, "attendance.manage") ? "staff" : "cleaner",
+);
 const selectedDate = ref(todayStr());
 const cleaners = ref<Person[]>([]);
 const staff = ref<Person[]>([]);
@@ -156,7 +168,11 @@ async function loadPeople(): Promise<void> {
       }));
     }),
   ];
-  if (canSeeStaff.value) {
+  if (!canSeeStaff.value) {
+    if (me && !isSelfService) {
+      staff.value = [{ id: me.id, name: me.name, subtitle: me.role.replace("_", " ") }];
+    }
+  } else {
     jobs.push(
       getUsers({ limit: 200 }).then((rows) => {
         // Field cleaners are tracked on the Cleaners tab from their cleaner
@@ -327,7 +343,7 @@ onMounted(async () => {
 
       <!-- Workforce tabs -->
       <div
-        v-if="canSeeStaff"
+        v-if="!isSelfService"
         class="mt-4 inline-flex rounded-2xl bg-gray-100 p-1"
         role="tablist"
         aria-label="Workforce"
@@ -376,8 +392,9 @@ onMounted(async () => {
           Viewing past / future day
         </span>
       </div>
-      <p v-if="!canManage" class="mt-3 text-xs text-gray-400">
-        You need the attendance.manage permission to check staff in or out.
+      <p v-if="!isSelfService && !canManageOthers" class="mt-3 text-xs text-gray-500">
+        You can check yourself in and out on the <span class="font-medium">Team staff</span> tab.
+        Only admins can record attendance for someone else.
       </p>
     </section>
 
@@ -439,7 +456,7 @@ onMounted(async () => {
           <button
             type="button"
             :disabled="
-              !canManage || actingId === person.id || statusFor(person.id) !== 'not-in'
+              !canActOn(person.id) || actingId === person.id || statusFor(person.id) !== 'not-in'
             "
             class="field-tap flex-1 rounded-xl bg-gradient-to-r from-emerald-400 to-green-600 px-3 py-3 text-sm font-semibold text-white shadow-sm transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40 sm:py-2 sm:text-xs"
             @click="doCheckIn(person.id)"
@@ -449,7 +466,7 @@ onMounted(async () => {
           <button
             type="button"
             :disabled="
-              !canManage ||
+              !canActOn(person.id) ||
               actingId === person.id ||
               statusFor(person.id) !== 'checked-in'
             "
