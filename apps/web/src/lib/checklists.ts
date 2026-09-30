@@ -55,8 +55,19 @@ export async function getChecklistTemplates(): Promise<ChecklistTemplate[]> {
         ] },
     ];
   }
-  const json = await apiFetch<{ data: ChecklistTemplate[] }>("/api/v1/checklists/templates");
+  const json = await apiFetch<{ data: ChecklistTemplate[] }>("/api/v1/checklists/templates?limit=100");
   return Array.isArray(json) ? (json as unknown as ChecklistTemplate[]) : json.data;
+}
+
+export async function createChecklistTemplate(input: {
+  name: string;
+  serviceType: string;
+  items: string[];
+}): Promise<ChecklistTemplate> {
+  return apiFetch<ChecklistTemplate>("/api/v1/checklists/templates", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
 }
 
 export async function getChecklistByBooking(bookingId: number): Promise<Checklist> {

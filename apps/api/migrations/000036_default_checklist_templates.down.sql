@@ -1,0 +1,2 @@
+-- Seeded templates may already be referenced by booking checklists
+-- (template_id is ON DELETE SET NULL), so they are left in place.

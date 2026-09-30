@@ -2,7 +2,7 @@ package checklists
 
 import "testing"
 
-func TestChecklistRequiresTemplateOrItems(t *testing.T) {
+func TestChecklistCreateValidation(t *testing.T) {
 	req := CreateChecklistRequest{BookingID: 9, Items: []string{"Lobby swept", "Bins emptied"}}
 	if err := req.Validate(); err != nil {
 		t.Fatalf("adhoc checklist rejected: %v", err)
@@ -12,9 +12,14 @@ func TestChecklistRequiresTemplateOrItems(t *testing.T) {
 	if err := req.Validate(); err != nil {
 		t.Fatalf("template checklist rejected: %v", err)
 	}
+	// Neither template nor items: the service picks the booking's template.
 	req = CreateChecklistRequest{BookingID: 9}
+	if err := req.Validate(); err != nil {
+		t.Fatalf("checklist with automatic template rejected: %v", err)
+	}
+	req = CreateChecklistRequest{}
 	if err := req.Validate(); err == nil {
-		t.Fatal("checklist with neither template nor items must be rejected")
+		t.Fatal("checklist without a booking must be rejected")
 	}
 }
 

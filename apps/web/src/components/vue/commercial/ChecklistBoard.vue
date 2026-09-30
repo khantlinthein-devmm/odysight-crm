@@ -1,8 +1,21 @@
 <script setup lang="ts">
-import { onMounted, ref } from "vue";
-import { completeChecklistItem, confirmChecklist, createChecklist, getChecklistByBooking, uploadItemPhoto, type Checklist } from "../../../lib/checklists";
+import { computed, onMounted, ref } from "vue";
+import {
+  completeChecklistItem,
+  confirmChecklist,
+  createChecklist,
+  createChecklistTemplate,
+  getChecklistByBooking,
+  getChecklistTemplates,
+  uploadItemPhoto,
+  type Checklist,
+  type ChecklistTemplate,
+} from "../../../lib/checklists";
+import { activeServices, getWorkspaceSettings, serviceLabel } from "../../../lib/settings";
+import { hasPermission } from "../../../lib/roles";
 import { getBookings, type Booking } from "../../../lib/bookings";
 import { isOfflineQueued } from "../../../lib/offline";
+import { ApiError } from "../../../lib/api";
 import { showToast } from "../../../lib/toast";
 import { getSessionUser } from "../../../lib/auth";
 import { t, type MessageKey } from "../../../lib/i18n";
@@ -22,6 +35,63 @@ const loading = ref(false);
 const signature = ref("");
 const confirming = ref(false);
 
+// Templates: "" = pick automatically from the booking's service type.
+const templates = ref<ChecklistTemplate[]>([]);
+const templateId = ref<number | "">("");
+const canManageTemplates =
+  !isCleaner && hasPermission(getSessionUser()?.role ?? "viewer", "checklists.manage");
+const showTemplateForm = ref(false);
+const services = ref<{ id: string; name: string }[]>([]);
+const newTemplate = ref({ name: "", serviceType: "", items: "" });
+const savingTemplate = ref(false);
+
+const selectedBooking = computed(() =>
+  bookings.value.find((b) => b.id === bookingId.value),
+);
+const autoTemplate = computed(() => {
+  const st = selectedBooking.value?.serviceType;
+  return (
+    templates.value.find((t) => t.isActive && st && t.serviceType === st) ??
+    templates.value.find((t) => t.isActive && !t.serviceType)
+  );
+});
+
+async function loadTemplates() {
+  try {
+    templates.value = await getChecklistTemplates();
+  } catch {
+    templates.value = [];
+  }
+}
+
+async function saveTemplate() {
+  const items = newTemplate.value.items
+    .split("\n")
+    .map((l) => l.trim())
+    .filter(Boolean);
+  if (!newTemplate.value.name.trim() || items.length === 0) {
+    showToast("Enter a template name and at least one item", "error");
+    return;
+  }
+  savingTemplate.value = true;
+  try {
+    const created = await createChecklistTemplate({
+      name: newTemplate.value.name.trim(),
+      serviceType: newTemplate.value.serviceType,
+      items,
+    });
+    templates.value = [...templates.value, created];
+    templateId.value = created.id;
+    newTemplate.value = { name: "", serviceType: "", items: "" };
+    showTemplateForm.value = false;
+    showToast("Template saved", "success");
+  } catch (err) {
+    showToast(err instanceof Error ? err.message : "Failed to save template", "error");
+  } finally {
+    savingTemplate.value = false;
+  }
+}
+
 async function handleLoad() {
   if (bookingId.value === "") {
     showToast("Select a booking", "error");
@@ -31,7 +101,10 @@ async function handleLoad() {
   try {
     checklist.value = await getChecklistByBooking(Number(bookingId.value));
   } catch (err) {
-    showToast(err instanceof Error ? err.message : "No checklist for this booking", "error");
+    // 404 just means no checklist yet; the empty state says what to do.
+    if (!(err instanceof ApiError && err.status === 404)) {
+      showToast(err instanceof Error ? err.message : "Failed to load checklist", "error");
+    }
     checklist.value = null;
   } finally {
     loading.value = false;
@@ -41,7 +114,10 @@ async function handleLoad() {
 async function handleCreate() {
   if (bookingId.value === "") return;
   try {
-    checklist.value = await createChecklist(Number(bookingId.value), 1);
+    checklist.value = await createChecklist(
+      Number(bookingId.value),
+      templateId.value === "" ? undefined : templateId.value,
+    );
     signature.value = "";
     showToast("Checklist created from template", "success");
   } catch (err) {
@@ -119,6 +195,12 @@ async function attach(itemId: number, kind: "before" | "after", ev: Event) {
 }
 
 onMounted(async () => {
+  void loadTemplates();
+  if (canManageTemplates) {
+    getWorkspaceSettings()
+      .then(() => (services.value = activeServices().map((s) => ({ id: s.id, name: s.name }))))
+      .catch(() => {});
+  }
   try {
     bookings.value = await getBookings({ limit: 100 });
   } catch {
@@ -147,12 +229,46 @@ onMounted(async () => {
             {{ b.bookingNumber }} — {{ b.customerName }}
           </option>
         </select>
+        <select v-model="templateId" class="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm sm:w-72" :aria-label="L('cl.template', 'Template')">
+          <option value="">{{ L("cl.autoTemplate", "Auto") }}{{ autoTemplate ? ` — ${autoTemplate.name}` : "" }}</option>
+          <option v-for="tp in templates.filter((x) => x.isActive)" :key="tp.id" :value="tp.id">
+            {{ tp.name }} ({{ tp.items.length }})
+          </option>
+        </select>
         <button type="button" class="rounded-lg bg-navy-600 px-4 py-2 text-sm font-medium text-white" @click="handleCreate">{{ L("cl.newFromTemplate", "New from template") }}</button>
+      </div>
+      <button
+        v-if="canManageTemplates"
+        type="button"
+        class="mt-2 text-sm font-medium text-navy-600 hover:underline"
+        @click="showTemplateForm = !showTemplateForm"
+      >{{ showTemplateForm ? "Close" : "+ New template" }}</button>
+      <div v-if="showTemplateForm" class="mt-3 grid gap-3 rounded-lg border border-gray-200 bg-gray-50 p-4 sm:grid-cols-2">
+        <label class="block">
+          <span class="mb-1 block text-xs font-medium text-gray-600">Template name</span>
+          <input v-model="newTemplate.name" type="text" placeholder="e.g. Restaurant kitchen night clean" class="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm" />
+        </label>
+        <label class="block">
+          <span class="mb-1 block text-xs font-medium text-gray-600">Service (auto-selected for these bookings)</span>
+          <select v-model="newTemplate.serviceType" class="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm">
+            <option value="">Any service (general)</option>
+            <option v-for="sv in services" :key="sv.id" :value="sv.id">{{ sv.name }}</option>
+          </select>
+        </label>
+        <label class="block sm:col-span-2">
+          <span class="mb-1 block text-xs font-medium text-gray-600">Items — one per line</span>
+          <textarea v-model="newTemplate.items" rows="6" placeholder="กวาดและถูพื้น / Floors swept and mopped&#10;ทำความสะอาดห้องน้ำ / Bathroom cleaned" class="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"></textarea>
+        </label>
+        <div class="sm:col-span-2">
+          <button type="button" :disabled="savingTemplate" class="rounded-lg bg-green-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-50" @click="saveTemplate">
+            {{ savingTemplate ? "Saving…" : "Save template" }}
+          </button>
+        </div>
       </div>
     </div>
     <div v-if="loading" class="px-6 py-10 text-center text-sm text-gray-500">{{ L("cl.loading", "Loading…") }}</div>
     <div v-else-if="checklist" class="px-6 py-4">
-      <p class="text-sm text-gray-500">Booking #{{ checklist.bookingId }} · <span class="font-medium text-gray-900">{{ checklist.status }}</span></p>
+      <p class="text-sm text-gray-500">{{ selectedBooking?.bookingNumber ?? `Booking #${checklist.bookingId}` }}<span v-if="selectedBooking"> · {{ serviceLabel(selectedBooking.serviceType) }}</span> · <span class="font-medium text-gray-900">{{ checklist.status }}</span></p>
       <ul class="mt-3 space-y-2">
         <li v-for="it in checklist.items" :key="it.id" class="flex flex-wrap items-center gap-3 rounded-lg border border-gray-100 px-3 py-3 sm:py-2">
           <input type="checkbox" :checked="it.isCompleted" class="field-tap-sm h-6 w-6 accent-navy-600 sm:h-4 sm:w-4" @change="toggle(it.id, it.isCompleted)" />

@@ -16,6 +16,8 @@ var (
 	ErrNotFound         = errors.New("checklist not found")
 	ErrTemplateNotFound = errors.New("checklist template not found")
 	ErrItemNotFound     = errors.New("checklist item not found")
+	ErrAlreadyExists    = errors.New("booking already has a checklist")
+	ErrNoTemplate       = errors.New("no checklist template")
 )
 
 type Repository struct {
@@ -206,7 +208,7 @@ func (r *Repository) Create(ctx context.Context, bookingID int64, templateID *in
 		 ON CONFLICT (booking_id) DO NOTHING RETURNING id, booking_id, template_id, status, client_signature, client_confirmed_at, created_at, updated_at`,
 		bookingID, templateID).Scan(&c.ID, &c.BookingID, &c.TemplateID, &c.Status, &c.ClientSignature, &c.ClientConfirmedAt, &c.CreatedAt, &c.UpdatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return Checklist{}, fmt.Errorf("booking already has a checklist")
+		return Checklist{}, ErrAlreadyExists
 	}
 	if err != nil {
 		return Checklist{}, fmt.Errorf("create checklist: %w", err)
@@ -311,4 +313,24 @@ func (r *Repository) SetItemPhoto(ctx context.Context, itemID int64, kind, url s
 		return Checklist{}, fmt.Errorf("attach photo to item %d: %w", itemID, err)
 	}
 	return r.GetByBooking(ctx, bookingID)
+}
+
+// TemplateForBooking picks the active template matching the booking's
+// service type, falling back to the general template (blank service type).
+func (r *Repository) TemplateForBooking(ctx context.Context, bookingID int64) (int64, error) {
+	var id int64
+	err := r.pool.QueryRow(ctx,
+		`SELECT t.id FROM checklist_templates t
+		 LEFT JOIN bookings b ON b.id = $1
+		 WHERE t.is_active AND (t.service_type = b.service_type OR t.service_type = '')
+		   AND EXISTS (SELECT 1 FROM checklist_template_items i WHERE i.template_id = t.id)
+		 ORDER BY (t.service_type = b.service_type) DESC, t.id
+		 LIMIT 1`, bookingID).Scan(&id)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return 0, ErrNoTemplate
+	}
+	if err != nil {
+		return 0, fmt.Errorf("pick template for booking %d: %w", bookingID, err)
+	}
+	return id, nil
 }
