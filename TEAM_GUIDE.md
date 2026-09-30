@@ -132,6 +132,14 @@ Nobody is forced to use checklists. When a commercial client wants proof:
   payment is received). Invoices are always ใบแจ้งหนี้. Give company
   customers their tax ID and *Withholding tax 3%* on the customer form;
   invoices show the deduction and net payable.
+- **Two-factor sign-in (2FA)** — office roles (Super admin, Admin, Manager,
+  Accountant, Dispatch) must use an authenticator app (Google Authenticator
+  or Microsoft Authenticator). At the first sign-in the app shows a QR code:
+  scan it, type the 6-digit code, and **save the 10 backup codes**. After
+  that, sign-in asks for the code; tick *Remember this device for 30 days* on
+  your own computer/phone. Cleaners can turn it on under *Settings →
+  Security*. Lost phone: sign in with a backup code, or ask a Super admin to
+  press **Reset 2FA** on your row in *Users*, then set it up again.
 - **Team chat** — sidebar / bottom bar → **Chat** → **New message**. Send
   text and voice messages (microphone button, up to 1 minute). Messages,
   "typing…" and "Seen" appear instantly (live connection; if it drops, the
@@ -199,6 +207,9 @@ Nobody is forced to use checklists. When a commercial client wants proof:
 | "this booking has no price" | Set *Price before VAT* on the booking, or type the amount in the dialog |
 | "payment exceeds the balance due" | The amount is more than what is still owed — check the invoice balance |
 | Can't void an invoice | It has payments — refund them on **Payments** first |
+| Authenticator code "invalid" | The phone's clock must be automatic (Settings → Date & time → Set automatically); use the newest code |
+| Lost phone and no backup codes | A Super admin presses **Reset 2FA** in Users. If the only Super admin is locked out, on the server run: `docker compose exec postgres psql -U $POSTGRES_USER -d $POSTGRES_DB -c "UPDATE users SET totp_enabled=false, totp_secret='' WHERE email='owner@…'"` and set 2FA up again |
+| Everyone's 2FA stopped working after a server change | The 2FA secrets are encrypted with `JWT_SECRET`; if it was changed, put the old value back (or reset everyone's 2FA) |
 | Can't message a cleaner/colleague | You share no chat group — ask ADMIN to add you both to one (Chat → Chat groups) |
 | No chat notifications on the phone | Tap "Turn on notifications" in Chat; on iPhone the app must be opened from the Home Screen icon; check the browser didn't block notifications |
 | VAT appears / doesn't appear | Controlled by *Charge VAT* in Settings → Company; existing invoices keep what they were issued with |

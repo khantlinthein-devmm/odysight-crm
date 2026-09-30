@@ -2,6 +2,7 @@
 import { computed, ref } from "vue";
 import { changePassword, getSessionUser, logout } from "../../../lib/auth";
 import { showToast } from "../../../lib/toast";
+import TwoFactorPanel from "./TwoFactorPanel.vue";
 
 const user = computed(() => getSessionUser());
 
@@ -96,5 +97,7 @@ async function handleChange() {
         Sign out
       </button>
     </div>
+
+    <TwoFactorPanel />
   </div>
 </template>

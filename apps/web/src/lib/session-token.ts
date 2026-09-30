@@ -14,6 +14,8 @@ export interface SessionClaims {
   iss?: string;
   aud?: string | string[];
   role?: string;
+  /** Office user who still has to set up two-factor authentication. */
+  mfa_setup?: boolean;
 }
 
 interface TokenHeader {

@@ -79,6 +79,13 @@ func (a *Authorizer) Authenticate(next http.Handler) http.Handler {
 			return
 		}
 
+		// An office user who has not set up 2FA yet may only use the
+		// sign-in/2FA endpoints until they do.
+		if setup, _ := claims[claimMFASetup].(bool); setup && !strings.HasPrefix(r.URL.Path, "/api/v1/auth/") {
+			response.Error(w, http.StatusForbidden, "two-factor setup required")
+			return
+		}
+
 		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), identityKey, Identity{
 			UserID: userID,
 			Role:   role,
