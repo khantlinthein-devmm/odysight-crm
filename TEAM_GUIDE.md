@@ -132,6 +132,13 @@ Nobody is forced to use checklists. When a commercial client wants proof:
   payment is received). Invoices are always ใบแจ้งหนี้. Give company
   customers their tax ID and *Withholding tax 3%* on the customer form;
   invoices show the deduction and net payable.
+- **Roles & permissions** — *Settings → Roles & permissions*. A Super admin
+  can tick/untick what each role may do (Admin, Manager, Dispatch,
+  Accountant, Cleaner) and **Save changes**; **reset** puts a role back to
+  the built-in defaults. Super admin always keeps every permission. The API
+  applies changes at once; menus update on each person's next page load.
+  Outlined boxes differ from the default; ⚠ marks sensitive permissions
+  (team, settings, audit log, editing payments/invoices).
 - **Two-factor sign-in (2FA)** — office roles (Super admin, Admin, Manager,
   Accountant, Dispatch) must use an authenticator app (Google Authenticator
   or Microsoft Authenticator). At the first sign-in the app shows a QR code:

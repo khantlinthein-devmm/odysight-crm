@@ -87,3 +87,33 @@ func TestUnknownRoleDenied(t *testing.T) {
 		t.Error("unknown role must not have permissions")
 	}
 }
+
+func TestOverridesReplaceDefaultsButNeverSuperAdmin(t *testing.T) {
+	overrides.Lock()
+	overrides.m = map[Role]map[Permission]struct{}{
+		RoleCleaner:    perms(PermBookingsRead, PermReportsRead),
+		RoleSuperAdmin: perms(), // must be ignored
+	}
+	overrides.Unlock()
+	t.Cleanup(func() {
+		overrides.Lock()
+		overrides.m = map[Role]map[Permission]struct{}{}
+		overrides.Unlock()
+	})
+
+	if !roleHasPermission(RoleCleaner, PermReportsRead) {
+		t.Error("override grant not applied")
+	}
+	if roleHasPermission(RoleCleaner, PermChecklistsManage) {
+		t.Error("override must replace, not extend, the defaults")
+	}
+	if !roleHasPermission(RoleSuperAdmin, PermUsersManage) {
+		t.Error("SUPER_ADMIN must keep every permission")
+	}
+	if !roleHasPermission(RoleManager, PermLeadsCreate) {
+		t.Error("roles without an override keep their defaults")
+	}
+	if len(AllPermissions()) != len(rolePermissions[RoleSuperAdmin]) {
+		t.Error("AllPermissions must list every known permission")
+	}
+}

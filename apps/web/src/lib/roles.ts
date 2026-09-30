@@ -1,6 +1,8 @@
-import type { Role } from "./auth";
+import { getSessionUser, type Role } from "./auth";
 
-// Mirrors apps/api/internal/auth/rbac.go — keep in sync when permissions change.
+// Built-in defaults, mirroring apps/api/internal/auth/rbac.go — keep in sync.
+// An admin can change what a role may do (Settings → Roles & permissions);
+// the signed-in user's actual permissions come from the API and win.
 export const ROLE_ORDER: Role[] = [
   "SUPER_ADMIN",
   "ADMIN",
@@ -184,8 +186,8 @@ export const PERMISSION_MATRIX: PermissionGroup[] = [
   },
 ];
 
-// Grants a single permission key to any role mapped to it in PERMISSION_MATRIX.
-export function hasPermission(role: Role | undefined, key: string): boolean {
+/** Built-in default for a role, ignoring any admin changes. */
+export function defaultHasPermission(role: Role | undefined, key: string): boolean {
   if (!role) return false;
   return PERMISSION_MATRIX.some((group) =>
     group.permissions.some(
@@ -204,4 +206,16 @@ export function permissionsFor(role: Role | undefined): Record<string, boolean> 
     }
   }
   return out;
+}
+
+// Checks a permission. For the signed-in user's own role this uses the
+// permissions the API reported (including admin changes); otherwise the
+// built-in defaults.
+export function hasPermission(role: Role | undefined, key: string): boolean {
+  if (!role) return false;
+  const me = getSessionUser();
+  if (me && me.role === role && Array.isArray(me.permissions)) {
+    return me.permissions.includes(key);
+  }
+  return defaultHasPermission(role, key);
 }

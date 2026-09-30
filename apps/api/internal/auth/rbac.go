@@ -184,7 +184,7 @@ func HasPermission(role Role, p Permission) bool {
 }
 
 func roleHasPermission(role Role, p Permission) bool {
-	set, ok := rolePermissions[role]
+	set, ok := effectiveSet(role)
 	if !ok {
 		return false
 	}

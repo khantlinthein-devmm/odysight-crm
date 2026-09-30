@@ -13,6 +13,8 @@ export interface AuthUser {
   name: string;
   email: string;
   role: Role;
+  /** What the role can do right now (roles are editable in Settings). */
+  permissions?: string[];
 }
 
 interface LoginResponse {
@@ -184,4 +186,18 @@ export function getInitials(name: string): string {
     .slice(0, 2)
     .map((part) => part[0]!.toUpperCase())
     .join("");
+}
+
+/**
+ * Re-reads the signed-in user (role permissions can be changed by an admin at
+ * any time). Returns true when the permissions changed since the last check.
+ */
+export async function refreshSessionUser(): Promise<boolean> {
+  if (USE_MOCKS) return false;
+  const before = getSessionUser();
+  const fresh = await apiFetch<AuthUser>("/api/v1/auth/me");
+  localStorage.setItem(USER_KEY, JSON.stringify(fresh));
+  const a = [...(before?.permissions ?? [])].sort().join(",");
+  const b = [...(fresh.permissions ?? [])].sort().join(",");
+  return a !== b || before?.role !== fresh.role;
 }

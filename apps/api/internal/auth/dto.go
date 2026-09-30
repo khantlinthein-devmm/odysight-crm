@@ -12,14 +12,17 @@ type UserDTO struct {
 	Name  string `json:"name"`
 	Email string `json:"email"`
 	Role  string `json:"role"`
+	// Permissions the role has right now (roles are editable in Settings).
+	Permissions []string `json:"permissions"`
 }
 
 func toDTO(u User) UserDTO {
 	return UserDTO{
-		ID:    u.ID,
-		Name:  u.Name,
-		Email: u.Email,
-		Role:  string(u.Role),
+		ID:          u.ID,
+		Name:        u.Name,
+		Email:       u.Email,
+		Role:        string(u.Role),
+		Permissions: EffectivePermissions(u.Role),
 	}
 }
 
