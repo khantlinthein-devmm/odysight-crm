@@ -367,7 +367,10 @@ function fitToKeyboard() {
   const vv = window.visualViewport;
   const el = document.activeElement;
   const typing = !!vv && !!el && el.tagName === "TEXTAREA" && !!root.value?.contains(el);
-  const open = typing && window.innerHeight - vv!.height > 120 && window.matchMedia("(max-width: 1023px)").matches;
+  // Pin whenever the text box has focus on a phone-sized screen. Measuring
+  // the keyboard is unreliable (in an installed PWA and on iPhone the page
+  // height shrinks along with the visible area), so do not try.
+  const open = typing && window.matchMedia("(max-width: 1023px)").matches;
   const was = Object.keys(keyboardStyle.value).length > 0;
   keyboardStyle.value = open
     ? {
@@ -387,6 +390,7 @@ function onFocusChange() {
   // Let the keyboard animation settle, then fit again.
   fitToKeyboard();
   setTimeout(fitToKeyboard, 300);
+  setTimeout(fitToKeyboard, 800);
 }
 
 function onEvent(type: ChatEventType, data: ChatEventData) {
@@ -600,7 +604,7 @@ onBeforeUnmount(() => {
                 v-model="text"
                 rows="1"
                 :placeholder="L('chat.placeholder')"
-                class="max-h-32 min-h-[42px] flex-1 resize-none rounded-xl border border-gray-200 px-3 py-2 text-sm focus:border-navy-500 focus:outline-none"
+                class="max-h-32 min-h-[42px] flex-1 resize-none rounded-xl border border-gray-200 px-3 py-2 text-base focus:border-navy-500 focus:outline-none lg:text-sm"
                 @keydown="onKey"
               />
               <button
