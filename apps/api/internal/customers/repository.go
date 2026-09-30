@@ -155,7 +155,13 @@ func (r *Repository) Update(ctx context.Context, id int64, p Patch) (Customer, e
 		status = *p.Status
 	}
 
-	updated, err := scanCustomer(r.pool.QueryRow(ctx,
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return Customer{}, fmt.Errorf("begin tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	updated, err := scanCustomer(tx.QueryRow(ctx,
 		`UPDATE customers SET
 			first_name    = COALESCE($2, first_name),
 			last_name     = COALESCE($3, last_name),
@@ -178,7 +184,45 @@ func (r *Repository) Update(ctx context.Context, id int64, p Patch) (Customer, e
 	if err != nil {
 		return Customer{}, fmt.Errorf("update customer %d: %w", id, err)
 	}
+	if p.FirstName != nil || p.LastName != nil || p.Email != nil {
+		if err := syncCustomerIdentity(ctx, tx, id); err != nil {
+			return Customer{}, err
+		}
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return Customer{}, fmt.Errorf("commit customer %d: %w", id, err)
+	}
 	return updated, nil
+}
+
+// syncCustomerIdentity copies the customer's current name and email onto
+// the records that keep their own copy: bookings, the invoices of those
+// bookings (receipts show the invoice's name) and payments. Runs inside the
+// customer update so everything changes together.
+func syncCustomerIdentity(ctx context.Context, tx pgx.Tx, id int64) error {
+	const who = `(SELECT TRIM(first_name || ' ' || last_name) AS name, COALESCE(email, '') AS email
+	                FROM customers WHERE id = $1)`
+	stmts := []struct{ what, sql string }{
+		{"bookings", `UPDATE bookings b SET customer_name = c.name, customer_email = c.email
+		                FROM ` + who + ` c
+		               WHERE b.customer_id = $1
+		                 AND (b.customer_name IS DISTINCT FROM c.name OR b.customer_email IS DISTINCT FROM c.email)`},
+		{"invoices", `UPDATE invoices i SET customer_name = c.name, customer_email = c.email
+		                FROM ` + who + ` c
+		               WHERE i.booking_id IN (SELECT id FROM bookings WHERE customer_id = $1)
+		                 AND (i.customer_name IS DISTINCT FROM c.name OR i.customer_email IS DISTINCT FROM c.email)`},
+		{"payments", `UPDATE payments p SET customer_name = c.name
+		                FROM ` + who + ` c
+		               WHERE (p.invoice_id IN (SELECT i.id FROM invoices i JOIN bookings b ON b.id = i.booking_id WHERE b.customer_id = $1)
+		                      OR p.booking_number IN (SELECT booking_number FROM bookings WHERE customer_id = $1))
+		                 AND p.customer_name IS DISTINCT FROM c.name`},
+	}
+	for _, st := range stmts {
+		if _, err := tx.Exec(ctx, st.sql, id); err != nil {
+			return fmt.Errorf("sync customer %d name to %s: %w", id, st.what, err)
+		}
+	}
+	return nil
 }
 
 func (r *Repository) Delete(ctx context.Context, id int64) error {
