@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -93,46 +94,112 @@ func (r *Repository) OpenConversation(ctx context.Context, a, b int64) (int64, e
 	return id, nil
 }
 
-// OtherParticipant returns the other user of a conversation the caller is
-// part of, or ErrNotFound.
-func (r *Repository) OtherParticipant(ctx context.Context, conversationID, me int64) (int64, error) {
-	var other int64
-	err := r.pool.QueryRow(ctx,
-		`SELECT CASE WHEN user_a = $2 THEN user_b ELSE user_a END
-		   FROM chat_conversations WHERE id = $1 AND $2 IN (user_a, user_b)`, conversationID, me).Scan(&other)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return 0, ErrNotFound
-	}
-	if err != nil {
-		return 0, fmt.Errorf("load conversation %d: %w", conversationID, err)
-	}
-	return other, nil
+// memberOf is the SQL condition "user p may use conversation c": one of the
+// pair in a direct conversation, or a member of the group for a group chat.
+func memberOf(p string) string {
+	return `((c.group_id IS NULL AND ` + p + ` IN (c.user_a, c.user_b)) OR EXISTS (
+		SELECT 1 FROM chat_group_members gm WHERE gm.group_id = c.group_id AND gm.user_id = ` + p + `))`
 }
 
-const conversationSelect = `
-	SELECT c.id, o.id, o.name, o.role, c.last_message_at,
-	       COALESCE(m.kind, ''), COALESCE(m.body, ''), COALESCE(m.sender_id = $1, false),
+// myRead is user p's read marker in conversation c.
+func myRead(p string) string {
+	return `CASE WHEN c.group_id IS NOT NULL
+		THEN COALESCE((SELECT r.last_read FROM chat_reads r WHERE r.conversation_id = c.id AND r.user_id = ` + p + `), 0)
+		WHEN c.user_a = ` + p + ` THEN c.last_read_a ELSE c.last_read_b END`
+}
+
+// Thread is who else is in a conversation.
+type Thread struct {
+	// Other is the other person of a direct conversation.
+	Other int64
+	// GroupID and GroupName are set for a group conversation; Members are
+	// the other members.
+	GroupID   int64
+	GroupName string
+	Members   []int64
+}
+
+// IsGroup reports whether this is a group conversation.
+func (t Thread) IsGroup() bool { return t.GroupID != 0 }
+
+// Recipients is everyone but the caller.
+func (t Thread) Recipients() []int64 {
+	if t.IsGroup() {
+		return t.Members
+	}
+	return []int64{t.Other}
+}
+
+// Thread loads a conversation the caller belongs to, or ErrNotFound.
+func (r *Repository) Thread(ctx context.Context, conversationID, me int64) (Thread, error) {
+	var t Thread
+	err := r.pool.QueryRow(ctx,
+		`SELECT COALESCE(c.group_id, 0), COALESCE(g.name, ''),
+		        COALESCE(CASE WHEN c.user_a = $2 THEN c.user_b ELSE c.user_a END, 0)
+		   FROM chat_conversations c LEFT JOIN chat_groups g ON g.id = c.group_id
+		  WHERE c.id = $1 AND `+memberOf("$2"), conversationID, me).Scan(&t.GroupID, &t.GroupName, &t.Other)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Thread{}, ErrNotFound
+	}
+	if err != nil {
+		return Thread{}, fmt.Errorf("load conversation %d: %w", conversationID, err)
+	}
+	if !t.IsGroup() {
+		return t, nil
+	}
+	t.Other = 0
+	rows, err := r.pool.Query(ctx,
+		`SELECT user_id FROM chat_group_members WHERE group_id = $1 AND user_id <> $2`, t.GroupID, me)
+	if err != nil {
+		return Thread{}, fmt.Errorf("load group members: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return Thread{}, err
+		}
+		t.Members = append(t.Members, id)
+	}
+	return t, rows.Err()
+}
+
+var conversationSelect = `
+	SELECT c.id, COALESCE(o.id, 0), COALESCE(o.name, g.name, ''), COALESCE(o.role, ''), c.last_message_at,
+	       COALESCE(m.kind, ''), COALESCE(m.body, ''), COALESCE(m.sender_id = $1, false), COALESCE(mu.name, ''),
 	       (SELECT COUNT(*) FROM chat_messages x
 	         WHERE x.conversation_id = c.id AND x.sender_id IS DISTINCT FROM $1
-	           AND x.id > CASE WHEN c.user_a = $1 THEN c.last_read_a ELSE c.last_read_b END)::int,
-	       CASE WHEN c.user_a = $1 THEN c.last_read_b ELSE c.last_read_a END
+	           AND x.id > ` + myRead("$1") + `)::int,
+	       CASE WHEN c.group_id IS NOT NULL THEN 0 WHEN c.user_a = $1 THEN c.last_read_b ELSE c.last_read_a END,
+	       c.group_id, (SELECT COUNT(*) FROM chat_group_members gm2 WHERE gm2.group_id = c.group_id)::int
 	  FROM chat_conversations c
-	  JOIN users o ON o.id = CASE WHEN c.user_a = $1 THEN c.user_b ELSE c.user_a END
+	  LEFT JOIN users o ON c.group_id IS NULL AND o.id = CASE WHEN c.user_a = $1 THEN c.user_b ELSE c.user_a END
+	  LEFT JOIN chat_groups g ON g.id = c.group_id
 	  LEFT JOIN LATERAL (SELECT kind, body, sender_id FROM chat_messages
 	                      WHERE conversation_id = c.id ORDER BY id DESC LIMIT 1) m ON true
-	 WHERE $1 IN (c.user_a, c.user_b)`
+	  LEFT JOIN users mu ON mu.id = m.sender_id
+	 WHERE ` + memberOf("$1")
 
 func scanConversation(row pgx.Row) (Conversation, error) {
 	var c Conversation
+	var groupID *int64
+	var members int
 	err := row.Scan(&c.ID, &c.Other.UserID, &c.Other.Name, &c.Other.Role, &c.LastMessageAt,
-		&c.LastKind, &c.LastBody, &c.LastFromMe, &c.Unread, &c.OtherLastRead)
+		&c.LastKind, &c.LastBody, &c.LastFromMe, &c.LastSender, &c.Unread, &c.OtherLastRead, &groupID, &members)
+	if groupID != nil {
+		c.Group = &GroupRef{ID: *groupID, Members: members}
+	} else {
+		c.LastSender = ""
+	}
 	return c, err
 }
 
-// Conversations lists the user's conversations that have messages, newest first.
+// Conversations lists the user's group chats and the direct conversations
+// that have messages, newest first.
 func (r *Repository) Conversations(ctx context.Context, me int64) ([]Conversation, error) {
 	rows, err := r.pool.Query(ctx, conversationSelect+
-		` AND c.last_message_at IS NOT NULL ORDER BY c.last_message_at DESC LIMIT 200`, me)
+		` AND (c.last_message_at IS NOT NULL OR c.group_id IS NOT NULL)
+		  ORDER BY COALESCE(c.last_message_at, c.created_at) DESC LIMIT 200`, me)
 	if err != nil {
 		return nil, fmt.Errorf("list conversations: %w", err)
 	}
@@ -164,20 +231,22 @@ func (r *Repository) UnreadTotal(ctx context.Context, me int64) (int, error) {
 	var n int
 	err := r.pool.QueryRow(ctx,
 		`SELECT COUNT(*) FROM chat_messages x JOIN chat_conversations c ON c.id = x.conversation_id
-		  WHERE $1 IN (c.user_a, c.user_b) AND x.sender_id IS DISTINCT FROM $1
-		    AND x.id > CASE WHEN c.user_a = $1 THEN c.last_read_a ELSE c.last_read_b END`, me).Scan(&n)
+		  WHERE `+memberOf("$1")+` AND x.sender_id IS DISTINCT FROM $1
+		    AND x.id > `+myRead("$1"), me).Scan(&n)
 	if err != nil {
 		return 0, fmt.Errorf("count unread: %w", err)
 	}
 	return n, nil
 }
 
-const messageColumns = `id, conversation_id, sender_id, kind, body, file_name, mime_type, duration_ms, file_expired, created_at`
+const messageColumns = `id, conversation_id, sender_id,
+	COALESCE((SELECT u.name FROM users u WHERE u.id = chat_messages.sender_id), ''),
+	kind, body, file_name, mime_type, duration_ms, file_expired, created_at`
 
 func scanMessage(row pgx.Row) (Message, string, error) {
 	var m Message
 	var file string
-	err := row.Scan(&m.ID, &m.ConversationID, &m.SenderID, &m.Kind, &m.Body, &file, &m.MimeType, &m.DurationMs, &m.Expired, &m.CreatedAt)
+	err := row.Scan(&m.ID, &m.ConversationID, &m.SenderID, &m.SenderName, &m.Kind, &m.Body, &file, &m.MimeType, &m.DurationMs, &m.Expired, &m.CreatedAt)
 	if file != "" {
 		m.FileURL = "/api/v1/chat/files/" + file
 	}
@@ -249,6 +318,9 @@ func (r *Repository) AddMessage(ctx context.Context, m NewMessage) (Message, err
 		 WHERE id = $1`, m.ConversationID, msg.CreatedAt, m.SenderID, msg.ID); err != nil {
 		return Message{}, fmt.Errorf("bump conversation: %w", err)
 	}
+	if err := groupRead(ctx, tx, m.ConversationID, m.SenderID, msg.ID); err != nil {
+		return Message{}, err
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return Message{}, fmt.Errorf("commit message: %w", err)
 	}
@@ -265,6 +337,24 @@ func (r *Repository) MarkRead(ctx context.Context, conversationID, me, messageID
 	if err != nil {
 		return fmt.Errorf("mark read: %w", err)
 	}
+	return groupRead(ctx, r.pool, conversationID, me, messageID)
+}
+
+type execer interface {
+	Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error)
+}
+
+// groupRead moves a member's read marker in a group conversation; it does
+// nothing for a direct conversation.
+func groupRead(ctx context.Context, db execer, conversationID, me, messageID int64) error {
+	_, err := db.Exec(ctx,
+		`INSERT INTO chat_reads (conversation_id, user_id, last_read)
+		 SELECT c.id, $2, $3 FROM chat_conversations c WHERE c.id = $1 AND c.group_id IS NOT NULL
+		 ON CONFLICT (conversation_id, user_id) DO UPDATE SET last_read = GREATEST(chat_reads.last_read, EXCLUDED.last_read)`,
+		conversationID, me, messageID)
+	if err != nil {
+		return fmt.Errorf("mark group read: %w", err)
+	}
 	return nil
 }
 
@@ -274,7 +364,7 @@ func (r *Repository) FileAccess(ctx context.Context, fileName string, me int64) 
 	var mime string
 	err := r.pool.QueryRow(ctx,
 		`SELECT m.mime_type FROM chat_messages m JOIN chat_conversations c ON c.id = m.conversation_id
-		  WHERE m.file_name = $1 AND $2 IN (c.user_a, c.user_b) LIMIT 1`, fileName, me).Scan(&mime)
+		  WHERE m.file_name = $1 AND `+memberOf("$2")+` LIMIT 1`, fileName, me).Scan(&mime)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return "", ErrNotFound
 	}
@@ -329,6 +419,9 @@ func (r *Repository) SaveGroup(ctx context.Context, id int64, name string, membe
 			strings.TrimSpace(name), createdBy).Scan(&id); err != nil {
 			return 0, fmt.Errorf("create chat group: %w", err)
 		}
+		if _, err := tx.Exec(ctx, `INSERT INTO chat_conversations (group_id) VALUES ($1)`, id); err != nil {
+			return 0, fmt.Errorf("create group conversation: %w", err)
+		}
 	} else {
 		tag, err := tx.Exec(ctx, `UPDATE chat_groups SET name = $2 WHERE id = $1`, id, strings.TrimSpace(name))
 		if err != nil {
@@ -347,6 +440,16 @@ func (r *Repository) SaveGroup(ctx context.Context, id int64, name string, membe
 			 SELECT $1, u.id FROM users u WHERE u.id = ANY($2) ON CONFLICT DO NOTHING`, id, members); err != nil {
 			return 0, fmt.Errorf("add chat group members: %w", err)
 		}
+		// New members start with the history read, so joining a busy group
+		// does not light up hundreds of unread messages.
+		if _, err := tx.Exec(ctx,
+			`INSERT INTO chat_reads (conversation_id, user_id, last_read)
+			 SELECT c.id, gm.user_id, COALESCE((SELECT MAX(x.id) FROM chat_messages x WHERE x.conversation_id = c.id), 0)
+			   FROM chat_conversations c JOIN chat_group_members gm ON gm.group_id = c.group_id
+			  WHERE c.group_id = $1
+			 ON CONFLICT (conversation_id, user_id) DO NOTHING`, id); err != nil {
+			return 0, fmt.Errorf("start group read markers: %w", err)
+		}
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return 0, fmt.Errorf("commit chat group: %w", err)
@@ -354,15 +457,35 @@ func (r *Repository) SaveGroup(ctx context.Context, id int64, name string, membe
 	return id, nil
 }
 
-func (r *Repository) DeleteGroup(ctx context.Context, id int64) error {
-	tag, err := r.pool.Exec(ctx, `DELETE FROM chat_groups WHERE id = $1`, id)
+// DeleteGroup removes a group and its group chat. It returns the voice files
+// of the deleted messages so the caller can remove them from disk.
+func (r *Repository) DeleteGroup(ctx context.Context, id int64) ([]string, error) {
+	tx, err := r.pool.Begin(ctx)
 	if err != nil {
-		return fmt.Errorf("delete chat group: %w", err)
+		return nil, fmt.Errorf("begin tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	rows, err := tx.Query(ctx,
+		`SELECT m.file_name FROM chat_messages m JOIN chat_conversations c ON c.id = m.conversation_id
+		  WHERE c.group_id = $1 AND m.file_name <> ''`, id)
+	if err != nil {
+		return nil, fmt.Errorf("list group chat files: %w", err)
+	}
+	files, err := pgx.CollectRows(rows, pgx.RowTo[string])
+	if err != nil {
+		return nil, fmt.Errorf("scan group chat files: %w", err)
+	}
+	tag, err := tx.Exec(ctx, `DELETE FROM chat_groups WHERE id = $1`, id)
+	if err != nil {
+		return nil, fmt.Errorf("delete chat group: %w", err)
 	}
 	if tag.RowsAffected() == 0 {
-		return ErrNotFound
+		return nil, ErrNotFound
 	}
-	return nil
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("commit group delete: %w", err)
+	}
+	return files, nil
 }
 
 // Push subscriptions

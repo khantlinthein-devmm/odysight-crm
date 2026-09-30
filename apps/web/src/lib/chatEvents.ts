@@ -13,6 +13,8 @@ export interface ChatEventData {
   messageId?: number;
   senderId?: number;
   userId?: number;
+  /** Who is typing (group chats show the name). */
+  name?: string;
 }
 
 type Listener = (type: ChatEventType, data: ChatEventData) => void;

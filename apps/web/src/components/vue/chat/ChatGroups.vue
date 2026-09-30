@@ -10,7 +10,8 @@ import { apiFetch, unwrapPage, type Page } from "../../../lib/api";
 import { showToast } from "../../../lib/toast";
 import ConfirmDialog from "../ui/ConfirmDialog.vue";
 
-// Admin screen: people in the same group may message each other. Office
+// Admin screen: each group has a group chat, and people in the same group
+// may also message each other directly. Office
 // roles (admin, manager, dispatch) can message anyone without a group.
 
 interface UserRow {
@@ -109,7 +110,8 @@ onMounted(load);
   <div class="space-y-4 p-4">
     <div class="flex flex-wrap items-center justify-between gap-2">
       <p class="text-sm text-gray-500">
-        People in the same group can message each other. Admin, manager and
+        Each group has its own group chat for all its members, and people in the
+        same group can also message each other directly. Admin, manager and
         dispatch can message anyone.
       </p>
       <button
@@ -170,7 +172,7 @@ onMounted(load);
     <ConfirmDialog
       v-if="pendingDelete"
       title="Delete chat group"
-      :message="`Delete ${pendingDelete.name}? Members who share no other group will no longer be able to message each other. Past messages stay.`"
+      :message="`Delete ${pendingDelete.name}? Its group chat and messages are deleted too. Members who share no other group will no longer be able to message each other directly.`"
       confirm-label="Delete group"
       @confirm="confirmDelete"
       @cancel="pendingDelete = null"

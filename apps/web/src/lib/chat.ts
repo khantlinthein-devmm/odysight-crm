@@ -8,11 +8,16 @@ export interface ChatContact {
 
 export interface ChatConversation {
   id: number;
+  /** The other person; for a group chat, the group's name (userId 0). */
   other: ChatContact;
+  /** Set for a group chat: every member of the chat group talks here. */
+  group?: { id: number; members: number };
   lastMessageAt: string | null;
   lastKind: "" | "text" | "image" | "voice";
   lastBody: string;
   lastFromMe: boolean;
+  /** Who sent the last message (group chats). */
+  lastSender?: string;
   unread: number;
   /** Id of the last message the other person has read ("seen"). */
   otherLastRead: number;
@@ -22,6 +27,7 @@ export interface ChatMessage {
   id: number;
   conversationId: number;
   senderId: number | null;
+  senderName: string;
   kind: "text" | "image" | "voice";
   body: string;
   fileUrl?: string;
