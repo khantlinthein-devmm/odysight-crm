@@ -1,0 +1,13 @@
+---
+import AuthLayout from "../layouts/AuthLayout.astro";
+import RequiredTwoFactorSetup from "../components/vue/settings/RequiredTwoFactorSetup.vue";
+---
+
+<AuthLayout title="Two-factor setup">
+  <div class="w-full max-w-lg px-4">
+    <div class="mb-6 flex justify-center">
+      <img src="/logo/logo-full.png" alt="Smile Clean Thailand" width="600" height="740" class="h-28 w-auto object-contain" />
+    </div>
+    <RequiredTwoFactorSetup client:only="vue" />
+  </div>
+</AuthLayout>

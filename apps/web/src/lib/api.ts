@@ -97,6 +97,14 @@ export async function apiFetch<T>(
       if (body?.error) message = body.error;
       else if (body?.message) message = body.message;
     } catch { /* keep default */ }
+    if (
+      response.status === 403 &&
+      message === "two-factor setup required" &&
+      typeof window !== "undefined" &&
+      window.location.pathname !== "/setup-2fa"
+    ) {
+      window.location.href = "/setup-2fa";
+    }
     throw new ApiError(response.status, message);
   }
 

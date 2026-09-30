@@ -12,6 +12,7 @@ import {
   type TeamUser,
 } from "../../../lib/users";
 import { showToast } from "../../../lib/toast";
+import { resetUserTwoFactor } from "../../../lib/twoFactor";
 import ConfirmDialog from "../ui/ConfirmDialog.vue";
 
 const users = ref<TeamUser[]>([]);
@@ -30,6 +31,20 @@ const saving = ref(false);
 const formError = ref<string | null>(null);
 
 const pendingDelete = ref<TeamUser | null>(null);
+const pendingReset2fa = ref<TeamUser | null>(null);
+
+async function handleReset2fa() {
+  const u = pendingReset2fa.value;
+  if (!u) return;
+  try {
+    await resetUserTwoFactor(u.id);
+    showToast(`2FA reset for ${u.email} — they set it up again at next sign-in`, "success");
+  } catch (err) {
+    showToast(err instanceof Error ? err.message : "Failed to reset 2FA", "error");
+  } finally {
+    pendingReset2fa.value = null;
+  }
+}
 const deleting = ref(false);
 
 const resetTarget = ref<TeamUser | null>(null);
@@ -293,6 +308,15 @@ onMounted(fetchUsers);
                 <button
                   type="button"
                   :disabled="u.id === currentUserId"
+                  title="Clear this person's two-factor setup (lost phone)"
+                  class="rounded-lg border border-gray-200 px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-100 disabled:opacity-40"
+                  @click="pendingReset2fa = u"
+                >
+                  Reset 2FA
+                </button>
+                <button
+                  type="button"
+                  :disabled="u.id === currentUserId"
                   title="You cannot delete your own account"
                   class="rounded-lg border border-red-200 px-3 py-1.5 text-xs font-medium text-red-600 hover:bg-red-50 disabled:opacity-40"
                   @click="pendingDelete = u"
@@ -416,6 +440,15 @@ onMounted(fetchUsers);
         {{ resetError }}
       </p>
     </div>
+
+    <ConfirmDialog
+      v-if="pendingReset2fa"
+      title="Reset two-factor authentication"
+      :message="`Use this when ${pendingReset2fa.email} lost their phone. Their authenticator and backup codes stop working; office roles must set 2FA up again at next sign-in.`"
+      confirm-label="Reset 2FA"
+      @confirm="handleReset2fa"
+      @cancel="pendingReset2fa = null"
+    />
 
     <ConfirmDialog
       v-if="pendingDelete"

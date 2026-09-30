@@ -8,9 +8,10 @@ describe("auth", () => {
   });
 
   it("logs in with valid mock credentials", async () => {
-    const user = await login("admin@example.com", "admin123");
+    const { user, mfaToken } = await login("admin@example.com", "admin123");
 
     expect(user.role).toBe("SUPER_ADMIN");
+    expect(mfaToken).toBeUndefined();
     expect(getSessionUser()?.email).toBe("admin@example.com");
     expect(document.cookie).toContain("odysight_session=");
   });

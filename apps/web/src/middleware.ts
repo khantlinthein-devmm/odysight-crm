@@ -31,12 +31,16 @@ export const onRequest = defineMiddleware((context, next) => {
   const isPublic = PUBLIC_PATHS.has(pathname);
   const session = cookies.get("odysight_session");
   let hasValidSession = false;
+  let needsTwoFactorSetup = false;
   if (session?.value) {
-    hasValidSession =
+    if (import.meta.env.DEV && session.value.startsWith("mock-token-")) {
       // Dev-only mock tokens (never valid in production builds).
-      import.meta.env.DEV && session.value.startsWith("mock-token-")
-        ? true
-        : verifySessionToken(session.value, process.env.JWT_SECRET) !== null;
+      hasValidSession = true;
+    } else {
+      const claims = verifySessionToken(session.value, process.env.JWT_SECRET);
+      hasValidSession = claims !== null;
+      needsTwoFactorSetup = claims?.mfa_setup === true;
+    }
   }
 
   if (!hasValidSession && session) {
@@ -46,6 +50,11 @@ export const onRequest = defineMiddleware((context, next) => {
 
   if (!hasValidSession && !isPublic) {
     return redirect(`/login?next=${encodeURIComponent(pathname)}`);
+  }
+
+  // Office roles must finish 2FA setup before using anything else.
+  if (hasValidSession && needsTwoFactorSetup && pathname !== "/setup-2fa") {
+    return redirect("/setup-2fa");
   }
 
   if (hasValidSession && AUTH_PATHS.has(pathname)) {

@@ -16,8 +16,20 @@ export interface AuthUser {
 }
 
 interface LoginResponse {
-  token: string;
+  token?: string;
   user: AuthUser;
+  mfaRequired?: boolean;
+  mfaToken?: string;
+  mfaSetupRequired?: boolean;
+}
+
+/** Result of the password step of signing in. */
+export interface LoginOutcome {
+  user: AuthUser;
+  /** Enter the authenticator code next (see verifyLogin). */
+  mfaToken?: string;
+  /** Signed in, but 2FA must be set up before anything else. */
+  mfaSetupRequired?: boolean;
 }
 
 const SESSION_COOKIE = "odysight_session";
@@ -82,7 +94,7 @@ export async function login(
   email: string,
   password: string,
   rememberMe = false,
-): Promise<AuthUser> {
+): Promise<LoginOutcome> {
   if (USE_MOCKS) {
     await delay(400);
     const mockUsers = getMockUsers();
@@ -94,17 +106,35 @@ export async function login(
     if (!match) throw new Error("Invalid email or password");
     setMockSessionCookie(`mock-token-${match.user.id}`);
     localStorage.setItem(USER_KEY, JSON.stringify(match.user));
-    return match.user;
+    return { user: match.user };
   }
 
   const response = await apiFetch<LoginResponse>("/api/v1/auth/login", {
     method: "POST",
     body: JSON.stringify({ email, password }),
   });
+  void rememberMe;
+  if (response.mfaRequired && response.mfaToken) {
+    // No session yet: the authenticator code comes next.
+    return { user: response.user, mfaToken: response.mfaToken };
+  }
   // The API sets the HttpOnly odysight_session cookie. The token is never
   // stored in localStorage or written to a JS-readable cookie.
   localStorage.setItem(USER_KEY, JSON.stringify(response.user));
-  void rememberMe;
+  return { user: response.user, mfaSetupRequired: response.mfaSetupRequired };
+}
+
+/** Second sign-in step: the authenticator (or backup) code. */
+export async function verifyLogin(
+  mfaToken: string,
+  code: string,
+  rememberDevice: boolean,
+): Promise<AuthUser> {
+  const response = await apiFetch<LoginResponse>("/api/v1/auth/login/2fa", {
+    method: "POST",
+    body: JSON.stringify({ mfaToken, code, rememberDevice }),
+  });
+  localStorage.setItem(USER_KEY, JSON.stringify(response.user));
   return response.user;
 }
 
