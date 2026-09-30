@@ -20,6 +20,8 @@ var (
 	fontRegular []byte
 	//go:embed fonts/Sarabun-Bold.ttf
 	fontBold []byte
+	//go:embed assets/logo.png
+	logoPNG []byte
 )
 
 const fontFamily = "Sarabun"
@@ -181,15 +183,18 @@ func renderDoc(spec docSpec, company settings.Company, pay settings.PaymentSetti
 	font := func(style string, size float64) { pdf.SetFont(fontFamily, style, size) }
 	const left, right, width = 15.0, 195.0, 180.0
 
-	// Seller block (left).
+	// Seller block (left), beside the company logo.
+	pdf.RegisterImageOptionsReader("logo", gofpdf.ImageOptions{ImageType: "PNG"}, bytes.NewReader(logoPNG))
+	pdf.ImageOptions("logo", left, 13, 22, 22, false, gofpdf.ImageOptions{ImageType: "PNG"}, 0, "")
+	const sellerX, sellerW = left + 25, 78.0
 	sellerName := strings.TrimSpace(company.LegalName)
 	if sellerName == "" {
 		sellerName = company.Name
 	}
-	pdf.SetXY(left, 15)
+	pdf.SetXY(sellerX, 15)
 	font("B", 14)
 	ink(30, 41, 59)
-	pdf.MultiCell(100, 6.5, sellerName, "", "L", false)
+	pdf.MultiCell(sellerW, 6.5, sellerName, "", "L", false)
 	var seller []string
 	if a := strings.TrimSpace(company.Address); a != "" {
 		seller = append(seller, a)
@@ -202,9 +207,9 @@ func renderDoc(spec docSpec, company settings.Company, pay settings.PaymentSetti
 	}
 	font("", 9.5)
 	ink(71, 85, 105)
-	pdf.SetX(left)
-	pdf.MultiCell(100, 4.6, strings.Join(seller, "\n"), "", "L", false)
-	sellerBottom := pdf.GetY()
+	pdf.SetX(sellerX)
+	pdf.MultiCell(sellerW, 4.6, strings.Join(seller, "\n"), "", "L", false)
+	sellerBottom := max(pdf.GetY(), 36)
 
 	// Title + meta (right).
 	pdf.SetXY(115, 15)
@@ -217,9 +222,9 @@ func renderDoc(spec docSpec, company settings.Company, pay settings.PaymentSetti
 	font("", 9.5)
 	ink(30, 41, 59)
 	for _, m := range spec.meta {
-		pdf.SetX(115)
-		pdf.CellFormat(35, 5, m[0], "", 0, "L", false, 0, "")
-		pdf.CellFormat(45, 5, m[1], "", 1, "R", false, 0, "")
+		pdf.SetX(123)
+		pdf.CellFormat(29, 5, m[0], "", 0, "L", false, 0, "")
+		pdf.CellFormat(43, 5, m[1], "", 1, "R", false, 0, "")
 	}
 	y := pdf.GetY()
 	if sellerBottom > y {
