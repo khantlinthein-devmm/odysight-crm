@@ -22,6 +22,7 @@ import (
 	"github.com/odysight/crm/internal/audit"
 	"github.com/odysight/crm/internal/auth"
 	"github.com/odysight/crm/internal/bookings"
+	"github.com/odysight/crm/internal/chat"
 	"github.com/odysight/crm/internal/checklists"
 	"github.com/odysight/crm/internal/cleaners"
 	"github.com/odysight/crm/internal/complaints"
@@ -212,6 +213,15 @@ func run() error {
 
 	checklistRepo := checklists.NewRepository(pool)
 	checklistService := checklists.NewService(checklistRepo)
+	// Push services want a contact for the sender; the app's own origin is it.
+	pushSubject := "mailto:admin@localhost"
+	for _, o := range cfg.CORSOrigins {
+		if strings.HasPrefix(o, "https://") {
+			pushSubject = o
+			break
+		}
+	}
+	chatService := chat.NewService(chat.NewRepository(pool), chat.NewFileStore(cfg.UploadDir), pushSubject)
 	checklistHandler := checklists.NewHandler(checklistService, checklists.NewPhotoStore(cfg.UploadDir, cfg.MaxUploadMB))
 
 	// LINE OA → auto-lead. Mounted outside the auth group: authenticity
@@ -280,6 +290,7 @@ func run() error {
 			r.Mount("/contracts", contracts.Routes(contractHandler, authorizer))
 			r.Mount("/quotes", quotes.Routes(quoteHandler, authorizer))
 			r.Mount("/checklists", checklists.Routes(checklistHandler, authorizer))
+			r.Mount("/chat", chat.Routes(chat.NewHandler(chatService), authorizer))
 		})
 	})
 

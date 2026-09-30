@@ -9,7 +9,7 @@
  *   on-device snapshots managed by the app (see src/lib/offline.ts).
  */
 
-const VERSION = "odysight-v2";
+const VERSION = "odysight-v3";
 const STATIC_CACHE = `${VERSION}-static`;
 const PAGE_CACHE = `${VERSION}-pages`;
 
@@ -105,4 +105,41 @@ self.addEventListener("fetch", (event) => {
     const key = pageKey(url.pathname);
     if (key) event.respondWith(navigationFallback(request, key));
   }
+});
+
+// Chat push notifications. The payload is {title, body, url, tag}; the tag
+// collapses several messages from one conversation into one notification.
+self.addEventListener("push", (event) => {
+  let data = {};
+  try {
+    data = event.data ? event.data.json() : {};
+  } catch {
+    data = { body: event.data ? event.data.text() : "" };
+  }
+  event.waitUntil(
+    self.registration.showNotification(data.title || "Smile Clean", {
+      body: data.body || "New message",
+      tag: data.tag || "chat",
+      renotify: true,
+      icon: "/logo/logo-192.png",
+      badge: "/logo/logo-192.png",
+      data: { url: data.url || "/chat" },
+    }),
+  );
+});
+
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+  const target = new URL(event.notification.data?.url || "/chat", self.location.origin).href;
+  event.waitUntil(
+    self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((wins) => {
+      for (const w of wins) {
+        if (w.url.startsWith(self.location.origin) && "focus" in w) {
+          w.navigate(target);
+          return w.focus();
+        }
+      }
+      return self.clients.openWindow(target);
+    }),
+  );
 });

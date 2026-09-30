@@ -1,0 +1,8 @@
+---
+import DashboardLayout from "../../layouts/DashboardLayout.astro";
+import ChatApp from "../../components/vue/chat/ChatApp.vue";
+---
+
+<DashboardLayout title="Chat">
+  <ChatApp client:only="vue" />
+</DashboardLayout>
