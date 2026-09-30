@@ -119,9 +119,6 @@ func (r *CreateChecklistRequest) Validate() error {
 	if r.BookingID < 1 {
 		return response.NewAPIError(400, "bookingId is required")
 	}
-	if r.TemplateID == nil && len(r.Items) == 0 {
-		return response.NewAPIError(400, "templateId or items is required")
-	}
 	for i := range r.Items {
 		r.Items[i] = strings.TrimSpace(r.Items[i])
 		if r.Items[i] == "" {

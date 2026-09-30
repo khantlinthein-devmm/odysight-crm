@@ -7,6 +7,7 @@ import (
 
 	"github.com/odysight/crm/pkg/dberror"
 	"github.com/odysight/crm/pkg/pagination"
+	"github.com/odysight/crm/pkg/response"
 )
 
 type Service struct {
@@ -39,6 +40,14 @@ func (s *Service) GetByBooking(ctx context.Context, bookingID int64) (Checklist,
 func (s *Service) Create(ctx context.Context, req CreateChecklistRequest) (Checklist, error) {
 	if err := req.Validate(); err != nil {
 		return Checklist{}, err
+	}
+	// No template chosen: use the one for the booking's service type.
+	if req.TemplateID == nil && len(req.Items) == 0 {
+		id, err := s.repo.TemplateForBooking(ctx, req.BookingID)
+		if err != nil {
+			return Checklist{}, mapRepoError(err)
+		}
+		req.TemplateID = &id
 	}
 	c, err := s.repo.Create(ctx, req.BookingID, req.TemplateID, req.Items)
 	if err != nil {
@@ -90,6 +99,14 @@ func (s *Service) AttachPhoto(ctx context.Context, itemID int64, kind, url strin
 }
 
 func mapRepoError(err error) error {
+	switch {
+	case errors.Is(err, ErrTemplateNotFound):
+		return response.NewAPIError(422, "that checklist template has no items or does not exist")
+	case errors.Is(err, ErrNoTemplate):
+		return response.NewAPIError(422, "no checklist template yet: add one under Checklists → Templates")
+	case errors.Is(err, ErrAlreadyExists):
+		return response.NewAPIError(409, "this booking already has a checklist")
+	}
 	if errors.Is(err, ErrItemNotFound) {
 		return dberror.Map(err, ErrItemNotFound, "checklist item not found")
 	}
