@@ -9,12 +9,11 @@ import (
 	"github.com/odysight/crm/internal/auth"
 )
 
-func scopedRequest(t *testing.T, h *Handler, p auth.Permission, role auth.Role, body CheckActionRequest) (int, bool, int64) {
+// checkRequest runs a check-in through checkScope + allowSelf as user 7.
+func checkRequest(t *testing.T, h *Handler, role auth.Role, body CheckActionRequest) (int, int64) {
 	t.Helper()
-	var reached bool
 	var self int64
 	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		reached = true
 		self, _ = selfCleaner(r)
 		if allowSelf(w, r, body) {
 			w.WriteHeader(http.StatusOK)
@@ -23,55 +22,73 @@ func scopedRequest(t *testing.T, h *Handler, p auth.Permission, role auth.Role, 
 	req := httptest.NewRequest(http.MethodPost, "/check-in", nil)
 	req = req.WithContext(auth.WithIdentity(req.Context(), auth.Identity{UserID: 7, Role: role}))
 	rec := httptest.NewRecorder()
-	h.scope(p)(next).ServeHTTP(rec, req)
-	return rec.Code, reached, self
+	h.checkScope(next).ServeHTTP(rec, req)
+	return rec.Code, self
 }
 
 func stubHandler(cleanerID int64, err error) *Handler {
 	return &Handler{cleanerForUser: func(context.Context, int64) (int64, error) { return cleanerID, err }}
 }
 
-func TestScopeStaffWithPermissionActsOnAnyone(t *testing.T) {
-	code, reached, self := scopedRequest(t, stubHandler(0, ErrNoCleanerProfile), auth.PermAttendanceManage, auth.RoleDispatch,
-		CheckActionRequest{PersonType: PersonCleaner, PersonID: 99})
-	if code != http.StatusOK || !reached || self != 0 {
-		t.Fatalf("dispatch should act on any cleaner: code=%d reached=%v self=%d", code, reached, self)
+func TestAdminChecksInAnyone(t *testing.T) {
+	for _, body := range []CheckActionRequest{
+		{PersonType: PersonCleaner, PersonID: 99},
+		{PersonType: PersonStaff, PersonID: 55},
+	} {
+		if code, _ := checkRequest(t, stubHandler(0, ErrNoCleanerProfile), auth.RoleAdmin, body); code != http.StatusOK {
+			t.Fatalf("admin for %+v: got %d, want 200", body, code)
+		}
 	}
 }
 
-func TestScopeCleanerChecksInThemselves(t *testing.T) {
-	code, _, self := scopedRequest(t, stubHandler(42, nil), auth.PermAttendanceManage, auth.RoleCleaner,
-		CheckActionRequest{PersonType: PersonCleaner, PersonID: 42})
+func TestOfficeStaffOnlyThemselves(t *testing.T) {
+	// The bug report: a signed-in user could check in someone else.
+	for _, role := range []auth.Role{auth.RoleDispatch, auth.RoleManager, auth.RoleAccountant} {
+		h := stubHandler(0, ErrNoCleanerProfile)
+		if code, _ := checkRequest(t, h, role, CheckActionRequest{PersonType: PersonStaff, PersonID: 7}); code != http.StatusOK {
+			t.Fatalf("%s checking themselves in: got %d, want 200", role, code)
+		}
+		if code, _ := checkRequest(t, h, role, CheckActionRequest{PersonType: PersonStaff, PersonID: 8}); code != http.StatusForbidden {
+			t.Fatalf("%s checking in another staff member: got %d, want 403", role, code)
+		}
+		if code, _ := checkRequest(t, h, role, CheckActionRequest{PersonType: PersonCleaner, PersonID: 99}); code != http.StatusForbidden {
+			t.Fatalf("%s checking in a cleaner: got %d, want 403", role, code)
+		}
+	}
+}
+
+func TestCleanerOnlyOwnProfile(t *testing.T) {
+	h := stubHandler(42, nil)
+	code, self := checkRequest(t, h, auth.RoleCleaner, CheckActionRequest{PersonType: PersonCleaner, PersonID: 42})
 	if code != http.StatusOK || self != 42 {
-		t.Fatalf("cleaner should check in themselves: code=%d self=%d", code, self)
+		t.Fatalf("cleaner on own profile: code=%d self=%d", code, self)
 	}
-}
-
-func TestScopeCleanerCannotCheckInSomeoneElse(t *testing.T) {
-	code, _, _ := scopedRequest(t, stubHandler(42, nil), auth.PermAttendanceManage, auth.RoleCleaner,
-		CheckActionRequest{PersonType: PersonCleaner, PersonID: 43})
-	if code != http.StatusForbidden {
+	if code, _ := checkRequest(t, h, auth.RoleCleaner, CheckActionRequest{PersonType: PersonCleaner, PersonID: 43}); code != http.StatusForbidden {
 		t.Fatalf("cleaner checking in another cleaner: got %d, want 403", code)
 	}
-	code, _, _ = scopedRequest(t, stubHandler(42, nil), auth.PermAttendanceManage, auth.RoleCleaner,
-		CheckActionRequest{PersonType: PersonStaff, PersonID: 42})
-	if code != http.StatusForbidden {
-		t.Fatalf("cleaner checking in staff: got %d, want 403", code)
+	if code, _ := checkRequest(t, h, auth.RoleCleaner, CheckActionRequest{PersonType: PersonStaff, PersonID: 7}); code != http.StatusForbidden {
+		t.Fatalf("cleaner checking in as staff: got %d, want 403", code)
 	}
 }
 
-func TestScopeCleanerWithoutProfileIsRefused(t *testing.T) {
-	code, reached, _ := scopedRequest(t, stubHandler(0, ErrNoCleanerProfile), auth.PermAttendanceManage, auth.RoleCleaner,
-		CheckActionRequest{PersonType: PersonCleaner, PersonID: 1})
-	if code != http.StatusForbidden || reached {
-		t.Fatalf("unlinked cleaner: code=%d reached=%v, want 403 and blocked", code, reached)
+func TestCleanerWithoutProfileIsRefused(t *testing.T) {
+	if code, _ := checkRequest(t, stubHandler(0, ErrNoCleanerProfile), auth.RoleCleaner,
+		CheckActionRequest{PersonType: PersonCleaner, PersonID: 1}); code != http.StatusForbidden {
+		t.Fatalf("unlinked cleaner: got %d, want 403", code)
 	}
 }
 
-func TestScopeOtherRolesWithoutPermissionAreRefused(t *testing.T) {
-	code, reached, _ := scopedRequest(t, stubHandler(42, nil), auth.PermAttendanceManage, auth.RoleAccountant,
-		CheckActionRequest{PersonType: PersonCleaner, PersonID: 42})
-	if code != http.StatusForbidden || reached {
-		t.Fatalf("accountant: code=%d reached=%v, want 403", code, reached)
+func TestListScopePinsCleanerToSelf(t *testing.T) {
+	var self int64
+	var reached bool
+	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		reached = true
+		self, _ = selfCleaner(r)
+	})
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req = req.WithContext(auth.WithIdentity(req.Context(), auth.Identity{UserID: 7, Role: auth.RoleCleaner}))
+	stubHandler(42, nil).scope(auth.PermAttendanceRead)(next).ServeHTTP(httptest.NewRecorder(), req)
+	if !reached || self != 42 {
+		t.Fatalf("cleaner list: reached=%v self=%d", reached, self)
 	}
 }

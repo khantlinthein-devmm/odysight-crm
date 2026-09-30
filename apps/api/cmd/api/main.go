@@ -96,6 +96,11 @@ func run() error {
 	authService := auth.NewServiceWithTTL(authRepo, cfg.JWTSecret, cfg.TokenTTL)
 	authHandler := auth.NewHandler(authService, !cfg.IsDev(), cfg.TokenTTL)
 	authorizer := auth.NewAuthorizer(cfg.JWTSecret)
+	rolePerms := auth.NewPermissionStore(pool)
+	if err := rolePerms.Load(ctx); err != nil {
+		slog.Warn("role permissions: using built-in defaults", "error", err)
+	}
+	go rolePerms.Run(ctx)
 
 	customerRepo := customers.NewRepository(pool)
 	customerService := customers.NewService(customerRepo)
@@ -296,6 +301,7 @@ func run() error {
 			r.Mount("/quotes", quotes.Routes(quoteHandler, authorizer))
 			r.Mount("/checklists", checklists.Routes(checklistHandler, authorizer))
 			r.Mount("/chat", chat.Routes(chat.NewHandler(chatService), authorizer))
+			r.Mount("/roles", auth.RoleRoutes(rolePerms, authorizer))
 		})
 	})
 

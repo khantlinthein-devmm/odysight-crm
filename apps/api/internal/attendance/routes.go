@@ -8,11 +8,12 @@ import (
 
 func Routes(h *Handler, az *auth.Authorizer) chi.Router {
 	r := chi.NewRouter()
-	// Staff with attendance permissions act on anyone. A CLEANER lacks them
-	// but may read and record their own attendance; the handler narrows
-	// those requests to the caller's own cleaner profile.
+	// Reading: attendance.read sees everyone; a CLEANER sees only their own.
+	// Check-in/out: everyone records only their own attendance; recording it
+	// for someone else needs attendance.manage (Super admin and Admin by
+	// default, editable in Settings → Roles & permissions).
 	r.With(h.scope(auth.PermAttendanceRead)).Get("/", h.List)
-	r.With(h.scope(auth.PermAttendanceManage)).Post("/check-in", h.CheckIn)
-	r.With(h.scope(auth.PermAttendanceManage)).Post("/check-out", h.CheckOut)
+	r.With(h.checkScope).Post("/check-in", h.CheckIn)
+	r.With(h.checkScope).Post("/check-out", h.CheckOut)
 	return r
 }

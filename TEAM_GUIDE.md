@@ -16,7 +16,7 @@ first contact to paid invoice. Keep this open during your first week.
 | SUPER_ADMIN | Owner | Everything, incl. team management and audit log | — |
 | ADMIN | Co-owner / ops head | Everything except managing users and audit log | `users.manage`, `audit.read` |
 | MANAGER | Branch / sales manager | Leads, customers, bookings, sites, quotes (create/edit), checklists | Create invoices/payments, approve quotes, manage contracts |
-| DISPATCH | Dispatcher | Create/assign bookings, manage attendance, view sites | Money, contracts, quotes |
+| DISPATCH | Dispatcher | Create/assign bookings, view sites, check themselves in/out | Money, contracts, quotes |
 | ACCOUNTANT | Finance | Invoices, payments, expenses | Leads/bookings edits, contracts edits |
 | CLEANER | Field staff | View own bookings, accept jobs, checklists, check in/out | Everything else |
 
@@ -132,6 +132,13 @@ Nobody is forced to use checklists. When a commercial client wants proof:
   payment is received). Invoices are always ใบแจ้งหนี้. Give company
   customers their tax ID and *Withholding tax 3%* on the customer form;
   invoices show the deduction and net payable.
+- **Roles & permissions** — *Settings → Roles & permissions*. A Super admin
+  can tick/untick what each role may do (Admin, Manager, Dispatch,
+  Accountant, Cleaner) and **Save changes**; **reset** puts a role back to
+  the built-in defaults. Super admin always keeps every permission. The API
+  applies changes at once; menus update on each person's next page load.
+  Outlined boxes differ from the default; ⚠ marks sensitive permissions
+  (team, settings, audit log, editing payments/invoices).
 - **Two-factor sign-in (2FA)** — office roles (Super admin, Admin, Manager,
   Accountant, Dispatch) must use an authenticator app (Google Authenticator
   or Microsoft Authenticator). At the first sign-in the app shows a QR code:
@@ -158,6 +165,11 @@ Nobody is forced to use checklists. When a commercial client wants proof:
   invoice in that chat automatically. Look for the **LINE ✓** badge.
 - **Cleaner app language** — cleaners tap English / ไทย / မြန်မာ at the top
   of My Jobs or Check-in.
+- **Attendance** — everyone checks only **themselves** in and out (office
+  staff on the *Team staff* tab, cleaners on *Check-in*). Only SUPER_ADMIN
+  and ADMIN can record a check-in/out for someone else, e.g. a cleaner
+  without a phone. Change who may do this in *Settings → Roles &
+  permissions → Check in / out for others*.
 - **GPS check-in** — set *Settings → Booking defaults → check-in radius*
   (e.g. 200 m) and pin each site (*Sites → GPS pin*: paste a Google Maps
   link or use your location on site). Cleaners then must be at the site to

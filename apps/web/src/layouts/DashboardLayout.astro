@@ -58,7 +58,22 @@ const { title = "Dashboard" } = Astro.props;
     <BottomNav client:load />
     <script>
       import { initOffline } from "../lib/offline";
+      import { refreshSessionUser } from "../lib/auth";
       initOffline();
+      // An admin may have changed this role's permissions: re-read them and,
+      // if they differ, reload once so menus and buttons match.
+      refreshSessionUser()
+        .then((changed) => {
+          if (changed && !sessionStorage.getItem("perm-reload")) {
+            sessionStorage.setItem("perm-reload", "1");
+            window.location.reload();
+          } else {
+            sessionStorage.removeItem("perm-reload");
+          }
+        })
+        .catch(() => {
+          /* offline or signed out: keep what we have */
+        });
     </script>
   </body>
 </html>
