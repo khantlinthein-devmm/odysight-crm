@@ -359,26 +359,35 @@ let tick = 0;
 const otherTyping = computed(() => typingUntil.value > now.value);
 const groupOnline = computed(() => (active.value?.group?.memberIds ?? []).filter((id) => id !== meId && isOnline(id)).length);
 
-// Phones: the on-screen keyboard shrinks only the visible area, not the page,
-// so a box sized to the page ends up under the keyboard. While typing, pin
-// the chat to exactly the visible area (full screen, like messaging apps).
+// Phones: while typing, pin the chat full screen (like messaging apps) and
+// end it just above the on-screen keyboard. Browsers report the keyboard
+// differently: iPhone and Android Chrome tabs shrink the visible area
+// (visualViewport), but an installed Android app can let the keyboard cover
+// the page without shrinking anything. There Chrome's VirtualKeyboard API
+// tells us the keyboard's height, so we opt in to it and use it.
+interface VirtualKeyboardLike extends EventTarget {
+  overlaysContent: boolean;
+  boundingRect: DOMRect;
+}
+const virtualKeyboard = (navigator as Navigator & { virtualKeyboard?: VirtualKeyboardLike }).virtualKeyboard;
 const keyboardStyle = ref<Record<string, string>>({});
 function fitToKeyboard() {
   const vv = window.visualViewport;
   const el = document.activeElement;
   const typing = !!vv && !!el && el.tagName === "TEXTAREA" && !!root.value?.contains(el);
-  // Pin whenever the text box has focus on a phone-sized screen. Measuring
-  // the keyboard is unreliable (in an installed PWA and on iPhone the page
-  // height shrinks along with the visible area), so do not try.
+  // Pin whenever the text box has focus on a phone-sized screen.
   const open = typing && window.matchMedia("(max-width: 1023px)").matches;
   const was = Object.keys(keyboardStyle.value).length > 0;
+  let height = vv?.height ?? window.innerHeight;
+  const covered = virtualKeyboard?.boundingRect.height ?? 0;
+  if (covered > 0) height = Math.min(height, window.innerHeight - covered - (vv?.offsetTop ?? 0));
   keyboardStyle.value = open
     ? {
         position: "fixed",
         top: `${vv!.offsetTop}px`,
         left: "0",
         right: "0",
-        height: `${vv!.height}px`,
+        height: `${Math.max(200, height)}px`,
         minHeight: "0",
         zIndex: "60",
         borderRadius: "0",
@@ -461,6 +470,12 @@ onMounted(async () => {
   document.addEventListener("visibilitychange", onVisible);
   window.visualViewport?.addEventListener("resize", fitToKeyboard);
   window.visualViewport?.addEventListener("scroll", fitToKeyboard);
+  if (virtualKeyboard) {
+    // Report the keyboard's size (geometrychange) instead of letting it
+    // silently cover the page. Only on the chat screen; reset on leave.
+    virtualKeyboard.overlaysContent = true;
+    virtualKeyboard.addEventListener("geometrychange", fitToKeyboard);
+  }
   document.addEventListener("focusin", onFocusChange);
   document.addEventListener("focusout", onFocusChange);
 });
@@ -473,6 +488,10 @@ onBeforeUnmount(() => {
   document.removeEventListener("visibilitychange", onVisible);
   window.visualViewport?.removeEventListener("resize", fitToKeyboard);
   window.visualViewport?.removeEventListener("scroll", fitToKeyboard);
+  if (virtualKeyboard) {
+    virtualKeyboard.removeEventListener("geometrychange", fitToKeyboard);
+    virtualKeyboard.overlaysContent = false;
+  }
   document.removeEventListener("focusin", onFocusChange);
   document.removeEventListener("focusout", onFocusChange);
   if (recording.value) stopRecording(false);
