@@ -15,6 +15,11 @@ const navItems: NavItem[] = [
     icon: "M3 12l9-9 9 9M5 10v10a1 1 0 001 1h4v-6h4v6h4a1 1 0 001-1V10",
   },
   {
+    label: "Chat",
+    href: "/chat",
+    icon: "M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z",
+  },
+  {
     label: "Leads",
     perm: "leads.read",
     href: "/leads",
@@ -206,6 +211,12 @@ const isActive = (href: string) =>
             />
           </svg>
           <span class="nav-label truncate">{item.label}</span>
+          {item.href === "/chat" && (
+            <span
+              data-chat-unread
+              class="ml-auto hidden min-w-5 rounded-full bg-red-500 px-1.5 text-center text-[11px] font-semibold leading-5 text-white"
+            />
+          )}
         </a>
       ))
     }
@@ -248,8 +259,22 @@ const isActive = (href: string) =>
 <script>
   import { getInitials, getSessionUser } from "../../lib/auth";
   import { hasPermission } from "../../lib/roles";
+  import { getChatUnread } from "../../lib/chat";
 
   const user = getSessionUser();
+
+  // Unread chat badge, refreshed every 30 s and when the tab regains focus.
+  async function refreshChatBadge() {
+    const badge = document.querySelector<HTMLElement>("[data-chat-unread]");
+    if (!badge || !user) return;
+    const n = await getChatUnread().catch(() => 0);
+    badge.textContent = n > 99 ? "99+" : String(n);
+    badge.classList.toggle("hidden", n === 0);
+  }
+  void refreshChatBadge();
+  setInterval(refreshChatBadge, 30_000);
+  window.addEventListener("focus", refreshChatBadge);
+  window.addEventListener("chat:read", refreshChatBadge);
 
   if (user) {
     // CLEANERs record their own attendance without attendance.read.

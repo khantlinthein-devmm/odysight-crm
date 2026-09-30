@@ -132,6 +132,15 @@ Nobody is forced to use checklists. When a commercial client wants proof:
   payment is received). Invoices are always ใบแจ้งหนี้. Give company
   customers their tax ID and *Withholding tax 3%* on the customer form;
   invoices show the deduction and net payable.
+- **Team chat** — sidebar / bottom bar → **Chat** → **New message**. Send
+  text, photos (camera button) and voice messages (microphone button, up to
+  2 minutes). Who can message whom: admin, manager and dispatch can message
+  anyone and anyone can message them; other staff (cleaners, accountant)
+  can message each other only when they share a chat group. ADMIN sets up
+  groups under **Chat → Chat groups** (e.g. "Bang Na team"). Tap
+  **Turn on notifications** once per phone to get a push alert for new
+  messages — on iPhone, first add the app to the Home Screen (Share → Add to
+  Home Screen), then open it from there.
 - **LINE messages** — customers who came through LINE get booking
   confirmation, a reminder the day before, a job-done message and their
   invoice in that chat automatically. Look for the **LINE ✓** badge.
@@ -186,6 +195,8 @@ Nobody is forced to use checklists. When a commercial client wants proof:
 | "this booking has no price" | Set *Price before VAT* on the booking, or type the amount in the dialog |
 | "payment exceeds the balance due" | The amount is more than what is still owed — check the invoice balance |
 | Can't void an invoice | It has payments — refund them on **Payments** first |
+| Can't message a cleaner/colleague | You share no chat group — ask ADMIN to add you both to one (Chat → Chat groups) |
+| No chat notifications on the phone | Tap "Turn on notifications" in Chat; on iPhone the app must be opened from the Home Screen icon; check the browser didn't block notifications |
 | VAT appears / doesn't appear | Controlled by *Charge VAT* in Settings → Company; existing invoices keep what they were issued with |
 | Supply usage refused "only N in stock" | Record the purchase (Buy) or a stock count (Adjust) first |
 

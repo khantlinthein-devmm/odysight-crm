@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { getLang, t, type Lang, type MessageKey } from '../../lib/i18n';
+  import { getChatUnread } from '../../lib/chat';
 
   interface Item {
     label: MessageKey;
@@ -20,6 +21,11 @@
       icon: 'M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z',
     },
     {
+      label: 'nav.chat',
+      href: '/chat',
+      icon: 'M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z',
+    },
+    {
       label: 'nav.calculator',
       href: '/calculator',
       icon: 'M9 7h6m-5 4h4m5-7H5a2 2 0 00-2 2v12a2 2 0 002 2h14a2 2 0 002-2V6a2 2 0 00-2-2zm-3 14h-2v-2h2v2z',
@@ -36,9 +42,21 @@
   // hydration matches the server-rendered markup.
   let lang = $state<Lang>('en');
 
+  let unread = $state(0);
+
   onMount(() => {
     path = window.location.pathname;
     lang = getLang();
+    const refresh = () => getChatUnread().then((n) => (unread = n)).catch(() => {});
+    refresh();
+    const timer = setInterval(refresh, 30_000);
+    window.addEventListener('focus', refresh);
+    window.addEventListener('chat:read', refresh);
+    return () => {
+      clearInterval(timer);
+      window.removeEventListener('focus', refresh);
+      window.removeEventListener('chat:read', refresh);
+    };
   });
 
   function isActive(href: string): boolean {
@@ -50,13 +68,16 @@
   aria-label="Field navigation"
   class="fixed inset-x-0 bottom-0 z-30 border-t border-gray-200 bg-white/95 pb-[env(safe-area-inset-bottom,0px)] backdrop-blur lg:hidden"
 >
-  <div class="grid grid-cols-4">
+  <div class="grid grid-cols-5">
     {#each items as item}
       <a
         href={item.href}
         aria-current={isActive(item.href) ? 'page' : undefined}
-        class="field-tap flex flex-col items-center justify-center gap-0.5 py-2 text-[11px] font-medium {isActive(item.href) ? 'text-navy-700' : 'text-gray-500'}"
+        class="field-tap relative flex flex-col items-center justify-center gap-0.5 py-2 text-[11px] font-medium {isActive(item.href) ? 'text-navy-700' : 'text-gray-500'}"
       >
+        {#if item.href === '/chat' && unread > 0}
+          <span class="absolute left-1/2 top-1 ml-2 min-w-4 rounded-full bg-red-500 px-1 text-center text-[10px] font-semibold leading-4 text-white">{unread > 99 ? '99+' : unread}</span>
+        {/if}
         <svg
           class="h-6 w-6"
           fill="none"
