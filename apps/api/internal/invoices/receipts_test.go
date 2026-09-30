@@ -120,9 +120,9 @@ func TestLedgerDB(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() {
-		_, _ = pool.Exec(ctx, `DELETE FROM receipts WHERE invoice_id IN (SELECT id FROM invoices WHERE booking_id = $1)`, bookingID)
+		_, _ = pool.Exec(ctx, `DELETE FROM receipts WHERE invoice_id IN (SELECT id FROM invoices WHERE booking_number = $1)`, number)
 		_, _ = pool.Exec(ctx, `DELETE FROM payments WHERE booking_number = $1`, number)
-		_, _ = pool.Exec(ctx, `DELETE FROM invoices WHERE booking_id = $1`, bookingID)
+		_, _ = pool.Exec(ctx, `DELETE FROM invoices WHERE booking_number = $1`, number)
 		_, _ = pool.Exec(ctx, `DELETE FROM bookings WHERE id = $1`, bookingID)
 	})
 
@@ -201,6 +201,21 @@ func TestLedgerDB(t *testing.T) {
 	list, total, err := repo.ListReceipts(ctx, paramsAll(), inv.ID)
 	if err != nil || total != 3 || len(list) != 3 {
 		t.Fatalf("receipts for invoice: %d (%v)", total, err)
+	}
+
+	// Deleting the booking nulls invoices.booking_id; the invoice and its
+	// receipts must still load (this was a 500 in production).
+	if _, err := pool.Exec(ctx, `DELETE FROM bookings WHERE id = $1`, bookingID); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := repo.GetByID(ctx, inv.ID); err != nil || got.BookingID != 0 || got.BookingNumber != number {
+		t.Fatalf("invoice after booking delete: %+v %v", got, err)
+	}
+	if _, _, err := repo.List(ctx, paramsAll()); err != nil {
+		t.Fatalf("list invoices after booking delete: %v", err)
+	}
+	if _, _, err := repo.ListReceipts(ctx, paramsAll(), inv.ID); err != nil {
+		t.Fatalf("list receipts after booking delete: %v", err)
 	}
 }
 

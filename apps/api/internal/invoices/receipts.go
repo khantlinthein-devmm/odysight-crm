@@ -118,7 +118,7 @@ func nextStatus(inv Invoice, amountPaid float64) Status {
 const receiptSelect = `SELECT r.id, r.receipt_number, r.invoice_id, r.payment_id, r.amount::float8,
 		r.subtotal_part::float8, r.vat_part::float8, r.wht_part::float8, r.tax_rate::float8, r.withholding_rate::float8,
 		r.currency, r.method, r.reference, r.vat_registered, r.status, r.paid_at, r.cancelled_at, r.created_at,
-		i.invoice_number, i.booking_id, i.booking_number, i.customer_name, i.customer_email, i.address,
+		i.invoice_number, COALESCE(i.booking_id, 0), i.booking_number, i.customer_name, i.customer_email, i.address,
 		i.service_name, i.customer_tax_id, i.customer_tax_branch
 	FROM receipts r JOIN invoices i ON i.id = r.invoice_id`
 
