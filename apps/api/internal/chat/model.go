@@ -10,10 +10,14 @@ import (
 )
 
 const (
-	KindText  = "text"
+	KindText = "text"
+	// KindImage is no longer accepted; older photo messages still display.
 	KindImage = "image"
 	KindVoice = "voice"
 )
+
+// FileRetention is how long chat voice notes are kept on disk.
+const FileRetention = 30 * 24 * time.Hour
 
 // IsOffice reports whether a role belongs to the office team, which may
 // message anyone. Everyone else needs a shared chat group.
@@ -50,15 +54,17 @@ type Conversation struct {
 }
 
 type Message struct {
-	ID             int64     `json:"id"`
-	ConversationID int64     `json:"conversationId"`
-	SenderID       *int64    `json:"senderId"`
-	Kind           string    `json:"kind"`
-	Body           string    `json:"body"`
-	FileURL        string    `json:"fileUrl,omitempty"`
-	MimeType       string    `json:"mimeType,omitempty"`
-	DurationMs     int       `json:"durationMs,omitempty"`
-	CreatedAt      time.Time `json:"createdAt"`
+	ID             int64  `json:"id"`
+	ConversationID int64  `json:"conversationId"`
+	SenderID       *int64 `json:"senderId"`
+	Kind           string `json:"kind"`
+	Body           string `json:"body"`
+	FileURL        string `json:"fileUrl,omitempty"`
+	MimeType       string `json:"mimeType,omitempty"`
+	DurationMs     int    `json:"durationMs,omitempty"`
+	// Expired: the voice note was removed by the 30-day cleanup.
+	Expired   bool      `json:"expired,omitempty"`
+	CreatedAt time.Time `json:"createdAt"`
 }
 
 type Group struct {

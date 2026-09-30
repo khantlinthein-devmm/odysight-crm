@@ -221,7 +221,12 @@ func run() error {
 			break
 		}
 	}
-	chatService := chat.NewService(chat.NewRepository(pool), chat.NewFileStore(cfg.UploadDir), pushSubject)
+	chatRepo := chat.NewRepository(pool)
+	chatFiles := chat.NewFileStore(cfg.UploadDir)
+	chatEvents := chat.NewBroker(pool)
+	go chatEvents.Run(ctx)
+	chatService := chat.NewService(chatRepo, chatFiles, pushSubject, chatEvents)
+	go chat.NewCleaner(chatRepo, chatFiles).Run(ctx)
 	checklistHandler := checklists.NewHandler(checklistService, checklists.NewPhotoStore(cfg.UploadDir, cfg.MaxUploadMB))
 
 	// LINE OA → auto-lead. Mounted outside the auth group: authenticity
@@ -241,7 +246,7 @@ func run() error {
 	r.Use(middleware.RealIP)
 	r.Use(middleware.Logger)
 	r.Use(middleware.Recoverer)
-	r.Use(middleware.Timeout(cfg.RequestTimeout))
+	r.Use(apmw.TimeoutExcept(cfg.RequestTimeout, chatEventsPath))
 	r.Use(apmw.SecurityHeaders)
 	r.Use(apmw.CORS(cfg.CORSOrigins))
 	r.Use(apmw.RateLimit(cfg.RateLimitRPM, cfg.TrustedProxyIPs))
@@ -335,6 +340,11 @@ func auditLog(pool *pgxpool.Pool, timeout time.Duration) func(http.Handler) http
 			if r.URL.Path == "/api/v1/cleaners/me/location" {
 				return
 			}
+			// Chat traffic (messages, read receipts, typing) is private and
+			// frequent; only changes to chat groups are audited.
+			if strings.HasPrefix(r.URL.Path, "/api/v1/chat/") && !strings.HasPrefix(r.URL.Path, "/api/v1/chat/groups") {
+				return
+			}
 			id, _ := auth.IdentityFromContext(r.Context())
 			ctx, cancel := context.WithTimeout(context.Background(), timeout)
 			defer cancel()
@@ -358,3 +368,6 @@ func resourceIDFromPath(path string) *int64 {
 	}
 	return &id
 }
+
+// chatEventsPath is the long-lived SSE stream, exempt from the request timeout.
+const chatEventsPath = "/api/v1/chat/events"

@@ -133,14 +133,18 @@ Nobody is forced to use checklists. When a commercial client wants proof:
   customers their tax ID and *Withholding tax 3%* on the customer form;
   invoices show the deduction and net payable.
 - **Team chat** — sidebar / bottom bar → **Chat** → **New message**. Send
-  text, photos (camera button) and voice messages (microphone button, up to
-  2 minutes). Who can message whom: admin, manager and dispatch can message
-  anyone and anyone can message them; other staff (cleaners, accountant)
-  can message each other only when they share a chat group. ADMIN sets up
-  groups under **Chat → Chat groups** (e.g. "Bang Na team"). Tap
-  **Turn on notifications** once per phone to get a push alert for new
-  messages — on iPhone, first add the app to the Home Screen (Share → Add to
-  Home Screen), then open it from there.
+  text and voice messages (microphone button, up to 1 minute). Messages,
+  "typing…" and "Seen" appear instantly (live connection; if it drops, the
+  app reconnects by itself and catches up). Voice
+  messages are deleted automatically 30 days after they were sent (the text
+  of the chat stays) so the server's disk never fills up — photos are not
+  sent in chat for the same reason. Who can message whom: admin, manager and
+  dispatch can message anyone and anyone can message them; other staff
+  (cleaners, accountant) can message each other only when they share a chat
+  group. ADMIN sets up groups under **Chat → Chat groups** (e.g. "Bang Na
+  team"). Tap **Turn on notifications** once per phone to get a push alert
+  for new messages — on iPhone, first add the app to the Home Screen (Share →
+  Add to Home Screen), then open it from there.
 - **LINE messages** — customers who came through LINE get booking
   confirmation, a reminder the day before, a job-done message and their
   invoice in that chat automatically. Look for the **LINE ✓** badge.

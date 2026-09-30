@@ -2,9 +2,11 @@ package chat
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"os"
 	"strconv"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 
@@ -145,9 +147,9 @@ func (h *Handler) Send(w http.ResponseWriter, r *http.Request) {
 	var msg Message
 	var err error
 	if ct := r.Header.Get("Content-Type"); len(ct) >= 19 && ct[:19] == "multipart/form-data" {
-		r.Body = http.MaxBytesReader(w, r.Body, maxImageBytes+(1<<20))
+		r.Body = http.MaxBytesReader(w, r.Body, maxVoiceBytes+(1<<20))
 		if err := r.ParseMultipartForm(1 << 20); err != nil {
-			response.Error(w, http.StatusBadRequest, "invalid upload (max 8 MB)")
+			response.Error(w, http.StatusBadRequest, "invalid upload (max 3 MB)")
 			return
 		}
 		defer func() { _ = r.MultipartForm.RemoveAll() }()
@@ -327,4 +329,75 @@ func (h *Handler) Unsubscribe(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// Typing handles POST /chat/conversations/{id}/typing
+func (h *Handler) Typing(w http.ResponseWriter, r *http.Request) {
+	me, ok := identity(w, r)
+	if !ok {
+		return
+	}
+	id, ok := idParam(w, r, "id")
+	if !ok {
+		return
+	}
+	if err := h.service.Typing(r.Context(), me, id); err != nil {
+		response.HandleError(w, r, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// sseKeepAlive keeps proxies and mobile networks from closing an idle stream.
+const sseKeepAlive = 25 * time.Second
+
+// Stream handles GET /chat/events — a Server-Sent Events stream of this
+// user's chat events (message, read, typing). Browsers reconnect on their
+// own; after a reconnect the page re-fetches, so missed hints are harmless.
+func (h *Handler) Stream(w http.ResponseWriter, r *http.Request) {
+	me, ok := identity(w, r)
+	if !ok {
+		return
+	}
+	broker := h.service.Events()
+	rc := http.NewResponseController(w)
+	// The server-wide write timeout would cut the stream; lift it here.
+	_ = rc.SetWriteDeadline(time.Time{})
+
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache, no-transform")
+	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("X-Accel-Buffering", "no")
+	w.WriteHeader(http.StatusOK)
+	// retry: how long the browser waits before reconnecting.
+	if _, err := fmt.Fprint(w, "retry: 3000\n: connected\n\n"); err != nil {
+		return
+	}
+	if err := rc.Flush(); err != nil {
+		return
+	}
+
+	events, cancel := broker.Subscribe(me.UserID)
+	defer cancel()
+	ping := time.NewTicker(sseKeepAlive)
+	defer ping.Stop()
+	for {
+		select {
+		case <-r.Context().Done():
+			return
+		case <-broker.Done():
+			return
+		case <-ping.C:
+			if _, err := fmt.Fprint(w, ": ping\n\n"); err != nil {
+				return
+			}
+		case ev := <-events:
+			if _, err := fmt.Fprintf(w, "event: %s\ndata: %s\n\n", ev.Type, ev.Data); err != nil {
+				return
+			}
+		}
+		if err := rc.Flush(); err != nil {
+			return
+		}
+	}
 }

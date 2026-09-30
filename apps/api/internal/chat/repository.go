@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -171,12 +172,12 @@ func (r *Repository) UnreadTotal(ctx context.Context, me int64) (int, error) {
 	return n, nil
 }
 
-const messageColumns = `id, conversation_id, sender_id, kind, body, file_name, mime_type, duration_ms, created_at`
+const messageColumns = `id, conversation_id, sender_id, kind, body, file_name, mime_type, duration_ms, file_expired, created_at`
 
 func scanMessage(row pgx.Row) (Message, string, error) {
 	var m Message
 	var file string
-	err := row.Scan(&m.ID, &m.ConversationID, &m.SenderID, &m.Kind, &m.Body, &file, &m.MimeType, &m.DurationMs, &m.CreatedAt)
+	err := row.Scan(&m.ID, &m.ConversationID, &m.SenderID, &m.Kind, &m.Body, &file, &m.MimeType, &m.DurationMs, &m.Expired, &m.CreatedAt)
 	if file != "" {
 		m.FileURL = "/api/v1/chat/files/" + file
 	}
@@ -431,4 +432,37 @@ func (r *Repository) VAPIDKey(ctx context.Context, gen func() (string, error)) (
 	}
 	err = r.pool.QueryRow(ctx, `SELECT private_key FROM push_vapid_keys WHERE id = 1`).Scan(&key)
 	return key, err
+}
+
+// ExpiredFile is a stored chat file due for deletion.
+type ExpiredFile struct {
+	MessageID int64
+	FileName  string
+}
+
+// FilesOlderThan lists stored chat files sent before cutoff (a batch).
+func (r *Repository) FilesOlderThan(ctx context.Context, cutoff time.Time, limit int) ([]ExpiredFile, error) {
+	rows, err := r.pool.Query(ctx,
+		`SELECT id, file_name FROM chat_messages
+		  WHERE file_name <> '' AND created_at < $1 ORDER BY created_at LIMIT $2`, cutoff, limit)
+	if err != nil {
+		return nil, fmt.Errorf("list expired chat files: %w", err)
+	}
+	defer rows.Close()
+	out := []ExpiredFile{}
+	for rows.Next() {
+		var f ExpiredFile
+		if err := rows.Scan(&f.MessageID, &f.FileName); err != nil {
+			return nil, err
+		}
+		out = append(out, f)
+	}
+	return out, rows.Err()
+}
+
+// MarkFileExpired clears a message's file after it was deleted from disk.
+func (r *Repository) MarkFileExpired(ctx context.Context, messageID int64) error {
+	_, err := r.pool.Exec(ctx,
+		`UPDATE chat_messages SET file_name = '', file_expired = true WHERE id = $1`, messageID)
+	return err
 }

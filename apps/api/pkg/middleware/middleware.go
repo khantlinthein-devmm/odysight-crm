@@ -6,6 +6,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	chimw "github.com/go-chi/chi/v5/middleware"
 )
 
 // CORS returns middleware that validates Origin against an allowlist.
@@ -149,4 +151,23 @@ func RateLimit(requestsPerMinute int, trustedProxies []string) func(http.Handler
 // LoginRateLimit is a strict per-IP limiter for authentication endpoints.
 func LoginRateLimit(requestsPerMinute int, trustedProxies []string) func(http.Handler) http.Handler {
 	return RateLimit(requestsPerMinute, trustedProxies)
+}
+
+// TimeoutExcept is chi's Timeout middleware for every path except the given
+// long-lived ones (e.g. a Server-Sent Events stream).
+func TimeoutExcept(d time.Duration, paths ...string) func(http.Handler) http.Handler {
+	skip := make(map[string]struct{}, len(paths))
+	for _, p := range paths {
+		skip[p] = struct{}{}
+	}
+	return func(next http.Handler) http.Handler {
+		timed := chimw.Timeout(d)(next)
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if _, ok := skip[r.URL.Path]; ok {
+				next.ServeHTTP(w, r)
+				return
+			}
+			timed.ServeHTTP(w, r)
+		})
+	}
 }

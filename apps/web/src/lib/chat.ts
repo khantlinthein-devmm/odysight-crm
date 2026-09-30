@@ -27,6 +27,8 @@ export interface ChatMessage {
   fileUrl?: string;
   mimeType?: string;
   durationMs?: number;
+  /** The voice note was deleted by the 30-day cleanup. */
+  expired?: boolean;
   createdAt: string;
 }
 
@@ -112,6 +114,11 @@ export async function sendFile(
     throw new ApiError(res.status, message);
   }
   return (await res.json()) as ChatMessage;
+}
+
+/** Tells the other person "… is typing" (callers throttle this). */
+export async function sendTyping(conversationId: number): Promise<void> {
+  await apiFetch<void>(`/api/v1/chat/conversations/${conversationId}/typing`, { method: "POST" });
 }
 
 export async function markRead(conversationId: number, messageId: number): Promise<void> {

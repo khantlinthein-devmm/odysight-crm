@@ -4,7 +4,7 @@ import { chatFileUrl, type ChatMessage } from "../../../lib/chat";
 
 // Photos and voice notes are private files: load them with the session
 // cookie, then show them from an object URL.
-const props = defineProps<{ message: ChatMessage; mine: boolean }>();
+const props = defineProps<{ message: ChatMessage; mine: boolean; expiredText: string }>();
 const emit = defineEmits<{ loaded: [] }>();
 
 const src = ref<string | null>(null);
@@ -27,7 +27,10 @@ function duration(ms?: number): string {
 </script>
 
 <template>
-  <div v-if="message.kind === 'image'">
+  <p v-if="message.expired" class="text-xs italic" :class="mine ? 'text-white/80' : 'text-gray-500'">
+    {{ message.kind === "voice" ? "🎤" : "📷" }} {{ expiredText }}
+  </p>
+  <div v-else-if="message.kind === 'image'">
     <a v-if="src" :href="src" target="_blank" rel="noopener">
       <img
         :src="src"

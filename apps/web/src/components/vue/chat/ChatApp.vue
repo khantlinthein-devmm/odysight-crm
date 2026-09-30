@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, ref } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import {
   enablePush,
   getChatContacts,
@@ -10,6 +10,7 @@ import {
   pushState,
   sendFile,
   sendText,
+  sendTyping,
   type ChatContact,
   type ChatConversation,
   type ChatMessage,
@@ -19,6 +20,7 @@ import { getSessionUser } from "../../../lib/auth";
 import { hasPermission } from "../../../lib/roles";
 import { dateLocale, getLang, t, type Lang, type MessageKey } from "../../../lib/i18n";
 import { showToast } from "../../../lib/toast";
+import { chatLive, onChatEvent, type ChatEventData, type ChatEventType } from "../../../lib/chatEvents";
 import ChatMedia from "./ChatMedia.vue";
 import ChatGroups from "./ChatGroups.vue";
 
@@ -48,7 +50,6 @@ const contacts = ref<ChatContact[]>([]);
 const contactFilter = ref("");
 
 const scroller = ref<HTMLElement | null>(null);
-const photoInput = ref<HTMLInputElement | null>(null);
 
 let convTimer: ReturnType<typeof setInterval> | undefined;
 let threadTimer: ReturnType<typeof setInterval> | undefined;
@@ -230,43 +231,10 @@ function onKey(e: KeyboardEvent) {
   }
 }
 
-// Phone photos are often 3–10 MB; shrink to 1600 px JPEG before upload.
-async function shrinkImage(file: File): Promise<Blob> {
-  if (file.size < 1_500_000 && /^image\/(jpeg|png|webp)$/.test(file.type)) return file;
-  try {
-    const bmp = await createImageBitmap(file);
-    const scale = Math.min(1, 1600 / Math.max(bmp.width, bmp.height));
-    const canvas = document.createElement("canvas");
-    canvas.width = Math.round(bmp.width * scale);
-    canvas.height = Math.round(bmp.height * scale);
-    canvas.getContext("2d")!.drawImage(bmp, 0, 0, canvas.width, canvas.height);
-    const blob = await new Promise<Blob | null>((res) => canvas.toBlob(res, "image/jpeg", 0.85));
-    return blob ?? file;
-  } catch {
-    return file;
-  }
-}
-
-async function onPhoto(ev: Event) {
-  const input = ev.target as HTMLInputElement;
-  const file = input.files?.[0];
-  input.value = "";
-  const conv = active.value;
-  if (!file || !conv) return;
-  sending.value = true;
-  try {
-    const blob = await shrinkImage(file);
-    appendMine(await sendFile(conv.id, "image", blob, { caption: text.value.trim(), fileName: "photo.jpg" }));
-    text.value = "";
-  } catch (err) {
-    showToast(err instanceof Error ? err.message : L("chat.sendFailed"), "error");
-  } finally {
-    sending.value = false;
-  }
-}
-
 // Voice notes: MediaRecorder picks webm/opus (Chrome, Android, Firefox) or
-// mp4/aac (iPhone Safari). Recording stops itself after two minutes.
+// mp4/aac (iPhone Safari), at 24 kbps — clear speech at ~180 KB a minute.
+// Recording stops itself after one minute; the server deletes notes after
+// 30 days.
 const recording = ref(false);
 const recordMs = ref(0);
 let recorder: MediaRecorder | null = null;
@@ -275,7 +243,7 @@ let recordStart = 0;
 let recordTick: ReturnType<typeof setInterval> | undefined;
 let stream: MediaStream | null = null;
 let sendAfterStop = false;
-const MAX_RECORD_MS = 120_000;
+const MAX_RECORD_MS = 60_000;
 
 function pickMime(): string {
   for (const m of ["audio/webm;codecs=opus", "audio/webm", "audio/mp4", "audio/ogg;codecs=opus"]) {
@@ -293,7 +261,10 @@ async function startRecording() {
     return;
   }
   const mime = pickMime();
-  recorder = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined);
+  recorder = new MediaRecorder(stream, {
+    ...(mime ? { mimeType: mime } : {}),
+    audioBitsPerSecond: 24_000,
+  });
   chunks = [];
   sendAfterStop = false;
   recorder.ondataavailable = (e) => {
@@ -373,6 +344,51 @@ async function turnOnPush() {
   }
 }
 
+// Live updates. With the event stream up, polling drops to a 30 s safety net.
+const typingUntil = ref(0);
+const now = ref(Date.now());
+let clock: ReturnType<typeof setInterval> | undefined;
+let offEvents: (() => void) | undefined;
+let lastTypingSent = 0;
+let tick = 0;
+
+const otherTyping = computed(() => typingUntil.value > now.value);
+
+function onEvent(type: ChatEventType, data: ChatEventData) {
+  const conv = active.value;
+  const here = !!conv && data.conversationId === conv.id;
+  switch (type) {
+    case "open": // (re)connected: catch up on anything missed
+      void loadConversations();
+      void pollThread();
+      break;
+    case "message":
+      if (here) {
+        if (data.senderId !== meId) typingUntil.value = 0;
+        void pollThread();
+      }
+      void loadConversations();
+      break;
+    case "read":
+      if (here && data.userId !== meId && data.messageId && conv.otherLastRead < data.messageId) {
+        active.value = { ...conv, otherLastRead: data.messageId };
+      }
+      if (data.userId === meId) void loadConversations();
+      break;
+    case "typing":
+      if (here && data.userId !== meId) typingUntil.value = Date.now() + 4000;
+      break;
+  }
+}
+
+// Tell the other person we're typing, at most every 3 s.
+watch(text, (v) => {
+  const conv = active.value;
+  if (!conv || !v.trim() || Date.now() - lastTypingSent < 3000) return;
+  lastTypingSent = Date.now();
+  void sendTyping(conv.id).catch(() => {});
+});
+
 function onVisible() {
   if (document.visibilityState === "visible") {
     void loadConversations();
@@ -389,18 +405,25 @@ onMounted(async () => {
     const conv = conversations.value.find((c) => c.id === deep);
     if (conv) await select(conv);
   }
+  offEvents = onChatEvent(onEvent);
+  clock = setInterval(() => (now.value = Date.now()), 1000);
+  // Fallback polling: every 5 s / 15 s only while the live stream is down,
+  // otherwise every 30 s as a safety net.
   convTimer = setInterval(() => {
-    if (document.visibilityState === "visible") void loadConversations();
+    if (document.visibilityState === "visible" && !chatLive()) void loadConversations();
   }, 15_000);
-  // Polling budget per open chat: ~12 + 4 requests a minute, well inside the
-  // API's per-IP rate limit even with several people on one office network.
-  threadTimer = setInterval(() => void pollThread(), 5_000);
+  threadTimer = setInterval(() => {
+    tick++;
+    if (!chatLive() || tick % 6 === 0) void pollThread();
+  }, 5_000);
   document.addEventListener("visibilitychange", onVisible);
 });
 
 onBeforeUnmount(() => {
   clearInterval(convTimer);
   clearInterval(threadTimer);
+  clearInterval(clock);
+  offEvents?.();
   document.removeEventListener("visibilitychange", onVisible);
   if (recording.value) stopRecording(false);
 });
@@ -483,7 +506,8 @@ onBeforeUnmount(() => {
             <span class="flex h-9 w-9 items-center justify-center rounded-full bg-navy-100 text-sm font-semibold text-navy-700">{{ initials(active.other.name) }}</span>
             <div class="min-w-0">
               <p class="truncate text-sm font-semibold text-gray-900">{{ active.other.name }}</p>
-              <p class="text-xs text-gray-500">{{ roleLabel(active.other.role) }}</p>
+              <p v-if="otherTyping" class="text-xs font-medium text-green-600">{{ L("chat.typing") }}</p>
+              <p v-else class="text-xs text-gray-500">{{ roleLabel(active.other.role) }}</p>
             </div>
           </header>
 
@@ -499,7 +523,7 @@ onBeforeUnmount(() => {
                   class="max-w-[80%] rounded-2xl px-3 py-2 text-sm shadow-sm"
                   :class="m.senderId === meId ? 'rounded-br-md bg-navy-600 text-white' : 'rounded-bl-md bg-white text-gray-900'"
                 >
-                  <ChatMedia v-if="m.kind !== 'text'" :message="m" :mine="m.senderId === meId" @loaded="nearBottom() && scrollToBottom()" />
+                  <ChatMedia v-if="m.kind !== 'text'" :message="m" :mine="m.senderId === meId" :expired-text="L('chat.expired')" @loaded="nearBottom() && scrollToBottom()" />
                   <p v-if="m.body" class="whitespace-pre-wrap break-words" :class="m.kind !== 'text' ? 'mt-1' : ''">{{ m.body }}</p>
                   <p class="mt-0.5 text-right text-[10px]" :class="m.senderId === meId ? 'text-white/70' : 'text-gray-400'">
                     {{ timeOf(m.createdAt) }}<span v-if="m.id === lastMineSeen"> · {{ L("chat.seen") }}</span>
@@ -517,17 +541,6 @@ onBeforeUnmount(() => {
               <button type="button" class="rounded-lg bg-green-600 px-3 py-2 text-sm font-medium text-white" @click="stopRecording(true)">{{ L("chat.stopSend") }}</button>
             </div>
             <form v-else class="flex items-end gap-2" @submit.prevent="submitText">
-              <button
-                type="button"
-                class="field-tap-sm shrink-0 rounded-lg p-2 text-gray-500 hover:bg-gray-100 hover:text-navy-700"
-                :title="L('chat.photo')"
-                :aria-label="L('chat.photo')"
-                :disabled="sending"
-                @click="photoInput?.click()"
-              >
-                <svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" /><path stroke-linecap="round" stroke-linejoin="round" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
-              </button>
-              <input ref="photoInput" type="file" accept="image/*" class="hidden" @change="onPhoto" />
               <textarea
                 v-model="text"
                 rows="1"
