@@ -7,6 +7,6 @@ export const prerender = false;
 const { id } = Astro.params;
 ---
 
-<DashboardLayout title={`Lead #${id}`}>
+<DashboardLayout title="Lead details">
   <LeadDetails client:load leadId={Number(id)} />
 </DashboardLayout>

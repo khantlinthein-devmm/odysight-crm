@@ -170,3 +170,7 @@ func (s *Service) RemovePhone(ctx context.Context, cleanerID, phoneID int64) err
 func mapRepoError(err error) error {
 	return dberror.Map(err, ErrNotFound, "cleaner not found")
 }
+
+func (s *Service) Numbers(ctx context.Context, ids []int64) (map[int64]int, error) {
+	return s.repo.Numbers(ctx, ids)
+}

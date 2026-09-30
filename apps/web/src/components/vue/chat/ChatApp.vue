@@ -81,7 +81,7 @@ function initials(name: string): string {
 }
 
 function preview(c: ChatConversation): string {
-  const who = c.lastFromMe ? `${L("chat.you")}: ` : "";
+  const who = c.lastFromMe ? `${L("chat.you")}: ` : c.group && c.lastSender ? `${c.lastSender}: ` : "";
   if (c.lastKind === "image") return `${who}📷 ${c.lastBody || L("chat.photoMessage")}`;
   if (c.lastKind === "voice") return `${who}🎤 ${L("chat.voiceMessage")}`;
   return who + c.lastBody;
@@ -105,6 +105,14 @@ function dayLabel(iso: string): string {
   if (d.toDateString() === now.toDateString()) return L("chat.today");
   if (d.toDateString() === y.toDateString()) return L("chat.yesterday");
   return d.toLocaleDateString(dateLocale(lang.value), { weekday: "short", day: "numeric", month: "short" });
+}
+
+// In a group chat, name the sender above the first of their messages in a row.
+function showSender(i: number): boolean {
+  const m = messages.value[i]!;
+  if (!active.value?.group || m.senderId === meId) return false;
+  const prev = messages.value[i - 1];
+  return !prev || prev.senderId !== m.senderId || newDay(i);
 }
 
 function newDay(i: number): boolean {
@@ -346,6 +354,7 @@ async function turnOnPush() {
 
 // Live updates. With the event stream up, polling drops to a 30 s safety net.
 const typingUntil = ref(0);
+const typingName = ref("");
 const now = ref(Date.now());
 let clock: ReturnType<typeof setInterval> | undefined;
 let offEvents: (() => void) | undefined;
@@ -376,7 +385,10 @@ function onEvent(type: ChatEventType, data: ChatEventData) {
       if (data.userId === meId) void loadConversations();
       break;
     case "typing":
-      if (here && data.userId !== meId) typingUntil.value = Date.now() + 4000;
+      if (here && data.userId !== meId) {
+        typingUntil.value = Date.now() + 4000;
+        typingName.value = data.name ?? "";
+      }
       break;
   }
 }
@@ -482,7 +494,8 @@ onBeforeUnmount(() => {
               :class="active?.id === c.id ? 'bg-navy-50' : ''"
               @click="select(c)"
             >
-              <span class="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-navy-100 text-sm font-semibold text-navy-700">{{ initials(c.other.name) }}</span>
+              <span v-if="c.group" class="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-amber-100 text-amber-700" aria-hidden="true"><svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" /></svg></span>
+              <span v-else class="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-navy-100 text-sm font-semibold text-navy-700">{{ initials(c.other.name) }}</span>
               <span class="min-w-0 flex-1">
                 <span class="flex items-baseline justify-between gap-2">
                   <span class="truncate text-sm font-medium text-gray-900">{{ c.other.name }}</span>
@@ -503,10 +516,12 @@ onBeforeUnmount(() => {
         <template v-if="active">
           <header class="flex items-center gap-3 border-b border-gray-100 px-4 py-3">
             <button type="button" class="rounded-lg px-2 py-1 text-sm text-navy-700 hover:bg-gray-100 md:hidden" :aria-label="L('chat.back')" @click="closeThread">←</button>
-            <span class="flex h-9 w-9 items-center justify-center rounded-full bg-navy-100 text-sm font-semibold text-navy-700">{{ initials(active.other.name) }}</span>
+            <span v-if="active.group" class="flex h-9 w-9 items-center justify-center rounded-full bg-amber-100 text-amber-700" aria-hidden="true"><svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" /></svg></span>
+            <span v-else class="flex h-9 w-9 items-center justify-center rounded-full bg-navy-100 text-sm font-semibold text-navy-700">{{ initials(active.other.name) }}</span>
             <div class="min-w-0">
               <p class="truncate text-sm font-semibold text-gray-900">{{ active.other.name }}</p>
-              <p v-if="otherTyping" class="text-xs font-medium text-green-600">{{ L("chat.typing") }}</p>
+              <p v-if="otherTyping" class="text-xs font-medium text-green-600">{{ active.group && typingName ? `${typingName} ${L("chat.isTyping")}` : L("chat.typing") }}</p>
+              <p v-else-if="active.group" class="text-xs text-gray-500">{{ active.group.members }} {{ L("chat.members") }}</p>
               <p v-else class="text-xs text-gray-500">{{ roleLabel(active.other.role) }}</p>
             </div>
           </header>
@@ -523,6 +538,7 @@ onBeforeUnmount(() => {
                   class="max-w-[80%] rounded-2xl px-3 py-2 text-sm shadow-sm"
                   :class="m.senderId === meId ? 'rounded-br-md bg-navy-600 text-white' : 'rounded-bl-md bg-white text-gray-900'"
                 >
+                  <p v-if="showSender(i)" class="mb-0.5 text-xs font-semibold text-amber-700">{{ m.senderName || "—" }}</p>
                   <ChatMedia v-if="m.kind !== 'text'" :message="m" :mine="m.senderId === meId" :expired-text="L('chat.expired')" @loaded="nearBottom() && scrollToBottom()" />
                   <p v-if="m.body" class="whitespace-pre-wrap break-words" :class="m.kind !== 'text' ? 'mt-1' : ''">{{ m.body }}</p>
                   <p class="mt-0.5 text-right text-[10px]" :class="m.senderId === meId ? 'text-white/70' : 'text-gray-400'">

@@ -2,6 +2,7 @@ package leads
 
 import (
 	"encoding/json"
+	"log/slog"
 	"net/http"
 	"strconv"
 
@@ -33,6 +34,7 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 	for _, b := range items {
 		dtos = append(dtos, toDTO(b))
 	}
+	h.number(r, dtos)
 	response.JSON(w, http.StatusOK, pagination.Page[LeadDTO]{Data: dtos, Total: total, Limit: params.Limit, Offset: params.Offset})
 }
 
@@ -48,7 +50,7 @@ func (h *Handler) Get(w http.ResponseWriter, r *http.Request) {
 		response.HandleError(w, r, err)
 		return
 	}
-	response.JSON(w, http.StatusOK, toDTO(lead))
+	response.JSON(w, http.StatusOK, h.one(r, toDTO(lead)))
 }
 
 // Create handles POST /api/v1/leads
@@ -63,7 +65,7 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 		response.HandleError(w, r, err)
 		return
 	}
-	response.JSON(w, http.StatusCreated, toDTO(lead))
+	response.JSON(w, http.StatusCreated, h.one(r, toDTO(lead)))
 }
 
 // Update handles PATCH /api/v1/leads/{id}
@@ -83,7 +85,7 @@ func (h *Handler) Update(w http.ResponseWriter, r *http.Request) {
 		response.HandleError(w, r, err)
 		return
 	}
-	response.JSON(w, http.StatusOK, toDTO(lead))
+	response.JSON(w, http.StatusOK, h.one(r, toDTO(lead)))
 }
 
 // Delete handles DELETE /api/v1/leads/{id}
@@ -143,4 +145,27 @@ func decodeJSON[T any](w http.ResponseWriter, r *http.Request) (T, bool) {
 		return out, false
 	}
 	return out, true
+}
+
+// number fills in each record's display number. It is cosmetic, so a failed
+// lookup is logged and the records go out without one.
+func (h *Handler) number(r *http.Request, dtos []LeadDTO) {
+	ids := make([]int64, len(dtos))
+	for i := range dtos {
+		ids[i] = dtos[i].ID
+	}
+	nos, err := h.service.Numbers(r.Context(), ids)
+	if err != nil {
+		slog.Warn("leads display numbers", "error", err)
+		return
+	}
+	for i := range dtos {
+		dtos[i].No = nos[dtos[i].ID]
+	}
+}
+
+func (h *Handler) one(r *http.Request, dto LeadDTO) LeadDTO {
+	d := []LeadDTO{dto}
+	h.number(r, d)
+	return d[0]
 }

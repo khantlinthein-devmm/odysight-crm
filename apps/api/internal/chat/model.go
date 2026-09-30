@@ -1,6 +1,6 @@
-// Package chat is the team's direct messaging: one-to-one conversations
-// between staff, with text, photo and voice messages and phone push
-// notifications.
+// Package chat is the team's messaging: one-to-one conversations between
+// staff plus one group conversation per chat group, with text and voice
+// messages and phone push notifications.
 package chat
 
 import (
@@ -42,14 +42,20 @@ type Contact struct {
 }
 
 type Conversation struct {
-	ID            int64      `json:"id"`
-	Other         Contact    `json:"other"`
+	ID int64 `json:"id"`
+	// Other is the person in a direct conversation; for a group chat it
+	// carries the group's name (userId 0).
+	Other Contact `json:"other"`
+	// Group is set for a group conversation.
+	Group         *GroupRef  `json:"group,omitempty"`
 	LastMessageAt *time.Time `json:"lastMessageAt"`
 	LastKind      string     `json:"lastKind"`
 	LastBody      string     `json:"lastBody"`
 	LastFromMe    bool       `json:"lastFromMe"`
+	LastSender    string     `json:"lastSender,omitempty"`
 	Unread        int        `json:"unread"`
-	// OtherLastRead lets the sender show "seen" on their messages.
+	// OtherLastRead lets the sender show "seen" on their messages (direct
+	// conversations only).
 	OtherLastRead int64 `json:"otherLastRead"`
 }
 
@@ -57,6 +63,7 @@ type Message struct {
 	ID             int64  `json:"id"`
 	ConversationID int64  `json:"conversationId"`
 	SenderID       *int64 `json:"senderId"`
+	SenderName     string `json:"senderName"`
 	Kind           string `json:"kind"`
 	Body           string `json:"body"`
 	FileURL        string `json:"fileUrl,omitempty"`
@@ -72,4 +79,9 @@ type Group struct {
 	Name      string    `json:"name"`
 	Members   []Contact `json:"members"`
 	CreatedAt time.Time `json:"createdAt"`
+}
+
+type GroupRef struct {
+	ID      int64 `json:"id"`
+	Members int   `json:"members"`
 }

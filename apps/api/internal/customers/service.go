@@ -173,3 +173,7 @@ func (s *Service) SetPortalAuth(ctx context.Context, id int64, password *string,
 func mapRepoError(err error) error {
 	return dberror.Map(err, ErrNotFound, "customer not found")
 }
+
+func (s *Service) Numbers(ctx context.Context, ids []int64) (map[int64]int, error) {
+	return s.repo.Numbers(ctx, ids)
+}

@@ -157,7 +157,10 @@ Nobody is forced to use checklists. When a commercial client wants proof:
   dispatch can message anyone and anyone can message them; other staff
   (cleaners, accountant) can message each other only when they share a chat
   group. ADMIN sets up groups under **Chat → Chat groups** (e.g. "Bang Na
-  team"). Tap **Turn on notifications** once per phone to get a push alert
+  team"). Every group also has its own **group chat** (👥 at the top of
+  the chat list) where all its members talk together; people added later
+  see the earlier messages, people removed lose access, and deleting the
+  group deletes its group chat. Tap **Turn on notifications** once per phone to get a push alert
   for new messages — on iPhone, first add the app to the Home Screen (Share →
   Add to Home Screen), then open it from there.
 - **LINE messages** — customers who came through LINE get booking

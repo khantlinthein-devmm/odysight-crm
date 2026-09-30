@@ -11,6 +11,8 @@ export type PropertyType =
 
 export interface Customer {
   id: number;
+  /** Display number: 1…N in creation order, recounted after deletes. */
+  no?: number;
   firstName: string;
   lastName: string;
   email: string;

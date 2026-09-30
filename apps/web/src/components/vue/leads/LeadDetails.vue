@@ -119,7 +119,7 @@ onMounted(fetchLead);
               {{ lead.firstName }} {{ lead.lastName }}
             </h2>
             <p class="text-xs text-gray-500">
-              Lead #{{ lead.id }} · created {{ formatDate(lead.createdAt) }}
+              Lead #{{ lead.no || lead.id }} · created {{ formatDate(lead.createdAt) }}
             </p>
           </div>
         </div>

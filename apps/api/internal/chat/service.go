@@ -95,7 +95,7 @@ func (s *Service) checkAllowed(ctx context.Context, me auth.Identity, otherID in
 }
 
 func (s *Service) Messages(ctx context.Context, me auth.Identity, conversationID, after, before int64, limit int) ([]Message, error) {
-	if _, err := s.repo.OtherParticipant(ctx, conversationID, me.UserID); err != nil {
+	if _, err := s.repo.Thread(ctx, conversationID, me.UserID); err != nil {
 		return nil, mapErr(err)
 	}
 	if limit <= 0 || limit > 100 {
@@ -122,11 +122,7 @@ func (s *Service) SendFile(ctx context.Context, me auth.Identity, conversationID
 		return Message{}, response.NewAPIError(400, "only voice messages can be attached")
 	}
 	// Check membership and the messaging rule before writing to disk.
-	other, err := s.repo.OtherParticipant(ctx, conversationID, me.UserID)
-	if err != nil {
-		return Message{}, mapErr(err)
-	}
-	if err := s.checkAllowed(ctx, me, other); err != nil {
+	if _, err := s.thread(ctx, me, conversationID); err != nil {
 		return Message{}, err
 	}
 	name, mime, err := s.files.Save(kind, r)
@@ -146,51 +142,74 @@ func (s *Service) SendFile(ctx context.Context, me auth.Identity, conversationID
 	})
 }
 
-func (s *Service) send(ctx context.Context, me auth.Identity, m NewMessage) (Message, error) {
-	other, err := s.repo.OtherParticipant(ctx, m.ConversationID, me.UserID)
+// thread loads a conversation the caller may post in: a member of the group
+// for a group chat, or the messaging rule for a direct conversation (group
+// membership can change after a conversation starts).
+func (s *Service) thread(ctx context.Context, me auth.Identity, conversationID int64) (Thread, error) {
+	t, err := s.repo.Thread(ctx, conversationID, me.UserID)
 	if err != nil {
-		return Message{}, mapErr(err)
+		return Thread{}, mapErr(err)
 	}
-	// Group membership can change after a conversation starts.
-	if err := s.checkAllowed(ctx, me, other); err != nil {
+	if !t.IsGroup() {
+		if err := s.checkAllowed(ctx, me, t.Other); err != nil {
+			return Thread{}, err
+		}
+	}
+	return t, nil
+}
+
+func (s *Service) send(ctx context.Context, me auth.Identity, m NewMessage) (Message, error) {
+	t, err := s.thread(ctx, me, m.ConversationID)
+	if err != nil {
 		return Message{}, err
 	}
 	msg, err := s.repo.AddMessage(ctx, m)
 	if err != nil {
 		return Message{}, err
 	}
-	// Both sides: the recipient sees it, the sender's other devices too.
-	s.publish(ctx, []int64{other, me.UserID}, "message", map[string]int64{
+	// Everyone in it sees it, the sender's other devices too.
+	s.publish(ctx, append(t.Recipients(), me.UserID), "message", map[string]int64{
 		"conversationId": msg.ConversationID, "messageId": msg.ID, "senderId": me.UserID,
 	})
-	senderName, _, _ := s.repo.UserRole(ctx, me.UserID)
-	go s.notify(other, senderName, msg)
+	title, prefix := msg.SenderName, ""
+	if t.IsGroup() {
+		title, prefix = t.GroupName, msg.SenderName+": "
+	}
+	for _, to := range t.Recipients() {
+		go s.notify(to, title, prefix, msg)
+	}
 	return msg, nil
 }
 
 func (s *Service) MarkRead(ctx context.Context, me auth.Identity, conversationID, messageID int64) error {
-	other, err := s.repo.OtherParticipant(ctx, conversationID, me.UserID)
+	t, err := s.repo.Thread(ctx, conversationID, me.UserID)
 	if err != nil {
 		return mapErr(err)
 	}
 	if err := s.repo.MarkRead(ctx, conversationID, me.UserID, messageID); err != nil {
 		return err
 	}
-	// "Seen" for the sender; the reader's other devices clear their badge.
-	s.publish(ctx, []int64{other, me.UserID}, "read", map[string]int64{
+	// "Seen" for the sender of a direct message; the reader's other devices
+	// clear their badge. Group chats show no "seen".
+	to := []int64{me.UserID}
+	if !t.IsGroup() {
+		to = append(to, t.Other)
+	}
+	s.publish(ctx, to, "read", map[string]int64{
 		"conversationId": conversationID, "messageId": messageID, "userId": me.UserID,
 	})
 	return nil
 }
 
-// Typing tells the other person "… is typing". Nothing is stored.
+// Typing tells the others "… is typing". Nothing is stored.
 func (s *Service) Typing(ctx context.Context, me auth.Identity, conversationID int64) error {
-	other, err := s.repo.OtherParticipant(ctx, conversationID, me.UserID)
+	t, err := s.repo.Thread(ctx, conversationID, me.UserID)
 	if err != nil {
 		return mapErr(err)
 	}
-	s.publish(ctx, []int64{other}, "typing", map[string]int64{
-		"conversationId": conversationID, "userId": me.UserID,
+	name, _, _ := s.repo.UserRole(ctx, me.UserID)
+	s.publish(ctx, t.Recipients(), "typing", map[string]any{
+		"conversationId": conversationID, "userId": me.UserID, "name": name,
 	})
 	return nil
 }
@@ -230,8 +249,18 @@ func (s *Service) SaveGroup(ctx context.Context, me auth.Identity, id int64, req
 	return mapErr(err)
 }
 
+// DeleteGroup removes a group, its group chat and that chat's voice notes.
 func (s *Service) DeleteGroup(ctx context.Context, id int64) error {
-	return mapErr(s.repo.DeleteGroup(ctx, id))
+	files, err := s.repo.DeleteGroup(ctx, id)
+	if err != nil {
+		return mapErr(err)
+	}
+	for _, f := range files {
+		if err := s.files.Remove(f); err != nil {
+			slog.Warn("remove group chat file", "file", f, "error", err)
+		}
+	}
+	return nil
 }
 
 // Push
@@ -292,8 +321,9 @@ func (s *Service) Unsubscribe(ctx context.Context, me auth.Identity, endpoint st
 }
 
 // notify pushes a new-message alert to every device of the recipient. It
-// runs detached from the request, best-effort.
-func (s *Service) notify(recipient int64, senderName string, msg Message) {
+// runs detached from the request, best-effort. title is the sender (or the
+// group); prefix goes before the preview ("Noi: " in a group).
+func (s *Service) notify(recipient int64, title, prefix string, msg Message) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	subs, err := s.repo.Subscriptions(ctx, recipient)
@@ -312,11 +342,12 @@ func (s *Service) notify(recipient int64, senderName string, msg Message) {
 	case KindVoice:
 		preview = "🎤 Voice message"
 	}
+	preview = prefix + preview
 	if r := []rune(preview); len(r) > 120 {
 		preview = string(r[:120]) + "…"
 	}
 	payload, _ := json.Marshal(map[string]string{
-		"title": senderName,
+		"title": title,
 		"body":  strings.TrimSpace(preview),
 		"url":   fmt.Sprintf("/chat?c=%d", msg.ConversationID),
 		"tag":   fmt.Sprintf("chat-%d", msg.ConversationID),

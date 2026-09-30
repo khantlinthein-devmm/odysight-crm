@@ -7,7 +7,9 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+
 	"github.com/odysight/crm/pkg/pagination"
+	"github.com/odysight/crm/pkg/rowno"
 )
 
 var ErrNotFound = errors.New("customer not found")
@@ -253,4 +255,9 @@ func (r *Repository) UpdatePortalAuth(ctx context.Context, id int64, passwordHas
 		return Customer{}, fmt.Errorf("update portal auth for customer %d: %w", id, err)
 	}
 	return updated, nil
+}
+
+// Numbers returns the gap-free display number (1…N, oldest first) of each id.
+func (r *Repository) Numbers(ctx context.Context, ids []int64) (map[int64]int, error) {
+	return rowno.Numbers(ctx, r.pool, "customers", ids)
 }
