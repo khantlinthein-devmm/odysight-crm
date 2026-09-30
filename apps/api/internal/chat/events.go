@@ -23,7 +23,7 @@ const notifyChannel = "chat_events"
 // Event is delivered to the users listed in To.
 type Event struct {
 	To   []int64         `json:"to"`
-	Type string          `json:"type"` // message | read | typing
+	Type string          `json:"type"` // message | read | typing | presence
 	Data json.RawMessage `json:"data"`
 }
 
@@ -38,10 +38,47 @@ type Broker struct {
 	// (graceful shutdown would otherwise wait on streams that never end).
 	done     chan struct{}
 	stopOnce sync.Once
+
+	// Presence: someone is online while they have the app open (an event
+	// stream is connected) and for presenceGrace after it closes, so phones
+	// hopping networks do not flicker offline. Tracked per API instance.
+	lastSeen map[int64]time.Time
+	onChange func(userID int64, online bool)
+}
+
+// presenceGrace is a var so tests can shorten it.
+var presenceGrace = 20 * time.Second
+
+// OnPresence sets the callback run (in its own goroutine) when a user comes
+// online or goes offline. Set it before serving requests.
+func (b *Broker) OnPresence(fn func(userID int64, online bool)) { b.onChange = fn }
+
+// Online reports whether the user has the app open.
+func (b *Broker) Online(userID int64) bool {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	return b.onlineLocked(userID)
+}
+
+func (b *Broker) onlineLocked(userID int64) bool {
+	if len(b.subs[userID]) > 0 {
+		return true
+	}
+	seen, ok := b.lastSeen[userID]
+	return ok && time.Since(seen) < presenceGrace
+}
+
+func (b *Broker) changed(userID int64, online bool) {
+	if b.onChange != nil {
+		go b.onChange(userID, online)
+	}
 }
 
 func NewBroker(pool *pgxpool.Pool) *Broker {
-	return &Broker{pool: pool, subs: map[int64]map[chan Event]struct{}{}, done: make(chan struct{})}
+	return &Broker{
+		pool: pool, subs: map[int64]map[chan Event]struct{}{}, done: make(chan struct{}),
+		lastSeen: map[int64]time.Time{},
+	}
 }
 
 // Done is closed once the broker stops.
@@ -65,16 +102,36 @@ func (b *Broker) Publish(ctx context.Context, ev Event) {
 func (b *Broker) Subscribe(userID int64) (<-chan Event, func()) {
 	ch := make(chan Event, 32)
 	b.mu.Lock()
+	cameOnline := !b.onlineLocked(userID)
 	if b.subs[userID] == nil {
 		b.subs[userID] = map[chan Event]struct{}{}
 	}
 	b.subs[userID][ch] = struct{}{}
+	delete(b.lastSeen, userID)
 	b.mu.Unlock()
+	if cameOnline {
+		b.changed(userID, true)
+	}
 	return ch, func() {
 		b.mu.Lock()
 		delete(b.subs[userID], ch)
-		if len(b.subs[userID]) == 0 {
+		last := len(b.subs[userID]) == 0
+		if last {
 			delete(b.subs, userID)
+			closedAt := time.Now()
+			b.lastSeen[userID] = closedAt
+			// Offline only if nothing reconnected during the grace period.
+			time.AfterFunc(presenceGrace, func() {
+				b.mu.Lock()
+				gone := len(b.subs[userID]) == 0 && b.lastSeen[userID].Equal(closedAt)
+				if gone {
+					delete(b.lastSeen, userID)
+				}
+				b.mu.Unlock()
+				if gone {
+					b.changed(userID, false)
+				}
+			})
 		}
 		b.mu.Unlock()
 	}

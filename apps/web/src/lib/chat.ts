@@ -11,7 +11,7 @@ export interface ChatConversation {
   /** The other person; for a group chat, the group's name (userId 0). */
   other: ChatContact;
   /** Set for a group chat: every member of the chat group talks here. */
-  group?: { id: number; members: number };
+  group?: { id: number; members: number; memberIds: number[] };
   lastMessageAt: string | null;
   lastKind: "" | "text" | "image" | "voice";
   lastBody: string;
@@ -238,4 +238,12 @@ export async function disablePush(): Promise<PushState> {
     await sub.unsubscribe();
   }
   return "off";
+}
+
+// Presence
+
+/** Ids of the people you can message who have the app open right now. */
+export async function getPresence(): Promise<number[]> {
+  if (USE_MOCKS || !getApiBaseUrl()) return [];
+  return (await apiFetch<{ online: number[] }>("/api/v1/chat/presence")).online;
 }

@@ -6,7 +6,7 @@ import { USE_MOCKS, getApiBaseUrl } from "./api";
 // reconnects on its own, and "open" fires again after every reconnect so
 // listeners can catch up on anything missed while offline.
 
-export type ChatEventType = "message" | "read" | "typing" | "open";
+export type ChatEventType = "message" | "read" | "typing" | "presence" | "open";
 
 export interface ChatEventData {
   conversationId?: number;
@@ -15,6 +15,8 @@ export interface ChatEventData {
   userId?: number;
   /** Who is typing (group chats show the name). */
   name?: string;
+  /** presence: whether userId now has the app open. */
+  online?: boolean;
 }
 
 type Listener = (type: ChatEventType, data: ChatEventData) => void;
@@ -58,7 +60,7 @@ function connect() {
       }
     }
   };
-  for (const type of ["message", "read", "typing"] as const) {
+  for (const type of ["message", "read", "typing", "presence"] as const) {
     source.addEventListener(type, (e) => {
       let data: ChatEventData = {};
       try {
