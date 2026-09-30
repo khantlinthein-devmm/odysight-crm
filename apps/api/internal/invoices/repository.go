@@ -29,7 +29,9 @@ func NewRepository(pool *pgxpool.Pool) *Repository {
 	return &Repository{pool: pool}
 }
 
-const invoiceColumns = `id, invoice_number, booking_id, booking_number, customer_name, customer_email, address,
+// booking_id is NULL once the booking is deleted (the invoice keeps its
+// booking number snapshot); it reads as 0 then.
+const invoiceColumns = `id, invoice_number, COALESCE(booking_id, 0), booking_number, customer_name, customer_email, address,
 	service_type, service_name, subtotal, tax_rate, tax_amount, total, currency, status,
 	customer_tax_id, customer_tax_branch, withholding_rate::float8, withholding_amount::float8, amount_paid::float8,
 	contract_id, idempotency_key, billing_period_start, billing_period_end,
