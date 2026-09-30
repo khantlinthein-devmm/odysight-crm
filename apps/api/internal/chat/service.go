@@ -32,7 +32,54 @@ type Service struct {
 // NewService wires chat. pushSubject is the contact URL/mailto sent to push
 // services (the app's own https origin is fine).
 func NewService(repo *Repository, files *FileStore, pushSubject string, events *Broker) *Service {
-	return &Service{repo: repo, files: files, subject: pushSubject, events: events}
+	s := &Service{repo: repo, files: files, subject: pushSubject, events: events}
+	if events != nil {
+		events.OnPresence(s.presenceChanged)
+	}
+	return s
+}
+
+// presenceChanged tells the user's contacts who have the app open that the
+// user came online or went offline.
+func (s *Service) presenceChanged(userID int64, online bool) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	_, role, err := s.repo.UserRole(ctx, userID)
+	if err != nil {
+		return
+	}
+	contacts, err := s.repo.Contacts(ctx, userID, IsOffice(auth.Role(role)))
+	if err != nil {
+		return
+	}
+	to := []int64{}
+	for _, c := range contacts {
+		if s.events.Online(c.UserID) {
+			to = append(to, c.UserID)
+		}
+	}
+	if len(to) > 0 {
+		s.publish(ctx, to, "presence", map[string]any{"userId": userID, "online": online})
+	}
+}
+
+// Presence lists which of the caller's contacts have the app open. Only
+// people the caller may message are reported.
+func (s *Service) Presence(ctx context.Context, me auth.Identity) ([]int64, error) {
+	contacts, err := s.repo.Contacts(ctx, me.UserID, IsOffice(me.Role))
+	if err != nil {
+		return nil, err
+	}
+	out := []int64{}
+	if s.events == nil {
+		return out, nil
+	}
+	for _, c := range contacts {
+		if s.events.Online(c.UserID) {
+			out = append(out, c.UserID)
+		}
+	}
+	return out, nil
 }
 
 // Events exposes the broker for the SSE endpoint.

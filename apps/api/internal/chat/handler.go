@@ -77,6 +77,20 @@ func (h *Handler) Conversations(w http.ResponseWriter, r *http.Request) {
 	response.JSON(w, http.StatusOK, map[string]any{"data": out})
 }
 
+// Presence handles GET /chat/presence: {"online": [userId…]}
+func (h *Handler) Presence(w http.ResponseWriter, r *http.Request) {
+	me, ok := identity(w, r)
+	if !ok {
+		return
+	}
+	ids, err := h.service.Presence(r.Context(), me)
+	if err != nil {
+		response.HandleError(w, r, err)
+		return
+	}
+	response.JSON(w, http.StatusOK, map[string]any{"online": ids})
+}
+
 // Unread handles GET /chat/unread
 func (h *Handler) Unread(w http.ResponseWriter, r *http.Request) {
 	me, ok := identity(w, r)

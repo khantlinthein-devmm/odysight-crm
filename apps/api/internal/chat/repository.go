@@ -171,7 +171,7 @@ var conversationSelect = `
 	         WHERE x.conversation_id = c.id AND x.sender_id IS DISTINCT FROM $1
 	           AND x.id > ` + myRead("$1") + `)::int,
 	       CASE WHEN c.group_id IS NOT NULL THEN 0 WHEN c.user_a = $1 THEN c.last_read_b ELSE c.last_read_a END,
-	       c.group_id, (SELECT COUNT(*) FROM chat_group_members gm2 WHERE gm2.group_id = c.group_id)::int
+	       c.group_id, (SELECT array_agg(gm2.user_id ORDER BY gm2.user_id) FROM chat_group_members gm2 WHERE gm2.group_id = c.group_id)
 	  FROM chat_conversations c
 	  LEFT JOIN users o ON c.group_id IS NULL AND o.id = CASE WHEN c.user_a = $1 THEN c.user_b ELSE c.user_a END
 	  LEFT JOIN chat_groups g ON g.id = c.group_id
@@ -183,11 +183,14 @@ var conversationSelect = `
 func scanConversation(row pgx.Row) (Conversation, error) {
 	var c Conversation
 	var groupID *int64
-	var members int
+	var members []int64
 	err := row.Scan(&c.ID, &c.Other.UserID, &c.Other.Name, &c.Other.Role, &c.LastMessageAt,
 		&c.LastKind, &c.LastBody, &c.LastFromMe, &c.LastSender, &c.Unread, &c.OtherLastRead, &groupID, &members)
 	if groupID != nil {
-		c.Group = &GroupRef{ID: *groupID, Members: members}
+		if members == nil {
+			members = []int64{}
+		}
+		c.Group = &GroupRef{ID: *groupID, Members: len(members), MemberIDs: members}
 	} else {
 		c.LastSender = ""
 	}

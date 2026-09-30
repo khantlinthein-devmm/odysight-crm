@@ -12,6 +12,7 @@ func Routes(h *Handler, az *auth.Authorizer) chi.Router {
 	r := chi.NewRouter()
 	r.Get("/contacts", h.Contacts)
 	r.Get("/unread", h.Unread)
+	r.Get("/presence", h.Presence)
 	r.Get("/conversations", h.Conversations)
 	r.Post("/conversations", h.Open)
 	r.Get("/conversations/{id}/messages", h.Messages)

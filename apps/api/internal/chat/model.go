@@ -82,6 +82,7 @@ type Group struct {
 }
 
 type GroupRef struct {
-	ID      int64 `json:"id"`
-	Members int   `json:"members"`
+	ID        int64   `json:"id"`
+	Members   int     `json:"members"`
+	MemberIDs []int64 `json:"memberIds"`
 }

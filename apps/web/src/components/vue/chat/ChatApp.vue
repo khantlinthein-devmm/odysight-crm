@@ -23,6 +23,8 @@ import { showToast } from "../../../lib/toast";
 import { chatLive, onChatEvent, type ChatEventData, type ChatEventType } from "../../../lib/chatEvents";
 import ChatMedia from "./ChatMedia.vue";
 import ChatGroups from "./ChatGroups.vue";
+import ChatAvatar from "./ChatAvatar.vue";
+import { usePresence } from "./usePresence";
 
 const user = getSessionUser();
 const meId = Number(user?.id ?? 0);
@@ -50,6 +52,8 @@ const contacts = ref<ChatContact[]>([]);
 const contactFilter = ref("");
 
 const scroller = ref<HTMLElement | null>(null);
+const root = ref<HTMLElement | null>(null);
+const { isOnline } = usePresence();
 
 let convTimer: ReturnType<typeof setInterval> | undefined;
 let threadTimer: ReturnType<typeof setInterval> | undefined;
@@ -69,15 +73,6 @@ const lastMineSeen = computed(() => {
 
 function roleLabel(role: string): string {
   return role.charAt(0) + role.slice(1).toLowerCase().replace("_", " ");
-}
-
-function initials(name: string): string {
-  return name
-    .split(/\s+/)
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((p) => p[0]!.toUpperCase())
-    .join("");
 }
 
 function preview(c: ChatConversation): string {
@@ -362,6 +357,37 @@ let lastTypingSent = 0;
 let tick = 0;
 
 const otherTyping = computed(() => typingUntil.value > now.value);
+const groupOnline = computed(() => (active.value?.group?.memberIds ?? []).filter((id) => id !== meId && isOnline(id)).length);
+
+// Phones: the on-screen keyboard shrinks only the visible area, not the page,
+// so a box sized to the page ends up under the keyboard. While typing, pin
+// the chat to exactly the visible area (full screen, like messaging apps).
+const keyboardStyle = ref<Record<string, string>>({});
+function fitToKeyboard() {
+  const vv = window.visualViewport;
+  const el = document.activeElement;
+  const typing = !!vv && !!el && el.tagName === "TEXTAREA" && !!root.value?.contains(el);
+  const open = typing && window.innerHeight - vv!.height > 120 && window.matchMedia("(max-width: 1023px)").matches;
+  const was = Object.keys(keyboardStyle.value).length > 0;
+  keyboardStyle.value = open
+    ? {
+        position: "fixed",
+        top: `${vv!.offsetTop}px`,
+        left: "0",
+        right: "0",
+        height: `${vv!.height}px`,
+        minHeight: "0",
+        zIndex: "60",
+        borderRadius: "0",
+      }
+    : {};
+  if (open && !was) void scrollToBottom();
+}
+function onFocusChange() {
+  // Let the keyboard animation settle, then fit again.
+  fitToKeyboard();
+  setTimeout(fitToKeyboard, 300);
+}
 
 function onEvent(type: ChatEventType, data: ChatEventData) {
   const conv = active.value;
@@ -429,6 +455,10 @@ onMounted(async () => {
     if (!chatLive() || tick % 6 === 0) void pollThread();
   }, 5_000);
   document.addEventListener("visibilitychange", onVisible);
+  window.visualViewport?.addEventListener("resize", fitToKeyboard);
+  window.visualViewport?.addEventListener("scroll", fitToKeyboard);
+  document.addEventListener("focusin", onFocusChange);
+  document.addEventListener("focusout", onFocusChange);
 });
 
 onBeforeUnmount(() => {
@@ -437,12 +467,20 @@ onBeforeUnmount(() => {
   clearInterval(clock);
   offEvents?.();
   document.removeEventListener("visibilitychange", onVisible);
+  window.visualViewport?.removeEventListener("resize", fitToKeyboard);
+  window.visualViewport?.removeEventListener("scroll", fitToKeyboard);
+  document.removeEventListener("focusin", onFocusChange);
+  document.removeEventListener("focusout", onFocusChange);
   if (recording.value) stopRecording(false);
 });
 </script>
 
 <template>
-  <div class="flex h-[calc(100dvh-9rem)] min-h-[420px] flex-col overflow-hidden rounded-xl border border-gray-200 bg-white lg:h-[calc(100dvh-8rem)]">
+  <div
+    ref="root"
+    class="flex h-[calc(100dvh-9rem)] min-h-[420px] flex-col overflow-hidden rounded-xl border border-gray-200 bg-white lg:h-[calc(100dvh-8rem)]"
+    :style="keyboardStyle"
+  >
     <div v-if="canManageGroups" class="flex border-b border-gray-200 text-sm font-medium">
       <button
         type="button"
@@ -494,8 +532,7 @@ onBeforeUnmount(() => {
               :class="active?.id === c.id ? 'bg-navy-50' : ''"
               @click="select(c)"
             >
-              <span v-if="c.group" class="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-amber-100 text-amber-700" aria-hidden="true"><svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" /></svg></span>
-              <span v-else class="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-navy-100 text-sm font-semibold text-navy-700">{{ initials(c.other.name) }}</span>
+              <ChatAvatar :name="c.other.name" :group="!!c.group" :online="!c.group && isOnline(c.other.userId)" />
               <span class="min-w-0 flex-1">
                 <span class="flex items-baseline justify-between gap-2">
                   <span class="truncate text-sm font-medium text-gray-900">{{ c.other.name }}</span>
@@ -516,12 +553,14 @@ onBeforeUnmount(() => {
         <template v-if="active">
           <header class="flex items-center gap-3 border-b border-gray-100 px-4 py-3">
             <button type="button" class="rounded-lg px-2 py-1 text-sm text-navy-700 hover:bg-gray-100 md:hidden" :aria-label="L('chat.back')" @click="closeThread">←</button>
-            <span v-if="active.group" class="flex h-9 w-9 items-center justify-center rounded-full bg-amber-100 text-amber-700" aria-hidden="true"><svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" /></svg></span>
-            <span v-else class="flex h-9 w-9 items-center justify-center rounded-full bg-navy-100 text-sm font-semibold text-navy-700">{{ initials(active.other.name) }}</span>
+            <ChatAvatar :name="active.other.name" :group="!!active.group" :online="!active.group && isOnline(active.other.userId)" />
             <div class="min-w-0">
               <p class="truncate text-sm font-semibold text-gray-900">{{ active.other.name }}</p>
               <p v-if="otherTyping" class="text-xs font-medium text-green-600">{{ active.group && typingName ? `${typingName} ${L("chat.isTyping")}` : L("chat.typing") }}</p>
-              <p v-else-if="active.group" class="text-xs text-gray-500">{{ active.group.members }} {{ L("chat.members") }}</p>
+              <p v-else-if="active.group" class="text-xs text-gray-500">
+                {{ active.group.members }} {{ L("chat.members") }}<span v-if="groupOnline" class="text-green-600"> · {{ groupOnline }} {{ L("chat.online").toLowerCase() }}</span>
+              </p>
+              <p v-else-if="isOnline(active.other.userId)" class="text-xs font-medium text-green-600">{{ L("chat.online") }}</p>
               <p v-else class="text-xs text-gray-500">{{ roleLabel(active.other.role) }}</p>
             </div>
           </header>
@@ -579,6 +618,7 @@ onBeforeUnmount(() => {
                 v-else
                 type="submit"
                 :disabled="sending"
+                @pointerdown.prevent
                 class="shrink-0 rounded-xl bg-navy-600 px-4 py-2 text-sm font-medium text-white hover:bg-navy-700 disabled:opacity-50"
               >{{ L("chat.send") }}</button>
             </form>
@@ -602,8 +642,11 @@ onBeforeUnmount(() => {
         <ul class="min-h-0 flex-1 overflow-y-auto pb-3">
           <li v-for="c in filteredContacts" :key="c.userId">
             <button type="button" class="flex w-full items-center gap-3 px-4 py-2.5 text-left hover:bg-gray-50" @click="startWith(c)">
-              <span class="flex h-9 w-9 items-center justify-center rounded-full bg-navy-100 text-sm font-semibold text-navy-700">{{ initials(c.name) }}</span>
-              <span class="flex-1 text-sm text-gray-900">{{ c.name }}</span>
+              <ChatAvatar :name="c.name" :online="isOnline(c.userId)" size="sm" />
+              <span class="min-w-0 flex-1">
+                <span class="block truncate text-sm text-gray-900">{{ c.name }}</span>
+                <span v-if="isOnline(c.userId)" class="block text-[11px] text-green-600">{{ L("chat.online") }}</span>
+              </span>
               <span class="text-xs text-gray-500">{{ roleLabel(c.role) }}</span>
             </button>
           </li>
