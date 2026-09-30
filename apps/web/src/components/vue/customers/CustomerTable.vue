@@ -266,7 +266,7 @@ onMounted(fetchCustomers);
         <div class="flex flex-1 flex-col p-5">
           <div class="flex items-center justify-between gap-2">
             <span class="rounded bg-gray-900 px-2 py-0.5 font-mono text-[11px] font-semibold tracking-wide text-white">
-              #{{ customer.id }}
+              #{{ customer.no || customer.id }}
             </span>
             <span
               :class="[

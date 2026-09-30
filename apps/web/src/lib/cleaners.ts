@@ -8,6 +8,8 @@ export type CleanerStatus =
 
 export interface Cleaner {
   id: number;
+  /** Display number: 1…N in creation order, recounted after deletes. */
+  no?: number;
   firstName: string;
   lastName: string;
   phone: string;

@@ -7,6 +7,8 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/odysight/crm/pkg/rowno"
 	"github.com/odysight/crm/pkg/pagination"
 )
 
@@ -274,4 +276,9 @@ func (r *Repository) RemovePhone(ctx context.Context, cleanerID, phoneID int64) 
 		return ErrNotFound
 	}
 	return nil
+}
+
+// Numbers returns the gap-free display number (1…N, oldest first) of each id.
+func (r *Repository) Numbers(ctx context.Context, ids []int64) (map[int64]int, error) {
+	return rowno.Numbers(ctx, r.pool, "cleaners", ids)
 }

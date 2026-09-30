@@ -7,6 +7,6 @@ export const prerender = false;
 const { id } = Astro.params;
 ---
 
-<DashboardLayout title={`Cleaner #${id}`}>
+<DashboardLayout title="Cleaner details">
   <CleanerDetail client:load cleanerId={Number(id)} />
 </DashboardLayout>

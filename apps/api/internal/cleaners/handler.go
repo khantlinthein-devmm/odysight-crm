@@ -2,6 +2,7 @@ package cleaners
 
 import (
 	"encoding/json"
+	"log/slog"
 	"net/http"
 	"strconv"
 
@@ -32,6 +33,7 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 	for _, b := range items {
 		dtos = append(dtos, toDTO(b))
 	}
+	h.number(r, dtos)
 	response.JSON(w, http.StatusOK, pagination.Page[CleanerDTO]{Data: dtos, Total: total, Limit: params.Limit, Offset: params.Offset})
 }
 
@@ -46,7 +48,7 @@ func (h *Handler) Get(w http.ResponseWriter, r *http.Request) {
 		response.HandleError(w, r, err)
 		return
 	}
-	response.JSON(w, http.StatusOK, toDTO(cleaner))
+	response.JSON(w, http.StatusOK, h.one(r, toDTO(cleaner)))
 }
 
 func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
@@ -60,7 +62,7 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 		response.HandleError(w, r, err)
 		return
 	}
-	response.JSON(w, http.StatusCreated, toDTO(cleaner))
+	response.JSON(w, http.StatusCreated, h.one(r, toDTO(cleaner)))
 }
 
 func (h *Handler) Update(w http.ResponseWriter, r *http.Request) {
@@ -79,7 +81,7 @@ func (h *Handler) Update(w http.ResponseWriter, r *http.Request) {
 		response.HandleError(w, r, err)
 		return
 	}
-	response.JSON(w, http.StatusOK, toDTO(cleaner))
+	response.JSON(w, http.StatusOK, h.one(r, toDTO(cleaner)))
 }
 
 func (h *Handler) Delete(w http.ResponseWriter, r *http.Request) {
@@ -109,7 +111,7 @@ func (h *Handler) Me(w http.ResponseWriter, r *http.Request) {
 		response.HandleError(w, r, err)
 		return
 	}
-	response.JSON(w, http.StatusOK, toDTO(cleaner))
+	response.JSON(w, http.StatusOK, h.one(r, toDTO(cleaner)))
 }
 
 // UpdateLocation handles PATCH /api/v1/cleaners/me/location — GPS ping +
@@ -129,7 +131,7 @@ func (h *Handler) UpdateLocation(w http.ResponseWriter, r *http.Request) {
 		response.HandleError(w, r, err)
 		return
 	}
-	response.JSON(w, http.StatusOK, toDTO(cleaner))
+	response.JSON(w, http.StatusOK, h.one(r, toDTO(cleaner)))
 }
 
 // PhonesList handles GET /api/v1/cleaners/{id}/phones.
@@ -214,4 +216,27 @@ func decodeJSON[T any](w http.ResponseWriter, r *http.Request) (T, bool) {
 		return out, false
 	}
 	return out, true
+}
+
+// number fills in each record's display number. It is cosmetic, so a failed
+// lookup is logged and the records go out without one.
+func (h *Handler) number(r *http.Request, dtos []CleanerDTO) {
+	ids := make([]int64, len(dtos))
+	for i := range dtos {
+		ids[i] = dtos[i].ID
+	}
+	nos, err := h.service.Numbers(r.Context(), ids)
+	if err != nil {
+		slog.Warn("cleaners display numbers", "error", err)
+		return
+	}
+	for i := range dtos {
+		dtos[i].No = nos[dtos[i].ID]
+	}
+}
+
+func (h *Handler) one(r *http.Request, dto CleanerDTO) CleanerDTO {
+	d := []CleanerDTO{dto}
+	h.number(r, d)
+	return d[0]
 }
