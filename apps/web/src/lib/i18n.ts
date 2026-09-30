@@ -85,7 +85,6 @@ const en = {
   "chat.pick": "Choose a conversation",
   "chat.placeholder": "Type a message…",
   "chat.send": "Send",
-  "chat.photo": "Photo",
   "chat.record": "Voice",
   "chat.stopSend": "Send voice",
   "chat.cancel": "Cancel",
@@ -105,6 +104,7 @@ const en = {
   "chat.sendFailed": "Message not sent",
   "chat.today": "Today",
   "chat.yesterday": "Yesterday",
+  "chat.expired": "Voice message deleted after 30 days",
 };
 
 export type MessageKey = keyof typeof en;
@@ -181,7 +181,6 @@ const th: Record<MessageKey, string> = {
   "chat.pick": "เลือกการสนทนา",
   "chat.placeholder": "พิมพ์ข้อความ…",
   "chat.send": "ส่ง",
-  "chat.photo": "รูปภาพ",
   "chat.record": "เสียง",
   "chat.stopSend": "ส่งเสียง",
   "chat.cancel": "ยกเลิก",
@@ -201,6 +200,7 @@ const th: Record<MessageKey, string> = {
   "chat.sendFailed": "ส่งข้อความไม่สำเร็จ",
   "chat.today": "วันนี้",
   "chat.yesterday": "เมื่อวาน",
+  "chat.expired": "ข้อความเสียงถูกลบหลัง 30 วัน",
 };
 
 const my: Record<MessageKey, string> = {
@@ -275,7 +275,6 @@ const my: Record<MessageKey, string> = {
   "chat.pick": "စကားပြောမှု ရွေးပါ",
   "chat.placeholder": "စာရိုက်ပါ…",
   "chat.send": "ပို့ရန်",
-  "chat.photo": "ဓာတ်ပုံ",
   "chat.record": "အသံ",
   "chat.stopSend": "အသံပို့ရန်",
   "chat.cancel": "မလုပ်တော့ပါ",
@@ -295,6 +294,7 @@ const my: Record<MessageKey, string> = {
   "chat.sendFailed": "စာ မပို့နိုင်ပါ",
   "chat.today": "ယနေ့",
   "chat.yesterday": "မနေ့က",
+  "chat.expired": "အသံစာကို ရက် ၃၀ ပြည့်၍ ဖျက်ပြီးပါပြီ",
 };
 
 const dictionaries: Record<Lang, Record<MessageKey, string>> = { en, th, my };

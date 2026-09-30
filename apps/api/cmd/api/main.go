@@ -221,7 +221,10 @@ func run() error {
 			break
 		}
 	}
-	chatService := chat.NewService(chat.NewRepository(pool), chat.NewFileStore(cfg.UploadDir), pushSubject)
+	chatRepo := chat.NewRepository(pool)
+	chatFiles := chat.NewFileStore(cfg.UploadDir)
+	chatService := chat.NewService(chatRepo, chatFiles, pushSubject)
+	go chat.NewCleaner(chatRepo, chatFiles).Run(ctx)
 	checklistHandler := checklists.NewHandler(checklistService, checklists.NewPhotoStore(cfg.UploadDir, cfg.MaxUploadMB))
 
 	// LINE OA → auto-lead. Mounted outside the auth group: authenticity

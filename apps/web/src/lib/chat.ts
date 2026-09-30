@@ -27,6 +27,8 @@ export interface ChatMessage {
   fileUrl?: string;
   mimeType?: string;
   durationMs?: number;
+  /** The voice note was deleted by the 30-day cleanup. */
+  expired?: boolean;
   createdAt: string;
 }
 

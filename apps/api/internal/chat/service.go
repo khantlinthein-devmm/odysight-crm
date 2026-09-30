@@ -103,8 +103,8 @@ func (s *Service) SendText(ctx context.Context, me auth.Identity, conversationID
 
 // SendFile posts a photo or voice message.
 func (s *Service) SendFile(ctx context.Context, me auth.Identity, conversationID int64, kind string, r io.Reader, caption string, durationMs int) (Message, error) {
-	if kind != KindImage && kind != KindVoice {
-		return Message{}, response.NewAPIError(400, "kind must be image or voice")
+	if kind != KindVoice {
+		return Message{}, response.NewAPIError(400, "only voice messages can be attached")
 	}
 	// Check membership and the messaging rule before writing to disk.
 	other, err := s.repo.OtherParticipant(ctx, conversationID, me.UserID)
@@ -118,7 +118,7 @@ func (s *Service) SendFile(ctx context.Context, me auth.Identity, conversationID
 	if err != nil {
 		return Message{}, response.NewAPIError(422, err.Error())
 	}
-	if durationMs < 0 || durationMs > 10*60*1000 {
+	if durationMs < 0 || durationMs > 5*60*1000 {
 		durationMs = 0
 	}
 	caption = strings.TrimSpace(caption)

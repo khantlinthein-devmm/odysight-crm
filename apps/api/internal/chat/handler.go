@@ -145,9 +145,9 @@ func (h *Handler) Send(w http.ResponseWriter, r *http.Request) {
 	var msg Message
 	var err error
 	if ct := r.Header.Get("Content-Type"); len(ct) >= 19 && ct[:19] == "multipart/form-data" {
-		r.Body = http.MaxBytesReader(w, r.Body, maxImageBytes+(1<<20))
+		r.Body = http.MaxBytesReader(w, r.Body, maxVoiceBytes+(1<<20))
 		if err := r.ParseMultipartForm(1 << 20); err != nil {
-			response.Error(w, http.StatusBadRequest, "invalid upload (max 8 MB)")
+			response.Error(w, http.StatusBadRequest, "invalid upload (max 3 MB)")
 			return
 		}
 		defer func() { _ = r.MultipartForm.RemoveAll() }()
