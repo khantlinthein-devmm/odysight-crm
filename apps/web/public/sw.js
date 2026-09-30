@@ -9,7 +9,7 @@
  *   on-device snapshots managed by the app (see src/lib/offline.ts).
  */
 
-const VERSION = "odysight-v1";
+const VERSION = "odysight-v2";
 const STATIC_CACHE = `${VERSION}-static`;
 const PAGE_CACHE = `${VERSION}-pages`;
 
