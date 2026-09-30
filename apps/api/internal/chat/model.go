@@ -54,17 +54,17 @@ type Conversation struct {
 }
 
 type Message struct {
-	ID             int64     `json:"id"`
-	ConversationID int64     `json:"conversationId"`
-	SenderID       *int64    `json:"senderId"`
-	Kind           string    `json:"kind"`
-	Body           string    `json:"body"`
-	FileURL        string    `json:"fileUrl,omitempty"`
-	MimeType       string    `json:"mimeType,omitempty"`
-	DurationMs     int       `json:"durationMs,omitempty"`
+	ID             int64  `json:"id"`
+	ConversationID int64  `json:"conversationId"`
+	SenderID       *int64 `json:"senderId"`
+	Kind           string `json:"kind"`
+	Body           string `json:"body"`
+	FileURL        string `json:"fileUrl,omitempty"`
+	MimeType       string `json:"mimeType,omitempty"`
+	DurationMs     int    `json:"durationMs,omitempty"`
 	// Expired: the voice note was removed by the 30-day cleanup.
-	Expired bool `json:"expired,omitempty"`
-	CreatedAt      time.Time `json:"createdAt"`
+	Expired   bool      `json:"expired,omitempty"`
+	CreatedAt time.Time `json:"createdAt"`
 }
 
 type Group struct {
