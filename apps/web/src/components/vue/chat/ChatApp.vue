@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, ref } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import {
   enablePush,
   getChatContacts,
@@ -10,6 +10,7 @@ import {
   pushState,
   sendFile,
   sendText,
+  sendTyping,
   type ChatContact,
   type ChatConversation,
   type ChatMessage,
@@ -19,6 +20,7 @@ import { getSessionUser } from "../../../lib/auth";
 import { hasPermission } from "../../../lib/roles";
 import { dateLocale, getLang, t, type Lang, type MessageKey } from "../../../lib/i18n";
 import { showToast } from "../../../lib/toast";
+import { chatLive, onChatEvent, type ChatEventData, type ChatEventType } from "../../../lib/chatEvents";
 import ChatMedia from "./ChatMedia.vue";
 import ChatGroups from "./ChatGroups.vue";
 
@@ -342,6 +344,51 @@ async function turnOnPush() {
   }
 }
 
+// Live updates. With the event stream up, polling drops to a 30 s safety net.
+const typingUntil = ref(0);
+const now = ref(Date.now());
+let clock: ReturnType<typeof setInterval> | undefined;
+let offEvents: (() => void) | undefined;
+let lastTypingSent = 0;
+let tick = 0;
+
+const otherTyping = computed(() => typingUntil.value > now.value);
+
+function onEvent(type: ChatEventType, data: ChatEventData) {
+  const conv = active.value;
+  const here = !!conv && data.conversationId === conv.id;
+  switch (type) {
+    case "open": // (re)connected: catch up on anything missed
+      void loadConversations();
+      void pollThread();
+      break;
+    case "message":
+      if (here) {
+        if (data.senderId !== meId) typingUntil.value = 0;
+        void pollThread();
+      }
+      void loadConversations();
+      break;
+    case "read":
+      if (here && data.userId !== meId && data.messageId && conv.otherLastRead < data.messageId) {
+        active.value = { ...conv, otherLastRead: data.messageId };
+      }
+      if (data.userId === meId) void loadConversations();
+      break;
+    case "typing":
+      if (here && data.userId !== meId) typingUntil.value = Date.now() + 4000;
+      break;
+  }
+}
+
+// Tell the other person we're typing, at most every 3 s.
+watch(text, (v) => {
+  const conv = active.value;
+  if (!conv || !v.trim() || Date.now() - lastTypingSent < 3000) return;
+  lastTypingSent = Date.now();
+  void sendTyping(conv.id).catch(() => {});
+});
+
 function onVisible() {
   if (document.visibilityState === "visible") {
     void loadConversations();
@@ -358,18 +405,25 @@ onMounted(async () => {
     const conv = conversations.value.find((c) => c.id === deep);
     if (conv) await select(conv);
   }
+  offEvents = onChatEvent(onEvent);
+  clock = setInterval(() => (now.value = Date.now()), 1000);
+  // Fallback polling: every 5 s / 15 s only while the live stream is down,
+  // otherwise every 30 s as a safety net.
   convTimer = setInterval(() => {
-    if (document.visibilityState === "visible") void loadConversations();
+    if (document.visibilityState === "visible" && !chatLive()) void loadConversations();
   }, 15_000);
-  // Polling budget per open chat: ~12 + 4 requests a minute, well inside the
-  // API's per-IP rate limit even with several people on one office network.
-  threadTimer = setInterval(() => void pollThread(), 5_000);
+  threadTimer = setInterval(() => {
+    tick++;
+    if (!chatLive() || tick % 6 === 0) void pollThread();
+  }, 5_000);
   document.addEventListener("visibilitychange", onVisible);
 });
 
 onBeforeUnmount(() => {
   clearInterval(convTimer);
   clearInterval(threadTimer);
+  clearInterval(clock);
+  offEvents?.();
   document.removeEventListener("visibilitychange", onVisible);
   if (recording.value) stopRecording(false);
 });
@@ -452,7 +506,8 @@ onBeforeUnmount(() => {
             <span class="flex h-9 w-9 items-center justify-center rounded-full bg-navy-100 text-sm font-semibold text-navy-700">{{ initials(active.other.name) }}</span>
             <div class="min-w-0">
               <p class="truncate text-sm font-semibold text-gray-900">{{ active.other.name }}</p>
-              <p class="text-xs text-gray-500">{{ roleLabel(active.other.role) }}</p>
+              <p v-if="otherTyping" class="text-xs font-medium text-green-600">{{ L("chat.typing") }}</p>
+              <p v-else class="text-xs text-gray-500">{{ roleLabel(active.other.role) }}</p>
             </div>
           </header>
 

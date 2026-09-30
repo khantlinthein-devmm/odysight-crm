@@ -23,6 +23,7 @@ type Service struct {
 	repo    *Repository
 	files   *FileStore
 	subject string
+	events  *Broker
 
 	pushMu sync.Mutex
 	sender *webpush.Sender
@@ -30,8 +31,22 @@ type Service struct {
 
 // NewService wires chat. pushSubject is the contact URL/mailto sent to push
 // services (the app's own https origin is fine).
-func NewService(repo *Repository, files *FileStore, pushSubject string) *Service {
-	return &Service{repo: repo, files: files, subject: pushSubject}
+func NewService(repo *Repository, files *FileStore, pushSubject string, events *Broker) *Service {
+	return &Service{repo: repo, files: files, subject: pushSubject, events: events}
+}
+
+// Events exposes the broker for the SSE endpoint.
+func (s *Service) Events() *Broker { return s.events }
+
+func (s *Service) publish(ctx context.Context, to []int64, typ string, data any) {
+	if s.events == nil {
+		return
+	}
+	raw, err := json.Marshal(data)
+	if err != nil {
+		return
+	}
+	s.events.Publish(ctx, Event{To: to, Type: typ, Data: raw})
 }
 
 func (s *Service) Contacts(ctx context.Context, me auth.Identity) ([]Contact, error) {
@@ -144,16 +159,40 @@ func (s *Service) send(ctx context.Context, me auth.Identity, m NewMessage) (Mes
 	if err != nil {
 		return Message{}, err
 	}
+	// Both sides: the recipient sees it, the sender's other devices too.
+	s.publish(ctx, []int64{other, me.UserID}, "message", map[string]int64{
+		"conversationId": msg.ConversationID, "messageId": msg.ID, "senderId": me.UserID,
+	})
 	senderName, _, _ := s.repo.UserRole(ctx, me.UserID)
 	go s.notify(other, senderName, msg)
 	return msg, nil
 }
 
 func (s *Service) MarkRead(ctx context.Context, me auth.Identity, conversationID, messageID int64) error {
-	if _, err := s.repo.OtherParticipant(ctx, conversationID, me.UserID); err != nil {
+	other, err := s.repo.OtherParticipant(ctx, conversationID, me.UserID)
+	if err != nil {
 		return mapErr(err)
 	}
-	return s.repo.MarkRead(ctx, conversationID, me.UserID, messageID)
+	if err := s.repo.MarkRead(ctx, conversationID, me.UserID, messageID); err != nil {
+		return err
+	}
+	// "Seen" for the sender; the reader's other devices clear their badge.
+	s.publish(ctx, []int64{other, me.UserID}, "read", map[string]int64{
+		"conversationId": conversationID, "messageId": messageID, "userId": me.UserID,
+	})
+	return nil
+}
+
+// Typing tells the other person "… is typing". Nothing is stored.
+func (s *Service) Typing(ctx context.Context, me auth.Identity, conversationID int64) error {
+	other, err := s.repo.OtherParticipant(ctx, conversationID, me.UserID)
+	if err != nil {
+		return mapErr(err)
+	}
+	s.publish(ctx, []int64{other}, "typing", map[string]int64{
+		"conversationId": conversationID, "userId": me.UserID,
+	})
+	return nil
 }
 
 // File returns the path and type of a chat file the user may see.

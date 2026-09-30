@@ -17,6 +17,8 @@ func Routes(h *Handler, az *auth.Authorizer) chi.Router {
 	r.Get("/conversations/{id}/messages", h.Messages)
 	r.Post("/conversations/{id}/messages", h.Send)
 	r.Post("/conversations/{id}/read", h.Read)
+	r.Post("/conversations/{id}/typing", h.Typing)
+	r.Get("/events", h.Stream)
 	r.Get("/files/{name}", h.File)
 	r.Get("/push/key", h.PushKey)
 	r.Post("/push/subscribe", h.Subscribe)

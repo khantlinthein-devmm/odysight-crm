@@ -133,7 +133,9 @@ Nobody is forced to use checklists. When a commercial client wants proof:
   customers their tax ID and *Withholding tax 3%* on the customer form;
   invoices show the deduction and net payable.
 - **Team chat** — sidebar / bottom bar → **Chat** → **New message**. Send
-  text and voice messages (microphone button, up to 1 minute). Voice
+  text and voice messages (microphone button, up to 1 minute). Messages,
+  "typing…" and "Seen" appear instantly (live connection; if it drops, the
+  app reconnects by itself and catches up). Voice
   messages are deleted automatically 30 days after they were sent (the text
   of the chat stays) so the server's disk never fills up — photos are not
   sent in chat for the same reason. Who can message whom: admin, manager and

@@ -116,6 +116,11 @@ export async function sendFile(
   return (await res.json()) as ChatMessage;
 }
 
+/** Tells the other person "… is typing" (callers throttle this). */
+export async function sendTyping(conversationId: number): Promise<void> {
+  await apiFetch<void>(`/api/v1/chat/conversations/${conversationId}/typing`, { method: "POST" });
+}
+
 export async function markRead(conversationId: number, messageId: number): Promise<void> {
   await apiFetch<void>(`/api/v1/chat/conversations/${conversationId}/read`, {
     method: "POST",

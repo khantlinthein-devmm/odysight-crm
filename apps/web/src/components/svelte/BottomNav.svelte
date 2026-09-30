@@ -2,6 +2,7 @@
   import { onMount } from 'svelte';
   import { getLang, t, type Lang, type MessageKey } from '../../lib/i18n';
   import { getChatUnread } from '../../lib/chat';
+  import { onChatEvent } from '../../lib/chatEvents';
 
   interface Item {
     label: MessageKey;
@@ -49,11 +50,15 @@
     lang = getLang();
     const refresh = () => getChatUnread().then((n) => (unread = n)).catch(() => {});
     refresh();
-    const timer = setInterval(refresh, 30_000);
+    const timer = setInterval(refresh, 60_000);
+    const off = onChatEvent((type) => {
+      if (type !== 'typing') refresh();
+    });
     window.addEventListener('focus', refresh);
     window.addEventListener('chat:read', refresh);
     return () => {
       clearInterval(timer);
+      off();
       window.removeEventListener('focus', refresh);
       window.removeEventListener('chat:read', refresh);
     };
