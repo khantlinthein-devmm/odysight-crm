@@ -224,7 +224,7 @@ export async function downloadInvoicePdf(id: number, fileName?: string): Promise
 }
 
 
-async function downloadPdf(url: string, fileName: string): Promise<void> {
+export async function downloadPdf(url: string, fileName: string): Promise<void> {
   const response = await fetch(url, { credentials: "include" });
   if (!response.ok) {
     throw new ApiError(response.status, "Failed to download PDF");

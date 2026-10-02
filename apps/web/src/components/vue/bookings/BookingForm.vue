@@ -21,6 +21,8 @@ import { lineTotal } from "../../../lib/pricing";
 
 const props = defineProps<{
   booking?: Booking;
+  /** Starting values for a new booking (e.g. from an accepted quote). */
+  prefill?: Partial<CreateBookingInput>;
 }>();
 
 const emit = defineEmits<{
@@ -119,9 +121,12 @@ async function loadCommercial(customerId: number | null) {
   sitesLoading.value = true;
   try {
     sites.value = await getSites({ customerId, limit: 100 });
-    if (props.booking?.siteId && sites.value.some((s) => s.id === props.booking!.siteId)) {
-      selectedSiteId.value = props.booking.siteId;
-      form.siteId = props.booking.siteId;
+    const wantSite = props.booking?.siteId ?? props.prefill?.siteId ?? null;
+    const wanted = wantSite ? sites.value.find((s) => s.id === wantSite) : undefined;
+    if (wanted) {
+      selectedSiteId.value = wanted.id;
+      form.siteId = wanted.id;
+      if (!form.address) form.address = wanted.address;
     } else if (!props.booking) {
       const def = sites.value.find((s) => s.isDefault) ?? sites.value[0];
       if (def) {
@@ -272,6 +277,10 @@ const form = reactive<CreateBookingInput>({
       ? props.booking.recurrence
       : "",
 });
+if (!props.booking && props.prefill) {
+  Object.assign(form, props.prefill);
+  selectedCustomerId.value = form.customerId ?? null;
+}
 
 const submitted = ref(false);
 

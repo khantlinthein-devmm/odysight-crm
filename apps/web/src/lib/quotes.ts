@@ -1,4 +1,5 @@
-import { ApiError, USE_MOCKS, apiFetch, delay, toQuery, unwrapPage, type Page } from "./api";
+import { ApiError, USE_MOCKS, apiFetch, delay, getApiBaseUrl, toQuery, unwrapPage, type Page } from "./api";
+import { downloadPdf } from "./invoices";
 
 export type QuoteStatus = "draft" | "sent" | "accepted" | "rejected" | "expired";
 
@@ -25,6 +26,8 @@ export interface Quote {
   currency: string;
   notes: string;
   version: number;
+  convertedBookingId?: number | null;
+  convertedContractId?: number | null;
   items: QuoteItem[];
   createdAt: string;
   updatedAt: string;
@@ -83,7 +86,39 @@ export async function createQuote(input: CreateQuoteInput): Promise<Quote> {
   return apiFetch<Quote>("/api/v1/quotes", { method: "POST", body: JSON.stringify(input) });
 }
 
-export async function updateQuote(id: number, input: { status?: Quote["status"]; notes?: string }): Promise<Quote> {
+export interface UpdateQuoteInput {
+  status?: QuoteStatus;
+  notes?: string;
+  siteId?: number | null;
+  clearSiteId?: boolean;
+  validUntil?: string;
+  clearValidUntil?: boolean;
+  taxRate?: number;
+  items?: QuoteItem[];
+  convertedBookingId?: number;
+}
+
+export async function getQuote(id: number): Promise<Quote> {
+  if (USE_MOCKS) {
+    await delay(150);
+    const q = mockQuotes.find((x) => x.id === id);
+    if (!q) throw new ApiError(404, `Quote ${id} not found`);
+    return { ...q };
+  }
+  return apiFetch<Quote>(`/api/v1/quotes/${id}`);
+}
+
+export async function downloadQuotePdf(q: Pick<Quote, "id" | "quoteNumber">): Promise<void> {
+  if (USE_MOCKS) {
+    await delay(200);
+    return;
+  }
+  const api = getApiBaseUrl();
+  if (!api) throw new ApiError(0, "PUBLIC_API_URL is not configured");
+  await downloadPdf(`${api}/api/v1/quotes/${q.id}/pdf`, `${q.quoteNumber}.pdf`);
+}
+
+export async function updateQuote(id: number, input: UpdateQuoteInput): Promise<Quote> {
   if (USE_MOCKS) {
     await delay(300);
     const q = mockQuotes.find((x) => x.id === id);

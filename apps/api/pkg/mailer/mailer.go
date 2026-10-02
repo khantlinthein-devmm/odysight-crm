@@ -55,6 +55,10 @@ func (m *Mailer) Send(ctx context.Context, to, subject, bodyHTML string, att *At
 		from = fmt.Sprintf("%s <%s>", mimeQ(name), m.cfg.FromEmail)
 	}
 
+	// The display name goes only in the From header; the SMTP envelope
+	// (MAIL FROM) must be the bare address or servers reject the message.
+	envelopeFrom := strings.TrimSpace(m.cfg.FromEmail)
+
 	msg, err := buildMessage(from, to, subject, bodyHTML, att)
 	if err != nil {
 		return err
@@ -72,7 +76,7 @@ func (m *Mailer) Send(ctx context.Context, to, subject, bodyHTML string, att *At
 			return fmt.Errorf("tls dial %s: %w", addr, err)
 		}
 		defer client.Close()
-		if err := deliver(ctx, client, auth, from, []string{to}, msg); err != nil {
+		if err := deliver(ctx, client, auth, envelopeFrom, []string{to}, msg); err != nil {
 			return err
 		}
 		return nil
@@ -90,7 +94,7 @@ func (m *Mailer) Send(ctx context.Context, to, subject, bodyHTML string, att *At
 			}
 		}
 	}
-	return deliver(ctx, client, auth, from, []string{to}, msg)
+	return deliver(ctx, client, auth, envelopeFrom, []string{to}, msg)
 }
 
 type sendCloser interface {
@@ -214,14 +218,20 @@ func buildMessage(from, to, subject, bodyHTML string, att *Attachment) ([]byte, 
 
 	// Attachment part.
 	ahdr := textproto.MIMEHeader{}
-	ahdr.Set("Content-Type", "application/octet-stream")
+	ctype := "application/octet-stream"
+	if strings.HasSuffix(strings.ToLower(att.FileName), ".pdf") {
+		ctype = "application/pdf"
+	}
+	ahdr.Set("Content-Type", ctype)
 	ahdr.Set("Content-Transfer-Encoding", "base64")
 	ahdr.Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, att.FileName))
 	apart, err := mw.CreatePart(ahdr)
 	if err != nil {
 		return nil, err
 	}
-	enc := base64.NewEncoder(base64.StdEncoding, apart)
+	// Wrap base64 at 76 characters: SMTP lines must stay under 1000
+	// (RFC 5321) and strict servers reject longer ones.
+	enc := base64.NewEncoder(base64.StdEncoding, &lineWrapper{w: apart, max: 76})
 	if _, err := enc.Write(att.Data); err != nil {
 		return nil, err
 	}
@@ -233,6 +243,37 @@ func buildMessage(from, to, subject, bodyHTML string, att *Attachment) ([]byte, 
 		return nil, err
 	}
 	return buf.Bytes(), nil
+}
+
+// lineWrapper inserts CRLF every max bytes.
+type lineWrapper struct {
+	w   io.Writer
+	max int
+	n   int
+}
+
+func (l *lineWrapper) Write(p []byte) (int, error) {
+	written := 0
+	for len(p) > 0 {
+		room := l.max - l.n
+		chunk := p
+		if len(chunk) > room {
+			chunk = chunk[:room]
+		}
+		if _, err := l.w.Write(chunk); err != nil {
+			return written, err
+		}
+		written += len(chunk)
+		l.n += len(chunk)
+		p = p[len(chunk):]
+		if l.n == l.max {
+			if _, err := l.w.Write([]byte("\r\n")); err != nil {
+				return written, err
+			}
+			l.n = 0
+		}
+	}
+	return written, nil
 }
 
 func mimeQ(s string) string {

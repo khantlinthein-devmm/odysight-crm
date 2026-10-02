@@ -97,6 +97,23 @@ func (h *Handler) Approve(w http.ResponseWriter, r *http.Request) {
 	response.JSON(w, http.StatusOK, toDTO(q))
 }
 
+// PDF handles GET /api/v1/quotes/{id}/pdf
+func (h *Handler) PDF(w http.ResponseWriter, r *http.Request) {
+	id, ok := parseID(w, r)
+	if !ok {
+		return
+	}
+	number, pdf, err := h.service.PDF(r.Context(), id)
+	if err != nil {
+		response.HandleError(w, r, err)
+		return
+	}
+	w.Header().Set("Content-Type", "application/pdf")
+	w.Header().Set("Content-Disposition", `inline; filename="`+number+`.pdf"`)
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(pdf)
+}
+
 func parseID(w http.ResponseWriter, r *http.Request) (int64, bool) {
 	raw := chi.URLParam(r, "id")
 	id, err := strconv.ParseInt(raw, 10, 64)
