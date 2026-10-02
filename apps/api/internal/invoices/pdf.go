@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math"
 	"strings"
+	"time"
 
 	"github.com/jung-kurt/gofpdf/v2"
 
@@ -54,6 +55,10 @@ type docSpec struct {
 	// the line, and on whose behalf ("seller", "buyer" or "") they sign.
 	signLabels [2]string
 	signFor    [2]string
+	// signDate (the document date) is printed on the date line of the
+	// blocks marked in signDated — our side; the customer's stays blank.
+	signDate  time.Time
+	signDated [2]bool
 	// copyLabel marks the document copy, e.g. ต้นฉบับ / Original.
 	copyLabel string
 }
@@ -104,6 +109,8 @@ func renderInvoicePDF(inv Invoice, company settings.Company, pay settings.Paymen
 		note:       fmt.Sprintf("เงื่อนไขการชำระเงิน: ภายใน %d วันนับจากวันที่ออกใบแจ้งหนี้ / Payment terms: %d days from the invoice date", dueDays, dueDays),
 		signLabels: [2]string{"ผู้วางบิล / Issued by", "ผู้รับวางบิล / Received by"},
 		signFor:    [2]string{"seller", "buyer"},
+		signDate:   inv.IssuedAt,
+		signDated:  [2]bool{true, false},
 	}
 	if inv.Status.Open() {
 		spec.payAmount = inv.BalanceDue()
@@ -163,6 +170,8 @@ func renderReceiptPDF(rc Receipt, inv Invoice, company settings.Company) ([]byte
 		note:       "ชำระโดย / Paid by: " + method,
 		signLabels: [2]string{"ผู้รับเงิน / Collector", "ผู้มีอำนาจลงนาม / Authorized signature"},
 		signFor:    [2]string{"", "seller"},
+		signDate:   rc.PaidAt,
+		signDated:  [2]bool{true, true},
 		copyLabel:  "ต้นฉบับ / Original",
 	}
 	if rc.Status == ReceiptCancelled {
@@ -484,8 +493,12 @@ func renderDoc(spec docSpec, company settings.Company, pay settings.PaymentSetti
 		pdf.CellFormat(85, 5, "(                                                  )", "", 2, "C", false, 0, "")
 		pdf.SetX(sx)
 		pdf.CellFormat(85, 5, label, "", 2, "C", false, 0, "")
+		date := "วันที่ / Date ____/____/______"
+		if spec.signDated[i] && !spec.signDate.IsZero() {
+			date = "วันที่ / Date " + spec.signDate.Format("02/01/2006")
+		}
 		pdf.SetX(sx)
-		pdf.CellFormat(85, 5, "วันที่ / Date ____/____/______", "", 0, "C", false, 0, "")
+		pdf.CellFormat(85, 5, date, "", 0, "C", false, 0, "")
 	}
 
 	footer := strings.TrimSpace(company.InvoiceFooter)

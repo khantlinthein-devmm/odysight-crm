@@ -142,7 +142,8 @@ Nobody is forced to use checklists. When a commercial client wants proof:
   the date). Quotation: ผู้อนุมัติสั่งซื้อ (customer) / ผู้เสนอราคา (us).
   Invoice: ผู้วางบิล / ผู้รับวางบิล. Receipt / tax invoice: ผู้รับเงิน /
   ผู้มีอำนาจลงนาม, marked ต้นฉบับ (Original). Print, sign and stamp when
-  the customer needs a paper copy. Invoices also show a *Due date*: issue
+  the customer needs a paper copy. The date under our signature is filled
+  in with the document date; the customer's date line stays blank. Invoices also show a *Due date*: issue
   date + the overdue-reminder days in *Settings → Notifications*.
 - **Roles & permissions** — *Settings → Roles & permissions*. A Super admin
   can tick/untick what each role may do (Admin, Manager, Dispatch,
