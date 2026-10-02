@@ -62,3 +62,11 @@ func TestRenderQuotePDF(t *testing.T) {
 		_ = os.WriteFile(out, pdf, 0o644)
 	}
 }
+
+func TestDepositOf(t *testing.T) {
+	for _, c := range []struct{ total, want float64 }{{9630, 4815}, {6527, 3263.5}, {0.03, 0.02}} {
+		if got := depositOf(c.total); got != c.want {
+			t.Errorf("depositOf(%v) = %v, want %v", c.total, got, c.want)
+		}
+	}
+}

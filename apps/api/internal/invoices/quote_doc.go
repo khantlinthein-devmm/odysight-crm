@@ -3,6 +3,7 @@ package invoices
 import (
 	"context"
 	"fmt"
+	"math"
 	"strings"
 	"time"
 
@@ -91,6 +92,9 @@ func RenderQuotePDF(q QuoteDoc, company settings.Company) ([]byte, error) {
 		signFor:    [2]string{"buyer", "seller"},
 		signDate:   q.Date,
 		signDated:  [2]bool{false, true},
+		terms: fmt.Sprintf("เงื่อนไขการจอง: กรุณาชำระเงินมัดจำ %[1]d%% (%[2]s %[3]s) เพื่อยืนยันการจอง\n"+
+			"Booking terms: a %[1]d%% deposit (%[2]s %[3]s) is required to confirm the booking.",
+			DepositPercent, q.Currency, amount(depositOf(q.Total))),
 	}
 	switch q.Status {
 	case "accepted":
@@ -107,4 +111,12 @@ func RenderQuotePDF(q QuoteDoc, company settings.Company) ([]byte, error) {
 func (s *Service) QuotePDF(ctx context.Context, q QuoteDoc) ([]byte, error) {
 	company, _ := s.billingSettings(ctx)
 	return RenderQuotePDF(q, company)
+}
+
+// DepositPercent is the share of a quotation's total the customer pays to
+// confirm a booking.
+const DepositPercent = 50
+
+func depositOf(total float64) float64 {
+	return math.Round(total*DepositPercent) / 100
 }
