@@ -137,14 +137,13 @@ Nobody is forced to use checklists. When a commercial client wants proof:
   payment is received). Invoices are always ใบแจ้งหนี้. Give company
   customers their tax ID and *Withholding tax 3%* on the customer form;
   invoices show the deduction and net payable.
-- **Signatures on documents** — invoices and receipts are computer-generated
-  and carry the line "valid without a signature" instead of signature
-  boxes (international practice). Invoices show a *Due date*: issue date +
-  the overdue-reminder days in *Settings → Notifications*. A quotation has
-  one *Customer acceptance* box (name, signature, date); a written "yes" by
-  LINE or email counts too — then tap **Accepted** on the quote. If a
-  customer insists on a signed and stamped paper copy, print the PDF and
-  sign/stamp it.
+- **Signatures on documents** — PDFs follow Thai practice: each has two
+  signature blocks ("ในนาม …", the line, the name in brackets, the role and
+  the date). Quotation: ผู้อนุมัติสั่งซื้อ (customer) / ผู้เสนอราคา (us).
+  Invoice: ผู้วางบิล / ผู้รับวางบิล. Receipt / tax invoice: ผู้รับเงิน /
+  ผู้มีอำนาจลงนาม, marked ต้นฉบับ (Original). Print, sign and stamp when
+  the customer needs a paper copy. Invoices also show a *Due date*: issue
+  date + the overdue-reminder days in *Settings → Notifications*.
 - **Roles & permissions** — *Settings → Roles & permissions*. A Super admin
   can tick/untick what each role may do (Admin, Manager, Dispatch,
   Accountant, Cleaner) and **Save changes**; **reset** puts a role back to

@@ -50,10 +50,12 @@ type docSpec struct {
 	stampRGB  [3]int
 	// note is printed under the amount in words (e.g. how it was paid).
 	note string
-	// acceptance prints a customer acceptance block (quotations). Invoices
-	// and receipts carry no signature lines: like most computer-generated
-	// business documents they state that they are valid without one.
-	acceptance bool
+	// Thai-style signature blocks, left and right: the role printed under
+	// the line, and on whose behalf ("seller", "buyer" or "") they sign.
+	signLabels [2]string
+	signFor    [2]string
+	// copyLabel marks the document copy, e.g. ต้นฉบับ / Original.
+	copyLabel string
 }
 
 // renderInvoicePDF produces a bilingual (Thai/English) invoice — ใบแจ้งหนี้,
@@ -98,8 +100,10 @@ func renderInvoicePDF(inv Invoice, company settings.Company, pay settings.Paymen
 		buyerTaxID: inv.CustomerTaxID, buyerBranch: inv.CustomerTaxBranch,
 		description: inv.ServiceName, lineAmount: inv.Subtotal,
 		totals: totals, words: inv.Total, currency: inv.Currency,
-		imageKey: inv.InvoiceNumber,
-		note:     fmt.Sprintf("เงื่อนไขการชำระเงิน: ภายใน %d วันนับจากวันที่ออกใบแจ้งหนี้ / Payment terms: %d days from the invoice date", dueDays, dueDays),
+		imageKey:   inv.InvoiceNumber,
+		note:       fmt.Sprintf("เงื่อนไขการชำระเงิน: ภายใน %d วันนับจากวันที่ออกใบแจ้งหนี้ / Payment terms: %d days from the invoice date", dueDays, dueDays),
+		signLabels: [2]string{"ผู้วางบิล / Issued by", "ผู้รับวางบิล / Received by"},
+		signFor:    [2]string{"seller", "buyer"},
 	}
 	if inv.Status.Open() {
 		spec.payAmount = inv.BalanceDue()
@@ -156,7 +160,10 @@ func renderReceiptPDF(rc Receipt, inv Invoice, company settings.Company) ([]byte
 		totals: totals, words: rc.Gross(), currency: rc.Currency,
 		imageKey: rc.ReceiptNumber,
 		stamp:    "ได้รับเงินแล้ว / RECEIVED", stampRGB: [3]int{22, 163, 74},
-		note: "ชำระโดย / Paid by: " + method,
+		note:       "ชำระโดย / Paid by: " + method,
+		signLabels: [2]string{"ผู้รับเงิน / Collector", "ผู้มีอำนาจลงนาม / Authorized signature"},
+		signFor:    [2]string{"", "seller"},
+		copyLabel:  "ต้นฉบับ / Original",
 	}
 	if rc.Status == ReceiptCancelled {
 		spec.stamp, spec.stampRGB = "ยกเลิก / CANCELLED", [3]int{220, 38, 38}
@@ -243,6 +250,12 @@ func renderDoc(spec docSpec, company settings.Company, pay settings.PaymentSetti
 	pdf.CellFormat(80, 7, spec.thTitle, "", 2, "R", false, 0, "")
 	font("B", 10)
 	pdf.CellFormat(80, 5, spec.enTitle, "", 2, "R", false, 0, "")
+	if spec.copyLabel != "" {
+		font("", 9)
+		ink(100, 116, 139)
+		pdf.CellFormat(80, 5, spec.copyLabel, "", 2, "R", false, 0, "")
+		ink(30, 58, 95)
+	}
 	pdf.Ln(2)
 	font("", 9.5)
 	ink(30, 41, 59)
@@ -353,11 +366,8 @@ func renderDoc(spec docSpec, company settings.Company, pay settings.PaymentSetti
 	if spec.stamp != "" {
 		need += 16
 	}
-	limit := 255.0
-	if spec.acceptance {
-		limit = 216
-	}
-	if y+need > limit {
+	// The signature blocks start at 230 mm.
+	if y+need > 226 {
 		newPage()
 	}
 
@@ -447,35 +457,36 @@ func renderDoc(spec docSpec, company settings.Company, pay settings.PaymentSetti
 		pdf.SetDrawColor(203, 213, 225)
 	}
 
-	if spec.acceptance {
-		// Customer acceptance (quotations): sign here, or confirm in writing.
-		ay := 222.0
-		pdf.SetDrawColor(203, 213, 225)
-		pdf.Rect(left, ay, width, 38, "D")
-		pdf.SetXY(left+4, ay+3)
-		font("B", 10)
-		ink(30, 41, 59)
-		pdf.CellFormat(0, 5, "การยอมรับใบเสนอราคา / Customer acceptance", "", 2, "L", false, 0, "")
-		pdf.SetX(left + 4)
-		font("", 9)
-		ink(71, 85, 105)
-		pdf.MultiCell(width-8, 4.5, "ข้าพเจ้ายอมรับราคาและเงื่อนไขในใบเสนอราคานี้ (หรือยืนยันเป็นลายลักษณ์อักษรทาง LINE / อีเมล)\n"+
-			"We accept the prices and terms of this quotation (or confirm in writing by LINE / email).", "", "L", false)
-		fields := []string{"ชื่อ / Name", "ลายมือชื่อ / Signature", "วันที่ / Date"}
-		fw := (width - 8) / 3
-		for i, f := range fields {
-			fx := left + 4 + float64(i)*fw
-			pdf.Line(fx+2, ay+30, fx+fw-4, ay+30)
-			pdf.SetXY(fx, ay+31)
-			pdf.CellFormat(fw-2, 5, f, "", 0, "C", false, 0, "")
+	// Signatures, Thai style: "ในนาม <organisation>", the signing line,
+	// the name in brackets, the role and the date.
+	sy := 230.0
+	for i, label := range spec.signLabels {
+		if label == "" {
+			continue
 		}
+		sx := left + float64(i)*95
+		ink(71, 85, 105)
+		var org string
+		switch spec.signFor[i] {
+		case "seller":
+			org = sellerName
+		case "buyer":
+			org = spec.buyerName
+		}
+		if org != "" {
+			font("", 8.5)
+			pdf.SetXY(sx, sy)
+			pdf.CellFormat(85, 4.5, "ในนาม / For "+org, "", 0, "C", false, 0, "")
+		}
+		font("", 9.5)
+		pdf.Line(sx+8, sy+17, sx+77, sy+17)
+		pdf.SetXY(sx, sy+18)
+		pdf.CellFormat(85, 5, "(                                                  )", "", 2, "C", false, 0, "")
+		pdf.SetX(sx)
+		pdf.CellFormat(85, 5, label, "", 2, "C", false, 0, "")
+		pdf.SetX(sx)
+		pdf.CellFormat(85, 5, "วันที่ / Date ____/____/______", "", 0, "C", false, 0, "")
 	}
-
-	// Computer-generated documents are valid without a signature.
-	pdf.SetXY(left, 263)
-	font("", 8.5)
-	ink(100, 116, 139)
-	pdf.MultiCell(width, 4.2, "เอกสารนี้จัดทำด้วยระบบคอมพิวเตอร์ ใช้ได้โดยไม่ต้องลงลายมือชื่อ / This document is computer-generated and is valid without a signature.", "", "C", false)
 
 	footer := strings.TrimSpace(company.InvoiceFooter)
 	if footer == "" {

@@ -87,7 +87,8 @@ func RenderQuotePDF(q QuoteDoc, company settings.Company) ([]byte, error) {
 		totals: totals, words: q.Total, currency: q.Currency,
 		imageKey:   q.Number,
 		note:       note,
-		acceptance: true,
+		signLabels: [2]string{"ผู้อนุมัติสั่งซื้อ / Accepted by", "ผู้เสนอราคา / Quoted by"},
+		signFor:    [2]string{"buyer", "seller"},
 	}
 	switch q.Status {
 	case "accepted":
