@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math"
 	"strings"
+	"time"
 
 	"github.com/jung-kurt/gofpdf/v2"
 
@@ -49,18 +50,33 @@ type docSpec struct {
 	stamp     string
 	stampRGB  [3]int
 	// note is printed under the amount in words (e.g. how it was paid).
-	note       string
+	note string
+	// Thai-style signature blocks, left and right: the role printed under
+	// the line, and on whose behalf ("seller", "buyer" or "") they sign.
 	signLabels [2]string
+	signFor    [2]string
+	// signDate (the document date) is printed on the date line of the
+	// blocks marked in signDated — our side; the customer's stays blank.
+	signDate  time.Time
+	signDated [2]bool
+	// copyLabel marks the document copy, e.g. ต้นฉบับ / Original.
+	copyLabel string
 }
 
 // renderInvoicePDF produces a bilingual (Thai/English) invoice — ใบแจ้งหนี้,
 // the request for payment. VAT is shown when the invoice carries it; the tax
 // invoice itself is the receipt issued once money is received. While money
 // is still owed, a PromptPay QR for the balance is printed.
-func renderInvoicePDF(inv Invoice, company settings.Company, pay settings.PaymentSettings) ([]byte, error) {
+// dueDays is the payment term: the invoice is due that many days after it
+// is issued (the same period after which overdue reminders go out).
+func renderInvoicePDF(inv Invoice, company settings.Company, pay settings.PaymentSettings, dueDays int) ([]byte, error) {
+	if dueDays < 1 {
+		dueDays = settings.DefaultOverdueReminderDays
+	}
 	meta := [][2]string{
 		{"เลขที่ / No.", inv.InvoiceNumber},
 		{"วันที่ / Date", inv.IssuedAt.Format("02/01/2006")},
+		{"ครบกำหนด / Due date", inv.IssuedAt.AddDate(0, 0, dueDays).Format("02/01/2006")},
 		{"อ้างอิง / Booking", inv.BookingNumber},
 	}
 	if inv.BillingPeriodStart != nil && inv.BillingPeriodEnd != nil {
@@ -90,7 +106,11 @@ func renderInvoicePDF(inv Invoice, company settings.Company, pay settings.Paymen
 		description: inv.ServiceName, lineAmount: inv.Subtotal,
 		totals: totals, words: inv.Total, currency: inv.Currency,
 		imageKey:   inv.InvoiceNumber,
+		note:       fmt.Sprintf("เงื่อนไขการชำระเงิน: ภายใน %d วันนับจากวันที่ออกใบแจ้งหนี้ / Payment terms: %d days from the invoice date", dueDays, dueDays),
 		signLabels: [2]string{"ผู้วางบิล / Issued by", "ผู้รับวางบิล / Received by"},
+		signFor:    [2]string{"seller", "buyer"},
+		signDate:   inv.IssuedAt,
+		signDated:  [2]bool{true, false},
 	}
 	if inv.Status.Open() {
 		spec.payAmount = inv.BalanceDue()
@@ -149,6 +169,10 @@ func renderReceiptPDF(rc Receipt, inv Invoice, company settings.Company) ([]byte
 		stamp:    "ได้รับเงินแล้ว / RECEIVED", stampRGB: [3]int{22, 163, 74},
 		note:       "ชำระโดย / Paid by: " + method,
 		signLabels: [2]string{"ผู้รับเงิน / Collector", "ผู้มีอำนาจลงนาม / Authorized signature"},
+		signFor:    [2]string{"", "seller"},
+		signDate:   rc.PaidAt,
+		signDated:  [2]bool{true, true},
+		copyLabel:  "ต้นฉบับ / Original",
 	}
 	if rc.Status == ReceiptCancelled {
 		spec.stamp, spec.stampRGB = "ยกเลิก / CANCELLED", [3]int{220, 38, 38}
@@ -187,6 +211,13 @@ func renderDoc(spec docSpec, company settings.Company, pay settings.PaymentSetti
 	pdf.AddUTF8FontFromBytes(fontFamily, "B", fontBold)
 	pdf.SetMargins(15, 15, 15)
 	pdf.SetAutoPageBreak(false, 0)
+	pdf.AliasNbPages("{nb}")
+	pdf.SetFooterFunc(func() {
+		pdf.SetXY(15, 283)
+		pdf.SetFont(fontFamily, "", 8)
+		pdf.SetTextColor(148, 163, 184)
+		pdf.CellFormat(180, 4, fmt.Sprintf("หน้า / Page %d/{nb}", pdf.PageNo()), "", 0, "R", false, 0, "")
+	})
 	pdf.AddPage()
 
 	ink := func(r, g, b int) { pdf.SetTextColor(r, g, b) }
@@ -228,6 +259,12 @@ func renderDoc(spec docSpec, company settings.Company, pay settings.PaymentSetti
 	pdf.CellFormat(80, 7, spec.thTitle, "", 2, "R", false, 0, "")
 	font("B", 10)
 	pdf.CellFormat(80, 5, spec.enTitle, "", 2, "R", false, 0, "")
+	if spec.copyLabel != "" {
+		font("", 9)
+		ink(100, 116, 139)
+		pdf.CellFormat(80, 5, spec.copyLabel, "", 2, "R", false, 0, "")
+		ink(30, 58, 95)
+	}
 	pdf.Ln(2)
 	font("", 9.5)
 	ink(30, 41, 59)
@@ -338,7 +375,8 @@ func renderDoc(spec docSpec, company settings.Company, pay settings.PaymentSetti
 	if spec.stamp != "" {
 		need += 16
 	}
-	if y+need > 238 {
+	// The signature blocks start at 230 mm.
+	if y+need > 226 {
 		newPage()
 	}
 
@@ -428,24 +466,46 @@ func renderDoc(spec docSpec, company settings.Company, pay settings.PaymentSetti
 		pdf.SetDrawColor(203, 213, 225)
 	}
 
-	// Signatures.
-	sy := 245.0
-	font("", 9.5)
-	ink(71, 85, 105)
+	// Signatures, Thai style: "ในนาม <organisation>", the signing line,
+	// the name in brackets, the role and the date.
+	sy := 230.0
 	for i, label := range spec.signLabels {
+		if label == "" {
+			continue
+		}
 		sx := left + float64(i)*95
-		pdf.Line(sx+5, sy, sx+80, sy)
-		pdf.SetXY(sx, sy+1)
-		pdf.CellFormat(85, 5, label, "", 2, "C", false, 0, "")
+		ink(71, 85, 105)
+		var org string
+		switch spec.signFor[i] {
+		case "seller":
+			org = sellerName
+		case "buyer":
+			org = spec.buyerName
+		}
+		if org != "" {
+			font("", 8.5)
+			pdf.SetXY(sx, sy)
+			pdf.CellFormat(85, 4.5, "ในนาม / For "+org, "", 0, "C", false, 0, "")
+		}
+		font("", 9.5)
+		pdf.Line(sx+8, sy+17, sx+77, sy+17)
+		pdf.SetXY(sx, sy+18)
+		pdf.CellFormat(85, 5, "(                                                  )", "", 2, "C", false, 0, "")
 		pdf.SetX(sx)
-		pdf.CellFormat(85, 5, "วันที่ / Date ____/____/______", "", 0, "C", false, 0, "")
+		pdf.CellFormat(85, 5, label, "", 2, "C", false, 0, "")
+		date := "วันที่ / Date ____/____/______"
+		if spec.signDated[i] && !spec.signDate.IsZero() {
+			date = "วันที่ / Date " + spec.signDate.Format("02/01/2006")
+		}
+		pdf.SetX(sx)
+		pdf.CellFormat(85, 5, date, "", 0, "C", false, 0, "")
 	}
 
 	footer := strings.TrimSpace(company.InvoiceFooter)
 	if footer == "" {
 		footer = "ขอบคุณที่ใช้บริการ / Thank you for your business!"
 	}
-	pdf.SetXY(left, 272)
+	pdf.SetXY(left, 271)
 	font("", 9)
 	ink(148, 163, 184)
 	pdf.MultiCell(width, 4.5, footer, "", "C", false)

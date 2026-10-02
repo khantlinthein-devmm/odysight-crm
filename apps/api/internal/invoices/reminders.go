@@ -102,7 +102,7 @@ func (r *ReminderRunner) sendReminders(ctx context.Context) error {
 			noEmail++
 			continue
 		}
-		pdf, err := renderInvoicePDF(inv, company, pay)
+		pdf, err := renderInvoicePDF(inv, company, pay, grace)
 		if err != nil {
 			slog.Warn("overdue reminder pdf render failed", "invoice", inv.InvoiceNumber, "error", err)
 			r.record(ctx, inv, "failed", "pdf render failed")

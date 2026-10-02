@@ -63,7 +63,20 @@ func (s *Service) PDF(ctx context.Context, id int64) (Invoice, []byte, error) {
 // renderPDF renders an invoice PDF with company branding from settings.
 func (s *Service) renderPDF(ctx context.Context, inv Invoice) ([]byte, error) {
 	company, pay := s.billingSettings(ctx)
-	return renderInvoicePDF(inv, company, pay)
+	return renderInvoicePDF(inv, company, pay, s.dueDays(ctx))
+}
+
+// dueDays is the payment term printed on invoices: the number of days after
+// which an unpaid invoice counts as overdue (Settings → Notifications).
+func (s *Service) dueDays(ctx context.Context) int {
+	days := settings.DefaultOverdueReminderDays
+	if raw, err := s.settings.GetAll(ctx); err == nil {
+		var n settings.NotificationSettings
+		if v, ok := raw[settings.KeyNotifications]; ok && json.Unmarshal(v, &n) == nil && n.OverdueReminderDays >= 1 {
+			days = n.OverdueReminderDays
+		}
+	}
+	return days
 }
 
 // billingSettings loads the company identity and payment details printed on
