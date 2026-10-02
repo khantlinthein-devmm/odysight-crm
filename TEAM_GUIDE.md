@@ -101,6 +101,8 @@ Everything in §3, plus only what you need:
   accepted quote, **Create booking** opens a new booking already filled in
   (customer, site, price before VAT); pick the date and cleaner and save.
   An accepted quote can't be re-priced — make a new quote instead.
+  Every quotation PDF states the booking terms: a 50% deposit (amount
+  calculated from the total) is required to confirm the booking.
 - **Contracts** — ONLY for formal agreements. Most recurring customers never
   need one. Lifecycle: `draft → Activate → active → Renew` next period
   (the old row stays as history, a successor draft opens). Illegal jumps

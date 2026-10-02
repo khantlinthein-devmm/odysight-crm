@@ -59,6 +59,9 @@ type docSpec struct {
 	// blocks marked in signDated — our side; the customer's stays blank.
 	signDate  time.Time
 	signDated [2]bool
+	// terms is a highlighted condition printed under the totals (e.g. the
+	// deposit required to book, on quotations).
+	terms string
 	// copyLabel marks the document copy, e.g. ต้นฉบับ / Original.
 	copyLabel string
 }
@@ -375,6 +378,9 @@ func renderDoc(spec docSpec, company settings.Company, pay settings.PaymentSetti
 	if spec.stamp != "" {
 		need += 16
 	}
+	if spec.terms != "" {
+		need += 20
+	}
 	// The signature blocks start at 230 mm.
 	if y+need > 226 {
 		newPage()
@@ -418,6 +424,24 @@ func renderDoc(spec docSpec, company settings.Company, pay settings.PaymentSetti
 	}
 	y = ty + 6
 
+	if spec.terms != "" {
+		y = max(y, pdf.GetY()+4)
+		font("B", 10.5)
+		lines := 0
+		for _, para := range strings.Split(spec.terms, "\n") {
+			lines += max(1, int(math.Ceil(pdf.GetStringWidth(para)/(width-10))))
+		}
+		h := float64(lines)*5.6 + 6
+		pdf.SetFillColor(255, 247, 237)
+		pdf.SetDrawColor(251, 146, 60)
+		pdf.Rect(left, y, width, h, "FD")
+		pdf.SetDrawColor(203, 213, 225)
+		pdf.SetXY(left+5, y+3)
+		ink(154, 52, 18)
+		pdf.MultiCell(width-10, 5.6, spec.terms, "", "L", false)
+		y += h + 6
+	}
+
 	// Payment: PromptPay QR for the amount due, plus bank details.
 	payTarget := strings.TrimSpace(pay.PromptPayID)
 	bank := strings.TrimSpace(pay.BankAccount)
@@ -438,19 +462,25 @@ func renderDoc(spec docSpec, company settings.Company, pay settings.PaymentSetti
 			}
 		}
 		pdf.SetXY(textX, y+8)
-		font("", 9.5)
-		ink(71, 85, 105)
-		var lines []string
 		if payTarget != "" {
 			d, _ := promptpay.Normalize(payTarget)
-			lines = append(lines, "สแกนเพื่อชำระด้วย PromptPay / Scan to pay with PromptPay",
-				"PromptPay: "+d, "ยอดชำระ / Amount: "+spec.currency+" "+amount(spec.payAmount))
+			font("", 10.5)
+			ink(51, 65, 85)
+			pdf.MultiCell(right-textX, 5.4, "สแกนเพื่อชำระด้วย PromptPay / Scan to pay with PromptPay\n"+
+				"PromptPay: "+d+"\nยอดชำระ / Amount: "+spec.currency+" "+amount(spec.payAmount), "", "L", false)
+			pdf.Ln(2)
 		}
 		if bank != "" {
-			lines = append(lines, "", "โอนเงินเข้าบัญชี / Bank transfer:", bank)
+			pdf.SetX(textX)
+			font("B", 10.5)
+			ink(51, 65, 85)
+			pdf.CellFormat(right-textX, 5.6, "โอนเงินเข้าบัญชี / Bank transfer:", "", 2, "L", false, 0, "")
+			pdf.SetX(textX)
+			font("B", 12)
+			ink(30, 41, 59)
+			pdf.MultiCell(right-textX, 6.2, bank, "", "L", false)
 		}
-		pdf.MultiCell(right-textX, 4.8, strings.Join(lines, "\n"), "", "L", false)
-		y += 45
+		y = max(y+45, pdf.GetY()+4)
 	}
 
 	if spec.stamp != "" {
