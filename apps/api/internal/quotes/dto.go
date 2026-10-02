@@ -3,6 +3,7 @@ package quotes
 import (
 	"math"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/odysight/crm/pkg/response"
 )
@@ -122,6 +123,9 @@ func (r *CreateQuoteRequest) Validate() error {
 	if len(r.Items) == 0 {
 		return response.NewAPIError(400, "at least one item is required")
 	}
+	if err := checkSizes(r.Items, r.Notes); err != nil {
+		return err
+	}
 	for i := range r.Items {
 		r.Items[i].ServiceName = strings.TrimSpace(r.Items[i].ServiceName)
 		r.Items[i].Description = strings.TrimSpace(r.Items[i].Description)
@@ -171,6 +175,9 @@ func (r *UpdateQuoteRequest) Validate() error {
 		if len(r.Items) == 0 {
 			return response.NewAPIError(400, "items cannot be empty when provided")
 		}
+		if err := checkSizes(r.Items, ""); err != nil {
+			return err
+		}
 		for i := range r.Items {
 			if strings.TrimSpace(r.Items[i].ServiceName) == "" {
 				return response.NewAPIError(400, "items[].serviceName is required")
@@ -194,3 +201,23 @@ func (r *UpdateQuoteRequest) IsEmpty() bool {
 }
 
 func round2(v float64) float64 { return math.Round(v*100) / 100 }
+
+// checkSizes keeps a quote printable: a sensible number of lines and text
+// that fits the PDF.
+func checkSizes(items []QuoteItemInput, notes string) error {
+	if len(items) > 50 {
+		return response.NewAPIError(400, "a quote can have at most 50 lines")
+	}
+	for _, it := range items {
+		if utf8.RuneCountInString(it.ServiceName) > 200 {
+			return response.NewAPIError(400, "items[].serviceName is too long (max 200 characters)")
+		}
+		if utf8.RuneCountInString(it.Description) > 1000 {
+			return response.NewAPIError(400, "items[].description is too long (max 1000 characters)")
+		}
+	}
+	if utf8.RuneCountInString(notes) > 2000 {
+		return response.NewAPIError(400, "notes are too long (max 2000 characters)")
+	}
+	return nil
+}

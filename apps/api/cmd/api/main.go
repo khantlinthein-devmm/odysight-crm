@@ -213,7 +213,7 @@ func run() error {
 	contractHandler := contracts.NewHandler(contractService)
 
 	quoteRepo := quotes.NewRepository(pool)
-	quoteService := quotes.NewService(quoteRepo)
+	quoteService := quotes.NewService(quoteRepo).WithDocuments(invoiceService)
 	quoteHandler := quotes.NewHandler(quoteService)
 
 	checklistRepo := checklists.NewRepository(pool)

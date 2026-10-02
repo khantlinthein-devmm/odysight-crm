@@ -4,6 +4,7 @@ import (
 	"bytes"
 	_ "embed"
 	"fmt"
+	"math"
 	"strings"
 
 	"github.com/jung-kurt/gofpdf/v2"
@@ -37,9 +38,11 @@ type docSpec struct {
 	buyerBranch      string
 	description      string
 	lineAmount       float64
-	totals           [][2]string
-	words            float64
-	currency         string
+	// items, when set, replaces the single description/lineAmount row.
+	items    []docItem
+	totals   [][2]string
+	words    float64
+	currency string
 	// Payment block (QR + bank details); skipped when payAmount is zero.
 	payAmount float64
 	imageKey  string
@@ -171,6 +174,13 @@ func methodLabel(m string) string {
 	return m
 }
 
+// docItem is one priced row of a document.
+type docItem struct {
+	desc      string
+	qty, unit float64
+	amount    float64
+}
+
 func renderDoc(spec docSpec, company settings.Company, pay settings.PaymentSettings) ([]byte, error) {
 	pdf := gofpdf.New("P", "mm", "A4", "")
 	pdf.AddUTF8FontFromBytes(fontFamily, "", fontRegular)
@@ -254,7 +264,8 @@ func renderDoc(spec docSpec, company settings.Company, pay settings.PaymentSetti
 	pdf.MultiCell(width-6, 5, strings.Join(buyer, "\n"), "", "L", false)
 	y += boxH + 6
 
-	// Line items.
+	// Line items. Long documents (many quote lines) continue on new pages
+	// with the column header repeated.
 	cols := []struct {
 		label string
 		w     float64
@@ -266,27 +277,70 @@ func renderDoc(spec docSpec, company settings.Company, pay settings.PaymentSetti
 		{"ราคาต่อหน่วย\nUnit price", 31, "R"},
 		{"จำนวนเงิน\nAmount", 31, "R"},
 	}
-	pdf.SetFillColor(30, 58, 95)
-	ink(255, 255, 255)
-	font("B", 8.5)
-	x := left
-	for _, c := range cols {
-		pdf.SetXY(x, y)
-		pdf.MultiCell(c.w, 4.5, c.label, "", c.align, true)
-		x += c.w
+	drawHead := func() {
+		pdf.SetFillColor(30, 58, 95)
+		ink(255, 255, 255)
+		font("B", 8.5)
+		x := left
+		for _, c := range cols {
+			pdf.SetXY(x, y)
+			pdf.MultiCell(c.w, 4.5, c.label, "", c.align, true)
+			x += c.w
+		}
+		y += 9
+		font("", 10)
+		ink(30, 41, 59)
 	}
-	y += 9
-	font("", 10)
-	ink(30, 41, 59)
-	row := []string{"1", spec.description, "1", amount(spec.lineAmount), amount(spec.lineAmount)}
-	x = left
-	for i, c := range cols {
-		pdf.SetXY(x, y+1)
-		pdf.MultiCell(c.w, 6, row[i], "", c.align, false)
-		x += c.w
+	newPage := func() {
+		pdf.AddPage()
+		y = 15
 	}
-	y += 14
+	items := spec.items
+	if len(items) == 0 {
+		items = []docItem{{desc: spec.description, qty: 1, unit: spec.lineAmount, amount: spec.lineAmount}}
+	}
+	drawHead()
+	for i, it := range items {
+		font("", 10)
+		// Estimate wrapped lines from the text width (SplitText miscounts
+		// Thai, which has no spaces between words).
+		lines := 0
+		for _, para := range strings.Split(it.desc, "\n") {
+			lines += max(1, int(math.Ceil(pdf.GetStringWidth(para)/(cols[1].w-3))))
+		}
+		h := float64(lines)*5.5 + 3
+		if y+h > 262 {
+			newPage()
+			drawHead()
+		}
+		row := []string{fmt.Sprint(i + 1), it.desc, qtyText(it.qty), amount(it.unit), amount(it.amount)}
+		x := left
+		for j, c := range cols {
+			pdf.SetXY(x, y+1.5)
+			pdf.MultiCell(c.w, 5.5, row[j], "", c.align, false)
+			x += c.w
+		}
+		y += h
+		if i < len(items)-1 {
+			pdf.SetDrawColor(226, 232, 240)
+			pdf.Line(left, y, right, y)
+			pdf.SetDrawColor(203, 213, 225)
+		}
+	}
+	y += 4
 	pdf.Line(left, y, right, y)
+
+	// Keep totals, payment, stamp and signatures together on the last page.
+	need := float64(len(spec.totals))*7 + 12
+	if strings.TrimSpace(pay.PromptPayID+pay.BankAccount) != "" && spec.payAmount > 0 {
+		need += 45
+	}
+	if spec.stamp != "" {
+		need += 16
+	}
+	if y+need > 238 {
+		newPage()
+	}
 
 	// Totals (right) and amount in words (left).
 	y += 3
@@ -299,30 +353,30 @@ func renderDoc(spec docSpec, company settings.Company, pay settings.PaymentSetti
 		} else {
 			font("", 10)
 		}
-		pdf.SetXY(110, ty)
-		pdf.CellFormat(55, 7, t[0], "", 0, "L", last, 0, "")
+		pdf.SetXY(103, ty)
+		pdf.CellFormat(62, 7, t[0], "", 0, "L", last, 0, "")
 		pdf.CellFormat(30, 7, t[1], "", 1, "R", last, 0, "")
 		ty += 7
 	}
 	pdf.SetXY(left, y)
 	font("B", 9)
 	ink(100, 116, 139)
-	pdf.CellFormat(90, 5, "จำนวนเงินตัวอักษร / Amount in words", "", 2, "L", false, 0, "")
+	pdf.CellFormat(85, 5, "จำนวนเงินตัวอักษร / Amount in words", "", 2, "L", false, 0, "")
 	font("B", 10.5)
 	ink(30, 41, 59)
-	pdf.MultiCell(90, 5.5, "("+thaibaht.Text(spec.words)+")", "", "L", false)
+	pdf.MultiCell(85, 5.5, "("+thaibaht.Text(spec.words)+")", "", "L", false)
 	if spec.currency != "" && spec.currency != "THB" {
 		font("", 8.5)
 		ink(100, 116, 139)
 		pdf.SetX(left)
-		pdf.MultiCell(90, 4.5, "Amounts in "+spec.currency, "", "L", false)
+		pdf.MultiCell(85, 4.5, "Amounts in "+spec.currency, "", "L", false)
 	}
 	if spec.note != "" {
 		pdf.Ln(2)
 		font("", 9.5)
 		ink(71, 85, 105)
 		pdf.SetX(left)
-		pdf.MultiCell(90, 5, spec.note, "", "L", false)
+		pdf.MultiCell(85, 5, spec.note, "", "L", false)
 	}
 	y = ty + 6
 
@@ -401,6 +455,11 @@ func renderDoc(spec docSpec, company settings.Company, pay settings.PaymentSetti
 		return nil, fmt.Errorf("gofpdf output: %w", err)
 	}
 	return buf.Bytes(), nil
+}
+
+// qtyText prints a quantity without needless decimals (2, 1.5).
+func qtyText(q float64) string {
+	return strings.TrimSuffix(strings.TrimRight(fmt.Sprintf("%.2f", q), "0"), ".")
 }
 
 func amount(v float64) string {

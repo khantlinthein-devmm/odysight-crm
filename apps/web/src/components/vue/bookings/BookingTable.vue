@@ -17,6 +17,8 @@ import { hasPermission } from "../../../lib/roles";
 import { createInvoice, type PaymentResult } from "../../../lib/invoices";
 import RecordPaymentDialog from "../invoices/RecordPaymentDialog.vue";
 import BookingForm from "./BookingForm.vue";
+import { getQuote, updateQuote, type Quote } from "../../../lib/quotes";
+import { getCustomer } from "../../../lib/customers";
 import ConfirmDialog from "../ui/ConfirmDialog.vue";
 import MyJobs from "./MyJobs.vue";
 
@@ -151,6 +153,37 @@ function openEdit(booking: Booking) {
 function closeForm() {
   showForm.value = false;
   editingBooking.value = undefined;
+  prefill.value = undefined;
+  fromQuote.value = null;
+}
+
+// "Create booking" on an accepted quote lands here with ?fromQuote=<id>:
+// open a new booking filled in from the quote, then link the two.
+const prefill = ref<Partial<CreateBookingInput> | undefined>(undefined);
+const fromQuote = ref<Quote | null>(null);
+
+async function openFromQuote() {
+  const id = Number(new URLSearchParams(window.location.search).get("fromQuote"));
+  if (!id) return;
+  history.replaceState(null, "", window.location.pathname);
+  try {
+    const q = await getQuote(id);
+    const c = await getCustomer(q.customerId).catch(() => null);
+    const lines = q.items.map((i) => `${i.serviceName} × ${i.quantity}`).join(", ");
+    prefill.value = {
+      customerId: q.customerId,
+      customerName: c ? `${c.firstName} ${c.lastName}`.trim() : "",
+      customerEmail: c?.email ?? "",
+      siteId: q.siteId ?? null,
+      price: q.subtotal,
+      notes: `Quote ${q.quoteNumber}: ${lines}`.slice(0, 500),
+    };
+    fromQuote.value = q;
+    editingBooking.value = undefined;
+    showForm.value = true;
+  } catch (err) {
+    showToast(err instanceof Error ? err.message : "Could not load the quote", "error");
+  }
 }
 
 async function handleSave(input: CreateBookingInput) {
@@ -179,7 +212,13 @@ async function handleSave(input: CreateBookingInput) {
     } else {
       const created = await createBooking(input);
       bookings.value = [created, ...bookings.value];
-      showToast("Booking created", "success");
+      const q = fromQuote.value;
+      if (q) {
+        await updateQuote(q.id, { convertedBookingId: created.id }).catch(() => {
+          showToast(`Booking created, but it could not be linked to quote ${q.quoteNumber}`, "info");
+        });
+      }
+      showToast(q ? `Booking created from quote ${q.quoteNumber}` : "Booking created", "success");
     }
     closeForm();
   } catch (err) {
@@ -245,7 +284,10 @@ function formatDate(iso: string): string {
   return new Date(iso).toLocaleString();
 }
 
-onMounted(fetchBookings);
+onMounted(() => {
+  void fetchBookings();
+  void openFromQuote();
+});
 </script>
 
 <template>
@@ -458,6 +500,7 @@ onMounted(fetchBookings);
     v-if="showForm"
     :key="editingBooking?.id ?? 'new'"
     :booking="editingBooking"
+    :prefill="prefill"
     @save="handleSave"
     @cancel="closeForm"
   />

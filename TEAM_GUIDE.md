@@ -93,9 +93,14 @@ Everything in §3, plus only what you need:
 - **Sites** — one customer, many branches. Add them under **Sites**, then
   pick the site on each booking. The booking form auto-selects the default
   site.
-- **Quotes** — **Quotes → Add** (customer + service lines; totals and tax
-  compute automatically) → **Send** → **Approve** when the customer accepts.
-  An accepted quote is terminal and ready to become a booking/contract.
+- **Quotes** — **Quotes → New quote**: pick the customer (and site), add one
+  line per service with quantity and price, set *Valid until*, tick *VAT 7%*
+  if needed. **Save & download PDF** gives the Thai/English quotation
+  (ใบเสนอราคา) — send it to the customer on LINE or email yourself, then tap
+  **Mark as sent**. When they answer, tap **Accepted** or **Declined**. On an
+  accepted quote, **Create booking** opens a new booking already filled in
+  (customer, site, price before VAT); pick the date and cleaner and save.
+  An accepted quote can't be re-priced — make a new quote instead.
 - **Contracts** — ONLY for formal agreements. Most recurring customers never
   need one. Lifecycle: `draft → Activate → active → Renew` next period
   (the old row stays as history, a successor draft opens). Illegal jumps
