@@ -49,18 +49,27 @@ type docSpec struct {
 	stamp     string
 	stampRGB  [3]int
 	// note is printed under the amount in words (e.g. how it was paid).
-	note       string
-	signLabels [2]string
+	note string
+	// acceptance prints a customer acceptance block (quotations). Invoices
+	// and receipts carry no signature lines: like most computer-generated
+	// business documents they state that they are valid without one.
+	acceptance bool
 }
 
 // renderInvoicePDF produces a bilingual (Thai/English) invoice — ใบแจ้งหนี้,
 // the request for payment. VAT is shown when the invoice carries it; the tax
 // invoice itself is the receipt issued once money is received. While money
 // is still owed, a PromptPay QR for the balance is printed.
-func renderInvoicePDF(inv Invoice, company settings.Company, pay settings.PaymentSettings) ([]byte, error) {
+// dueDays is the payment term: the invoice is due that many days after it
+// is issued (the same period after which overdue reminders go out).
+func renderInvoicePDF(inv Invoice, company settings.Company, pay settings.PaymentSettings, dueDays int) ([]byte, error) {
+	if dueDays < 1 {
+		dueDays = settings.DefaultOverdueReminderDays
+	}
 	meta := [][2]string{
 		{"เลขที่ / No.", inv.InvoiceNumber},
 		{"วันที่ / Date", inv.IssuedAt.Format("02/01/2006")},
+		{"ครบกำหนด / Due date", inv.IssuedAt.AddDate(0, 0, dueDays).Format("02/01/2006")},
 		{"อ้างอิง / Booking", inv.BookingNumber},
 	}
 	if inv.BillingPeriodStart != nil && inv.BillingPeriodEnd != nil {
@@ -89,8 +98,8 @@ func renderInvoicePDF(inv Invoice, company settings.Company, pay settings.Paymen
 		buyerTaxID: inv.CustomerTaxID, buyerBranch: inv.CustomerTaxBranch,
 		description: inv.ServiceName, lineAmount: inv.Subtotal,
 		totals: totals, words: inv.Total, currency: inv.Currency,
-		imageKey:   inv.InvoiceNumber,
-		signLabels: [2]string{"ผู้วางบิล / Issued by", "ผู้รับวางบิล / Received by"},
+		imageKey: inv.InvoiceNumber,
+		note:     fmt.Sprintf("เงื่อนไขการชำระเงิน: ภายใน %d วันนับจากวันที่ออกใบแจ้งหนี้ / Payment terms: %d days from the invoice date", dueDays, dueDays),
 	}
 	if inv.Status.Open() {
 		spec.payAmount = inv.BalanceDue()
@@ -147,8 +156,7 @@ func renderReceiptPDF(rc Receipt, inv Invoice, company settings.Company) ([]byte
 		totals: totals, words: rc.Gross(), currency: rc.Currency,
 		imageKey: rc.ReceiptNumber,
 		stamp:    "ได้รับเงินแล้ว / RECEIVED", stampRGB: [3]int{22, 163, 74},
-		note:       "ชำระโดย / Paid by: " + method,
-		signLabels: [2]string{"ผู้รับเงิน / Collector", "ผู้มีอำนาจลงนาม / Authorized signature"},
+		note: "ชำระโดย / Paid by: " + method,
 	}
 	if rc.Status == ReceiptCancelled {
 		spec.stamp, spec.stampRGB = "ยกเลิก / CANCELLED", [3]int{220, 38, 38}
@@ -187,6 +195,13 @@ func renderDoc(spec docSpec, company settings.Company, pay settings.PaymentSetti
 	pdf.AddUTF8FontFromBytes(fontFamily, "B", fontBold)
 	pdf.SetMargins(15, 15, 15)
 	pdf.SetAutoPageBreak(false, 0)
+	pdf.AliasNbPages("{nb}")
+	pdf.SetFooterFunc(func() {
+		pdf.SetXY(15, 283)
+		pdf.SetFont(fontFamily, "", 8)
+		pdf.SetTextColor(148, 163, 184)
+		pdf.CellFormat(180, 4, fmt.Sprintf("หน้า / Page %d/{nb}", pdf.PageNo()), "", 0, "R", false, 0, "")
+	})
 	pdf.AddPage()
 
 	ink := func(r, g, b int) { pdf.SetTextColor(r, g, b) }
@@ -338,7 +353,11 @@ func renderDoc(spec docSpec, company settings.Company, pay settings.PaymentSetti
 	if spec.stamp != "" {
 		need += 16
 	}
-	if y+need > 238 {
+	limit := 255.0
+	if spec.acceptance {
+		limit = 216
+	}
+	if y+need > limit {
 		newPage()
 	}
 
@@ -428,24 +447,41 @@ func renderDoc(spec docSpec, company settings.Company, pay settings.PaymentSetti
 		pdf.SetDrawColor(203, 213, 225)
 	}
 
-	// Signatures.
-	sy := 245.0
-	font("", 9.5)
-	ink(71, 85, 105)
-	for i, label := range spec.signLabels {
-		sx := left + float64(i)*95
-		pdf.Line(sx+5, sy, sx+80, sy)
-		pdf.SetXY(sx, sy+1)
-		pdf.CellFormat(85, 5, label, "", 2, "C", false, 0, "")
-		pdf.SetX(sx)
-		pdf.CellFormat(85, 5, "วันที่ / Date ____/____/______", "", 0, "C", false, 0, "")
+	if spec.acceptance {
+		// Customer acceptance (quotations): sign here, or confirm in writing.
+		ay := 222.0
+		pdf.SetDrawColor(203, 213, 225)
+		pdf.Rect(left, ay, width, 38, "D")
+		pdf.SetXY(left+4, ay+3)
+		font("B", 10)
+		ink(30, 41, 59)
+		pdf.CellFormat(0, 5, "การยอมรับใบเสนอราคา / Customer acceptance", "", 2, "L", false, 0, "")
+		pdf.SetX(left + 4)
+		font("", 9)
+		ink(71, 85, 105)
+		pdf.MultiCell(width-8, 4.5, "ข้าพเจ้ายอมรับราคาและเงื่อนไขในใบเสนอราคานี้ (หรือยืนยันเป็นลายลักษณ์อักษรทาง LINE / อีเมล)\n"+
+			"We accept the prices and terms of this quotation (or confirm in writing by LINE / email).", "", "L", false)
+		fields := []string{"ชื่อ / Name", "ลายมือชื่อ / Signature", "วันที่ / Date"}
+		fw := (width - 8) / 3
+		for i, f := range fields {
+			fx := left + 4 + float64(i)*fw
+			pdf.Line(fx+2, ay+30, fx+fw-4, ay+30)
+			pdf.SetXY(fx, ay+31)
+			pdf.CellFormat(fw-2, 5, f, "", 0, "C", false, 0, "")
+		}
 	}
+
+	// Computer-generated documents are valid without a signature.
+	pdf.SetXY(left, 263)
+	font("", 8.5)
+	ink(100, 116, 139)
+	pdf.MultiCell(width, 4.2, "เอกสารนี้จัดทำด้วยระบบคอมพิวเตอร์ ใช้ได้โดยไม่ต้องลงลายมือชื่อ / This document is computer-generated and is valid without a signature.", "", "C", false)
 
 	footer := strings.TrimSpace(company.InvoiceFooter)
 	if footer == "" {
 		footer = "ขอบคุณที่ใช้บริการ / Thank you for your business!"
 	}
-	pdf.SetXY(left, 272)
+	pdf.SetXY(left, 271)
 	font("", 9)
 	ink(148, 163, 184)
 	pdf.MultiCell(width, 4.5, footer, "", "C", false)
