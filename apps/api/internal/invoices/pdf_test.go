@@ -27,7 +27,7 @@ func TestRenderTaxInvoicePDF(t *testing.T) {
 		Address: "1 ถนนสีลม บางรัก กรุงเทพฯ 10500", Phone: "02-123-4567",
 		TaxID: "0105560000001", TaxBranch: "00000", VATRegistered: true}
 	pay := settings.PaymentSettings{PromptPayID: "0105560000001", BankAccount: "กสิกรไทย 123-4-56789-0 บจ. สไมล์ คลีน"}
-	pdf, err := renderInvoicePDF(sampleInvoice(), company, pay, 14)
+	pdf, err := renderInvoicePDF(sampleInvoice(), company, pay, 14, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -43,7 +43,7 @@ func TestRenderPlainInvoicePDFWithoutTaxSettings(t *testing.T) {
 	inv := sampleInvoice()
 	inv.CustomerTaxID, inv.WithholdingAmount, inv.WithholdingRate = "", 0, 0
 	inv.Status = StatusPaid
-	if _, err := renderInvoicePDF(inv, settings.Company{Name: "Smile Clean"}, settings.PaymentSettings{}, 0); err != nil {
+	if _, err := renderInvoicePDF(inv, settings.Company{Name: "Smile Clean"}, settings.PaymentSettings{}, 0, 0); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -66,5 +66,21 @@ func TestAmountAndTaxIDFormatting(t *testing.T) {
 	}
 	if got := branchLabel(""); got != "สำนักงานใหญ่ / Head office" {
 		t.Errorf("branchLabel blank = %s", got)
+	}
+}
+
+func TestRenderDepositRequest(t *testing.T) {
+	inv := sampleInvoice()
+	inv.Status, inv.AmountPaid = StatusIssued, 0
+	pay := settings.PaymentSettings{PromptPayID: "0812345678", BankAccount: "KBank 123-4-56789-0"}
+	pdf, err := renderInvoicePDF(inv, settings.Company{Name: "Smile Clean"}, pay, 7, DepositPercent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out := os.Getenv("DEPOSIT_PDF_OUT"); out != "" {
+		_ = os.WriteFile(out, pdf, 0o644)
+	}
+	if !strings.HasPrefix(string(pdf), "%PDF") {
+		t.Fatal("not a PDF")
 	}
 }

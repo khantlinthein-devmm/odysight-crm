@@ -11,6 +11,7 @@ import {
   sendReceiptEmail,
   invoiceStatusLabel,
   markInvoiceUnpaid,
+  DEPOSIT_PERCENT,
   type Invoice,
   type PaymentResult,
   type Receipt,
@@ -220,6 +221,20 @@ async function downloadPdf() {
   }
 }
 
+// Customer wants to pay the deposit first: same invoice, but the QR and the
+// amount to pay are the deposit.
+const canRequestDeposit = computed(
+  () => !!invoice.value && invoice.value.status === "issued" && !(invoice.value.amountPaid ?? 0),
+);
+async function downloadDepositPdf() {
+  if (!invoice.value) return;
+  try {
+    await downloadInvoicePdf(invoice.value.id, `${invoice.value.invoiceNumber}-deposit.pdf`, DEPOSIT_PERCENT);
+  } catch {
+    showToast("Failed to download the deposit request", "error");
+  }
+}
+
 function printPage() {
   window.print();
 }
@@ -252,6 +267,13 @@ onMounted(load);
             class="rounded-lg border border-gray-300 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
             @click="downloadPdf"
           >Download PDF</button>
+          <button
+            v-if="canRequestDeposit"
+            type="button"
+            title="Invoice asking for the deposit only: the QR code is for the deposit amount"
+            class="rounded-lg border border-amber-300 bg-amber-50 px-4 py-2 text-sm text-amber-900 hover:bg-amber-100"
+            @click="downloadDepositPdf"
+          >Deposit {{ DEPOSIT_PERCENT }}% PDF</button>
           <button
             v-if="canUpdate && invoice.status !== 'void'"
             :disabled="emailing"

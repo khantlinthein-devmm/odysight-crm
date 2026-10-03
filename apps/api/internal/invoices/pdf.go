@@ -72,7 +72,9 @@ type docSpec struct {
 // is still owed, a PromptPay QR for the balance is printed.
 // dueDays is the payment term: the invoice is due that many days after it
 // is issued (the same period after which overdue reminders go out).
-func renderInvoicePDF(inv Invoice, company settings.Company, pay settings.PaymentSettings, dueDays int) ([]byte, error) {
+// depositPct > 0 renders a deposit request: the PromptPay QR and the amount
+// to pay are the deposit, not the full balance (unpaid invoices only).
+func renderInvoicePDF(inv Invoice, company settings.Company, pay settings.PaymentSettings, dueDays, depositPct int) ([]byte, error) {
 	if dueDays < 1 {
 		dueDays = settings.DefaultOverdueReminderDays
 	}
@@ -117,6 +119,15 @@ func renderInvoicePDF(inv Invoice, company settings.Company, pay settings.Paymen
 	}
 	if inv.Status.Open() {
 		spec.payAmount = inv.BalanceDue()
+	}
+	if depositPct > 0 && inv.Status == StatusIssued && inv.AmountPaid == 0 {
+		due := inv.NetPayable()
+		dep := math.Round(due*float64(depositPct)) / 100
+		rest := due - dep
+		spec.payAmount = dep
+		spec.terms = fmt.Sprintf("ขอเรียกเก็บเงินมัดจำ %[1]d%% เพื่อยืนยันการจอง: %[2]s %[3]s (ยอดคงเหลือ %[2]s %[4]s)\n"+
+			"Deposit due (%[1]d%%) to confirm the booking: %[2]s %[3]s (remaining balance %[2]s %[4]s)",
+			depositPct, inv.Currency, amount(dep), amount(rest))
 	}
 	switch inv.Status {
 	case StatusPaid:

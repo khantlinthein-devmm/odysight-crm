@@ -149,6 +149,10 @@ Nobody is forced to use checklists. When a commercial client wants proof:
   to its receipt: the receipt is cancelled and the invoice goes back to
   Unpaid / Deposit paid. **Collect payment** (completed jobs) is for
   customers who pay the full amount on the spot.
+  When an unpaid customer wants to pay the deposit first, send
+  **Deposit 50% PDF** (invoice page): the same invoice, with the deposit
+  amount and a PromptPay QR for the deposit. When the money arrives,
+  **Record payment → Deposit 50%**.
   An invoice marked paid without any receipt (from an older version) shows
   **Mark as unpaid** instead. Fixing a wrong payment never needs a new
   booking or quote; only a wrong price needs the invoice voided (after

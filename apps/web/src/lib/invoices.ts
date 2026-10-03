@@ -255,14 +255,20 @@ export async function getPromptPayQrUrl(id: number): Promise<string | null> {
   return URL.createObjectURL(await response.blob());
 }
 
-export async function downloadInvoicePdf(id: number, fileName?: string): Promise<void> {
+/** Deposit share requested before the job (matches the quotation terms). */
+export const DEPOSIT_PERCENT = 50;
+
+/** depositPercent > 0 downloads a deposit request for an unpaid invoice: the
+ * QR and amount due are the deposit, not the full balance. */
+export async function downloadInvoicePdf(id: number, fileName?: string, depositPercent = 0): Promise<void> {
   if (USE_MOCKS) {
     await delay(300);
     return;
   }
   const api = getApiBaseUrl();
   if (!api) throw new ApiError(0, "PUBLIC_API_URL is not configured");
-  await downloadPdf(`${api}/api/v1/invoices/${id}/pdf`, fileName || `invoice-${id}.pdf`);
+  const q = depositPercent > 0 ? `?deposit=${depositPercent}` : "";
+  await downloadPdf(`${api}/api/v1/invoices/${id}/pdf${q}`, fileName || `invoice-${id}.pdf`);
 }
 
 
