@@ -121,7 +121,18 @@ func (h *Handler) PDF(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	inv, pdfBytes, err := h.service.PDF(r.Context(), id)
+	// ?deposit=50 renders a deposit request (the only supported share).
+	depositPct := 0
+	if v := r.URL.Query().Get("deposit"); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil || n != DepositPercent {
+			response.Error(w, http.StatusBadRequest, fmt.Sprintf("deposit must be %d", DepositPercent))
+			return
+		}
+		depositPct = n
+	}
+
+	inv, pdfBytes, err := h.service.PDF(r.Context(), id, depositPct)
 	if err != nil {
 		response.HandleError(w, r, fmt.Errorf("render invoice %d: %w", id, err))
 		return
@@ -129,7 +140,7 @@ func (h *Handler) PDF(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/pdf")
 	w.Header().Set("Content-Disposition",
-		`inline; filename="`+inv.InvoiceNumber+`.pdf"`)
+		`inline; filename="`+inv.InvoiceNumber+map[bool]string{true: "-deposit", false: ""}[depositPct > 0]+`.pdf"`)
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write(pdfBytes)
 }

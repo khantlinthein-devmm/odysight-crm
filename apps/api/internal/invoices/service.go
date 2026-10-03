@@ -48,12 +48,18 @@ func (s *Service) Get(ctx context.Context, id int64) (Invoice, error) {
 }
 
 // PDF renders the branded invoice PDF, incorporating company settings.
-func (s *Service) PDF(ctx context.Context, id int64) (Invoice, []byte, error) {
+// PDF renders the invoice. depositPct > 0 renders a deposit request for an
+// unpaid invoice instead (QR and amount due = the deposit).
+func (s *Service) PDF(ctx context.Context, id int64, depositPct int) (Invoice, []byte, error) {
 	inv, err := s.repo.GetByID(ctx, id)
 	if err != nil {
 		return Invoice{}, nil, mapRepoError(err)
 	}
-	pdfBytes, err := s.renderPDF(ctx, inv)
+	if depositPct > 0 && (inv.Status != StatusIssued || inv.AmountPaid > 0) {
+		return Invoice{}, nil, response.NewAPIError(422, "a deposit request is only for an unpaid invoice")
+	}
+	company, pay := s.billingSettings(ctx)
+	pdfBytes, err := renderInvoicePDF(inv, company, pay, s.dueDays(ctx), depositPct)
 	if err != nil {
 		return Invoice{}, nil, err
 	}
@@ -63,7 +69,7 @@ func (s *Service) PDF(ctx context.Context, id int64) (Invoice, []byte, error) {
 // renderPDF renders an invoice PDF with company branding from settings.
 func (s *Service) renderPDF(ctx context.Context, inv Invoice) ([]byte, error) {
 	company, pay := s.billingSettings(ctx)
-	return renderInvoicePDF(inv, company, pay, s.dueDays(ctx))
+	return renderInvoicePDF(inv, company, pay, s.dueDays(ctx), 0)
 }
 
 // dueDays is the payment term printed on invoices: the number of days after
