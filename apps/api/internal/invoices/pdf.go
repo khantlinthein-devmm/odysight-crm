@@ -62,8 +62,37 @@ type docSpec struct {
 	// terms is a highlighted condition printed under the totals (e.g. the
 	// deposit required to book, on quotations).
 	terms string
-	// copyLabel marks the document copy, e.g. ต้นฉบับ / Original.
+	// copyLabel marks a single-copy document; copies prints the document
+	// once per label (ต้นฉบับ / สำเนา).
 	copyLabel string
+	copies    []string
+	// unitPriceCol adds the unit-price column (quotations); invoices and
+	// receipts print one job per row: No. / Description / Qty / Amount.
+	unitPriceCol bool
+	// qtyUnit is printed after the quantity ("1 งาน").
+	qtyUnit string
+	// payMethods is the receipt's "paid by" checklist.
+	payMethods []checkItem
+}
+
+// checkItem is one ticked or empty box with its label.
+type checkItem struct {
+	label   string
+	checked bool
+}
+
+// thaiDate prints a date the Thai way, day/month/Buddhist-era year
+// (10/07/2569).
+func thaiDate(t time.Time) string {
+	return fmt.Sprintf("%02d/%02d/%d", t.Day(), int(t.Month()), t.Year()+543)
+}
+
+// siteLine is the work-site line under a description.
+func siteLine(site string) string {
+	if site = strings.TrimSpace(site); site != "" {
+		return "\nสถานที่ปฏิบัติงาน / Site: " + site
+	}
+	return ""
 }
 
 // renderInvoicePDF produces a bilingual (Thai/English) invoice — ใบแจ้งหนี้,
@@ -80,23 +109,23 @@ func renderInvoicePDF(inv Invoice, company settings.Company, pay settings.Paymen
 	}
 	meta := [][2]string{
 		{"เลขที่ / No.", inv.InvoiceNumber},
-		{"วันที่ / Date", inv.IssuedAt.Format("02/01/2006")},
-		{"ครบกำหนด / Due date", inv.IssuedAt.AddDate(0, 0, dueDays).Format("02/01/2006")},
+		{"วันที่ / Date", thaiDate(inv.IssuedAt)},
+		{"ครบกำหนด / Due date", thaiDate(inv.IssuedAt.AddDate(0, 0, dueDays))},
 		{"อ้างอิง / Booking", inv.BookingNumber},
 	}
 	if inv.BillingPeriodStart != nil && inv.BillingPeriodEnd != nil {
 		meta = append(meta, [2]string{"งวด / Period",
-			inv.BillingPeriodStart.Format("02/01/2006") + " – " + inv.BillingPeriodEnd.Format("02/01/2006")})
+			thaiDate(*inv.BillingPeriodStart) + " – " + thaiDate(*inv.BillingPeriodEnd)})
 	}
-	totals := [][2]string{{"รวมเป็นเงิน / Subtotal", amount(inv.Subtotal)}}
+	totals := [][2]string{{"รวมเงิน / Total amount", amount(inv.Subtotal)}}
 	if inv.TaxAmount > 0 {
 		totals = append(totals, [2]string{fmt.Sprintf("ภาษีมูลค่าเพิ่ม / VAT %s%%", trimRate(inv.TaxRate)), amount(inv.TaxAmount)})
 	}
 	totals = append(totals, [2]string{"จำนวนเงินรวมทั้งสิ้น / Grand total", amount(inv.Total)})
 	if inv.WithholdingAmount > 0 {
 		totals = append(totals,
-			[2]string{fmt.Sprintf("หักภาษี ณ ที่จ่าย / WHT %s%%", trimRate(inv.WithholdingRate)), "-" + amount(inv.WithholdingAmount)},
-			[2]string{"ยอดชำระสุทธิ / Net payable", amount(inv.NetPayable())})
+			[2]string{fmt.Sprintf("ภาษีหัก ณ ที่จ่าย / WHT %s%%", trimRate(inv.WithholdingRate)), "-" + amount(inv.WithholdingAmount)},
+			[2]string{"ยอดเงินสุทธิ / Total net", amount(inv.NetPayable())})
 	}
 	if inv.AmountPaid > 0 && inv.Status != StatusPaid {
 		totals = append(totals,
@@ -108,9 +137,10 @@ func renderInvoicePDF(inv Invoice, company settings.Company, pay settings.Paymen
 		meta:      meta,
 		buyerName: inv.CustomerName, buyerAddress: inv.Address,
 		buyerTaxID: inv.CustomerTaxID, buyerBranch: inv.CustomerTaxBranch,
-		description: inv.ServiceName, lineAmount: inv.Subtotal,
+		description: inv.ServiceName + siteLine(inv.SiteName), lineAmount: inv.Subtotal, qtyUnit: "งาน",
 		totals: totals, words: inv.Total, currency: inv.Currency,
 		imageKey:   inv.InvoiceNumber,
+		copies:     []string{"ต้นฉบับ / Original", "สำเนา / Copy"},
 		note:       fmt.Sprintf("เงื่อนไขการชำระเงิน: ภายใน %d วันนับจากวันที่ออกใบแจ้งหนี้ / Payment terms: %d days from the invoice date", dueDays, dueDays),
 		signLabels: [2]string{"ผู้วางบิล / Issued by", "ผู้รับวางบิล / Received by"},
 		signFor:    [2]string{"seller", "buyer"},
@@ -141,34 +171,30 @@ func renderInvoicePDF(inv Invoice, company settings.Company, pay settings.Paymen
 // renderReceiptPDF produces the receipt for one payment. A VAT-registered
 // company's receipt doubles as the tax invoice (ใบเสร็จรับเงิน/ใบกำกับภาษี):
 // for services the tax point is when payment is received.
-func renderReceiptPDF(rc Receipt, inv Invoice, company settings.Company) ([]byte, error) {
+func renderReceiptPDF(rc Receipt, inv Invoice, company settings.Company, pay settings.PaymentSettings) ([]byte, error) {
 	thTitle, enTitle := "ใบเสร็จรับเงิน", "RECEIPT"
 	if rc.VATRegistered {
 		thTitle, enTitle = "ใบเสร็จรับเงิน / ใบกำกับภาษี", "RECEIPT / TAX INVOICE"
 	}
-	method := methodLabel(rc.Method)
-	if ref := strings.TrimSpace(rc.Reference); ref != "" {
-		method += " (" + ref + ")"
-	}
 	meta := [][2]string{
 		{"เลขที่ / No.", rc.ReceiptNumber},
-		{"วันที่ / Date", rc.PaidAt.Format("02/01/2006")},
+		{"วันที่ / Date", thaiDate(rc.PaidAt)},
 		{"ใบแจ้งหนี้ / Invoice", rc.InvoiceNumber},
 		{"อ้างอิง / Booking", rc.BookingNumber},
 	}
-	desc := rc.ServiceName
+	desc := rc.ServiceName + "\nอ้างอิงใบแจ้งหนี้ / Invoice ref: " + rc.InvoiceNumber + siteLine(inv.SiteName)
 	if rc.Gross() < inv.Total-0.005 {
 		desc += "\n(ชำระบางส่วน / Partial payment)"
 	}
-	totals := [][2]string{{"มูลค่าบริการ / Value", amount(rc.Subtotal)}}
+	totals := [][2]string{{"รวมเงิน / Total amount", amount(rc.Subtotal)}}
 	if rc.VAT > 0 {
 		totals = append(totals, [2]string{fmt.Sprintf("ภาษีมูลค่าเพิ่ม / VAT %s%%", trimRate(rc.TaxRate)), amount(rc.VAT)})
 	}
-	totals = append(totals, [2]string{"จำนวนเงินรวม / Total", amount(rc.Gross())})
+	totals = append(totals, [2]string{"จำนวนเงินรวมทั้งสิ้น / Grand total", amount(rc.Gross())})
 	if rc.WHT > 0 {
-		totals = append(totals, [2]string{fmt.Sprintf("หักภาษี ณ ที่จ่าย / WHT %s%%", trimRate(rc.WithholdingRate)), "-" + amount(rc.WHT)})
+		totals = append(totals, [2]string{fmt.Sprintf("ภาษีหัก ณ ที่จ่าย / WHT %s%%", trimRate(rc.WithholdingRate)), "-" + amount(rc.WHT)})
 	}
-	totals = append(totals, [2]string{"รับชำระ / Amount received", amount(rc.Amount)})
+	totals = append(totals, [2]string{"ยอดเงินสุทธิ / Total net received", amount(rc.Amount)})
 	if bal := inv.BalanceDue(); bal > 0 && rc.Status == ReceiptValid {
 		totals = append(totals, [2]string{"ยอดคงค้าง / Balance due", amount(bal)})
 	}
@@ -177,21 +203,74 @@ func renderReceiptPDF(rc Receipt, inv Invoice, company settings.Company) ([]byte
 		meta:      meta,
 		buyerName: rc.CustomerName, buyerAddress: rc.Address,
 		buyerTaxID: rc.CustomerTaxID, buyerBranch: rc.CustomerTaxBranch,
-		description: desc, lineAmount: rc.Subtotal,
+		description: desc, lineAmount: rc.Subtotal, qtyUnit: "งาน",
 		totals: totals, words: rc.Gross(), currency: rc.Currency,
 		imageKey: rc.ReceiptNumber,
 		stamp:    "ได้รับเงินแล้ว / RECEIVED", stampRGB: [3]int{22, 163, 74},
-		note:       "ชำระโดย / Paid by: " + method,
-		signLabels: [2]string{"ผู้รับเงิน / Collector", "ผู้มีอำนาจลงนาม / Authorized signature"},
-		signFor:    [2]string{"", "seller"},
+		payMethods: receiptMethods(rc, pay),
+		signLabels: [2]string{"ผู้มีอำนาจลงนาม / Authorized signature", "ผู้อนุมัติ/ผู้รับเงิน / Approved / Collected by"},
+		signFor:    [2]string{"seller", ""},
 		signDate:   rc.PaidAt,
-		signDated:  [2]bool{true, true},
-		copyLabel:  "ต้นฉบับ / Original",
+		signDated:  [2]bool{true, false},
+		copies:     []string{"ต้นฉบับ / Original", "สำเนา / Copy"},
 	}
 	if rc.Status == ReceiptCancelled {
 		spec.stamp, spec.stampRGB = "ยกเลิก / CANCELLED", [3]int{220, 38, 38}
 	}
 	return renderDoc(spec, company, settings.PaymentSettings{})
+}
+
+// receiptMethods is the receipt's "paid by" checklist, the way Thai receipts
+// print it: cash / transfer to our account / cheque / other, with the one
+// used ticked and its reference filled in.
+func receiptMethods(rc Receipt, pay settings.PaymentSettings) []checkItem {
+	ref := strings.TrimSpace(rc.Reference)
+	withRef := func(s string) string {
+		if ref != "" {
+			return s + " (" + ref + ")"
+		}
+		return s
+	}
+	bank := strings.Join(strings.Fields(pay.BankAccount), " ")
+	transfer := "เงินโอนเข้าบัญชี / Transfer to account"
+	if bank != "" {
+		transfer += " " + bank
+	}
+	cheque := "เช็คเลขที่ / Cheque No. ____________"
+	other := "อื่นๆ / Other ____________"
+	switch rc.Method {
+	case "cash":
+	case "bank_transfer":
+		transfer = withRef(transfer)
+	case "promptpay":
+		transfer = withRef("เงินโอน / Transfer: PromptPay")
+	case "cheque":
+		if ref != "" {
+			cheque = "เช็คเลขที่ / Cheque No. " + ref
+		}
+	default:
+		other = withRef("อื่นๆ / Other: " + methodLabel(rc.Method))
+	}
+	known := rc.Method == "cash" || rc.Method == "bank_transfer" || rc.Method == "promptpay" || rc.Method == "cheque"
+	return []checkItem{
+		{"เงินสด / Cash", rc.Method == "cash"},
+		{transfer, rc.Method == "bank_transfer" || rc.Method == "promptpay"},
+		{cheque, rc.Method == "cheque"},
+		{other, !known},
+	}
+}
+
+// checkbox draws a 3.2 mm box at (x, y), crossed when checked.
+func checkbox(pdf *gofpdf.Fpdf, x, y float64, checked bool) {
+	pdf.SetDrawColor(71, 85, 105)
+	pdf.Rect(x, y, 3.2, 3.2, "D")
+	if checked {
+		pdf.SetLineWidth(0.4)
+		pdf.Line(x+0.6, y+0.6, x+2.6, y+2.6)
+		pdf.Line(x+2.6, y+0.6, x+0.6, y+2.6)
+		pdf.SetLineWidth(0.2)
+	}
+	pdf.SetDrawColor(203, 213, 225)
 }
 
 func methodLabel(m string) string {
@@ -219,19 +298,49 @@ type docItem struct {
 	amount    float64
 }
 
-func renderDoc(spec docSpec, company settings.Company, pay settings.PaymentSettings) ([]byte, error) {
+func newDocPDF() *gofpdf.Fpdf {
 	pdf := gofpdf.New("P", "mm", "A4", "")
 	pdf.AddUTF8FontFromBytes(fontFamily, "", fontRegular)
 	pdf.AddUTF8FontFromBytes(fontFamily, "B", fontBold)
 	pdf.SetMargins(15, 15, 15)
 	pdf.SetAutoPageBreak(false, 0)
-	pdf.AliasNbPages("{nb}")
+	return pdf
+}
+
+// renderDoc prints the document once per copy (Thai practice: ต้นฉบับ for
+// the customer, สำเนา for our files), each copy numbered "Page x/n".
+func renderDoc(spec docSpec, company settings.Company, pay settings.PaymentSettings) ([]byte, error) {
+	labels := spec.copies
+	if len(labels) == 0 {
+		labels = []string{spec.copyLabel}
+	}
+	// Every copy has the same pages: count them once.
+	probe := newDocPDF()
+	drawDoc(probe, spec, company, pay, labels[0])
+	perCopy := max(1, probe.PageCount())
+
+	pdf := newDocPDF()
 	pdf.SetFooterFunc(func() {
 		pdf.SetXY(15, 283)
 		pdf.SetFont(fontFamily, "", 8)
 		pdf.SetTextColor(148, 163, 184)
-		pdf.CellFormat(180, 4, fmt.Sprintf("หน้า / Page %d/{nb}", pdf.PageNo()), "", 0, "R", false, 0, "")
+		pdf.CellFormat(180, 4, fmt.Sprintf("หน้า / Page %d/%d", (pdf.PageNo()-1)%perCopy+1, perCopy), "", 0, "R", false, 0, "")
 	})
+	for _, label := range labels {
+		drawDoc(pdf, spec, company, pay, label)
+	}
+	if err := pdf.Error(); err != nil {
+		return nil, fmt.Errorf("gofpdf: %w", err)
+	}
+	var buf bytes.Buffer
+	if err := pdf.Output(&buf); err != nil {
+		return nil, fmt.Errorf("gofpdf output: %w", err)
+	}
+	return buf.Bytes(), nil
+}
+
+// drawDoc lays out one copy of the document, starting on a new page.
+func drawDoc(pdf *gofpdf.Fpdf, spec docSpec, company settings.Company, pay settings.PaymentSettings, copyLabel string) {
 	pdf.AddPage()
 
 	ink := func(r, g, b int) { pdf.SetTextColor(r, g, b) }
@@ -250,6 +359,12 @@ func renderDoc(spec docSpec, company settings.Company, pay settings.PaymentSetti
 	font("B", 14)
 	ink(30, 41, 59)
 	pdf.MultiCell(sellerW, 6.5, sellerName, "", "L", false)
+	// The English name under the Thai legal name, as on Thai letterheads.
+	if en := strings.TrimSpace(company.Name); en != "" && en != sellerName {
+		font("B", 11)
+		pdf.SetX(sellerX)
+		pdf.MultiCell(sellerW, 5.5, en, "", "L", false)
+	}
 	var seller []string
 	if a := strings.TrimSpace(company.Address); a != "" {
 		seller = append(seller, a)
@@ -273,10 +388,10 @@ func renderDoc(spec docSpec, company settings.Company, pay settings.PaymentSetti
 	pdf.CellFormat(80, 7, spec.thTitle, "", 2, "R", false, 0, "")
 	font("B", 10)
 	pdf.CellFormat(80, 5, spec.enTitle, "", 2, "R", false, 0, "")
-	if spec.copyLabel != "" {
+	if copyLabel != "" {
 		font("", 9)
 		ink(100, 116, 139)
-		pdf.CellFormat(80, 5, spec.copyLabel, "", 2, "R", false, 0, "")
+		pdf.CellFormat(80, 5, copyLabel, "", 2, "R", false, 0, "")
 		ink(30, 58, 95)
 	}
 	pdf.Ln(2)
@@ -300,10 +415,16 @@ func renderDoc(spec docSpec, company settings.Company, pay settings.PaymentSetti
 	if a := strings.TrimSpace(spec.buyerAddress); a != "" {
 		buyer = append(buyer, a)
 	}
-	if id := digitsOf(spec.buyerTaxID); id != "" {
-		buyer = append(buyer, "เลขประจำตัวผู้เสียภาษี / Tax ID: "+formatTaxID(id)+"  "+branchLabel(spec.buyerBranch))
+	buyerTaxID := digitsOf(spec.buyerTaxID)
+	font("", 10)
+	lines := 0
+	for _, l := range buyer {
+		lines += max(1, int(math.Ceil(pdf.GetStringWidth(l)/(width-8))))
 	}
-	boxH := 9 + float64(len(buyer))*5
+	if buyerTaxID != "" {
+		lines++
+	}
+	boxH := 9 + float64(lines)*5
 	pdf.Rect(left, y, width, boxH, "FD")
 	pdf.SetXY(left+3, y+2)
 	font("B", 9.5)
@@ -313,20 +434,52 @@ func renderDoc(spec docSpec, company settings.Company, pay settings.PaymentSetti
 	ink(30, 41, 59)
 	pdf.SetX(left + 3)
 	pdf.MultiCell(width-6, 5, strings.Join(buyer, "\n"), "", "L", false)
+	// Tax ID with the Revenue Department's head office / branch boxes.
+	if buyerTaxID != "" {
+		ly := pdf.GetY()
+		x := left + 3
+		label := "เลขประจำตัวผู้เสียภาษี / Tax ID: " + formatTaxID(buyerTaxID)
+		pdf.SetXY(x, ly)
+		pdf.CellFormat(pdf.GetStringWidth(label)+6, 5, label, "", 0, "L", false, 0, "")
+		x = pdf.GetX()
+		branch := digitsOf(spec.buyerBranch)
+		head := branch == "" || strings.Trim(branch, "0") == ""
+		checkbox(pdf, x, ly+0.9, head)
+		pdf.SetXY(x+4.5, ly)
+		hl := "สำนักงานใหญ่ / Head office"
+		pdf.CellFormat(pdf.GetStringWidth(hl)+6, 5, hl, "", 0, "L", false, 0, "")
+		x = pdf.GetX()
+		checkbox(pdf, x, ly+0.9, !head)
+		pdf.SetXY(x+4.5, ly)
+		bl := "สาขาที่ / Branch ________"
+		if !head {
+			bl = "สาขาที่ / Branch " + strings.Repeat("0", max(0, 5-len(branch))) + branch
+		}
+		pdf.CellFormat(50, 5, bl, "", 0, "L", false, 0, "")
+	}
 	y += boxH + 6
 
 	// Line items. Long documents (many quote lines) continue on new pages
 	// with the column header repeated.
-	cols := []struct {
+	type col struct {
 		label string
 		w     float64
 		align string
-	}{
+	}
+	cols := []col{
 		{"ลำดับ\nNo.", 14, "C"},
-		{"รายการ\nDescription", 86, "L"},
+		{"รายละเอียด\nDescription", 117, "L"},
 		{"จำนวน\nQty", 18, "C"},
-		{"ราคาต่อหน่วย\nUnit price", 31, "R"},
 		{"จำนวนเงิน\nAmount", 31, "R"},
+	}
+	if spec.unitPriceCol {
+		cols = []col{
+			{"ลำดับ\nNo.", 14, "C"},
+			{"รายการ\nDescription", 86, "L"},
+			{"จำนวน\nQty", 18, "C"},
+			{"ราคาต่อหน่วย\nUnit price", 31, "R"},
+			{"จำนวนเงิน\nAmount", 31, "R"},
+		}
 	}
 	drawHead := func() {
 		pdf.SetFillColor(30, 58, 95)
@@ -364,7 +517,14 @@ func renderDoc(spec docSpec, company settings.Company, pay settings.PaymentSetti
 			newPage()
 			drawHead()
 		}
-		row := []string{fmt.Sprint(i + 1), it.desc, qtyText(it.qty), amount(it.unit), amount(it.amount)}
+		qty := qtyText(it.qty)
+		if spec.qtyUnit != "" {
+			qty += " " + spec.qtyUnit
+		}
+		row := []string{fmt.Sprint(i + 1), it.desc, qty, amount(it.amount)}
+		if spec.unitPriceCol {
+			row = []string{fmt.Sprint(i + 1), it.desc, qty, amount(it.unit), amount(it.amount)}
+		}
 		x := left
 		for j, c := range cols {
 			pdf.SetXY(x, y+1.5)
@@ -382,18 +542,21 @@ func renderDoc(spec docSpec, company settings.Company, pay settings.PaymentSetti
 	pdf.Line(left, y, right, y)
 
 	// Keep totals, payment, stamp and signatures together on the last page.
-	need := float64(len(spec.totals))*7 + 12
+	need := float64(len(spec.totals))*7 + 9
 	if strings.TrimSpace(pay.PromptPayID+pay.BankAccount) != "" && spec.payAmount > 0 {
-		need += 45
+		need += 43
 	}
 	if spec.stamp != "" {
 		need += 16
 	}
 	if spec.terms != "" {
-		need += 20
+		need += 23
+	}
+	if n := len(spec.payMethods); n > 0 {
+		need = max(need, float64(n)*5.5+30)
 	}
 	// The signature blocks start at 230 mm.
-	if y+need > 226 {
+	if y+need > 229 {
 		newPage()
 	}
 
@@ -433,7 +596,24 @@ func renderDoc(spec docSpec, company settings.Company, pay settings.PaymentSetti
 		pdf.SetX(left)
 		pdf.MultiCell(85, 5, spec.note, "", "L", false)
 	}
-	y = ty + 6
+	if len(spec.payMethods) > 0 {
+		pdf.Ln(2)
+		font("B", 9)
+		ink(100, 116, 139)
+		pdf.SetX(left)
+		pdf.CellFormat(85, 5, "ชำระโดย / Paid by", "", 2, "L", false, 0, "")
+		font("", 9.5)
+		ink(30, 41, 59)
+		for _, m := range spec.payMethods {
+			my := pdf.GetY()
+			checkbox(pdf, left, my+1, m.checked)
+			pdf.SetXY(left+5, my)
+			pdf.MultiCell(83, 5, m.label, "", "L", false)
+			pdf.Ln(0.5)
+		}
+	}
+	// Whichever column ends lower decides where the next block starts.
+	y = max(ty, pdf.GetY()) + 6
 
 	if spec.terms != "" {
 		y = max(y, pdf.GetY()+4)
@@ -491,7 +671,7 @@ func renderDoc(spec docSpec, company settings.Company, pay settings.PaymentSetti
 			ink(30, 41, 59)
 			pdf.MultiCell(right-textX, 6.2, bank, "", "L", false)
 		}
-		y = max(y+45, pdf.GetY()+4)
+		y = max(y+43, pdf.GetY()+4)
 	}
 
 	if spec.stamp != "" {
@@ -536,7 +716,7 @@ func renderDoc(spec docSpec, company settings.Company, pay settings.PaymentSetti
 		pdf.CellFormat(85, 5, label, "", 2, "C", false, 0, "")
 		date := "วันที่ / Date ____/____/______"
 		if spec.signDated[i] && !spec.signDate.IsZero() {
-			date = "วันที่ / Date " + spec.signDate.Format("02/01/2006")
+			date = "วันที่ / Date " + thaiDate(spec.signDate)
 		}
 		pdf.SetX(sx)
 		pdf.CellFormat(85, 5, date, "", 0, "C", false, 0, "")
@@ -550,12 +730,6 @@ func renderDoc(spec docSpec, company settings.Company, pay settings.PaymentSetti
 	font("", 9)
 	ink(148, 163, 184)
 	pdf.MultiCell(width, 4.5, footer, "", "C", false)
-
-	var buf bytes.Buffer
-	if err := pdf.Output(&buf); err != nil {
-		return nil, fmt.Errorf("gofpdf output: %w", err)
-	}
-	return buf.Bytes(), nil
 }
 
 // qtyText prints a quantity without needless decimals (2, 1.5).

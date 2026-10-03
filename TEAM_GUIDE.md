@@ -160,11 +160,23 @@ Nobody is forced to use checklists. When a commercial client wants proof:
 - **Signatures on documents** — PDFs follow Thai practice: each has two
   signature blocks ("ในนาม …", the line, the name in brackets, the role and
   the date). Quotation: ผู้อนุมัติสั่งซื้อ (customer) / ผู้เสนอราคา (us).
-  Invoice: ผู้วางบิล / ผู้รับวางบิล. Receipt / tax invoice: ผู้รับเงิน /
-  ผู้มีอำนาจลงนาม, marked ต้นฉบับ (Original). Print, sign and stamp when
-  the customer needs a paper copy. The date under our signature is filled
-  in with the document date; the customer's date line stays blank. Invoices also show a *Due date*: issue
-  date + the overdue-reminder days in *Settings → Notifications*.
+  Invoice: ผู้วางบิล / ผู้รับวางบิล. Receipt / tax invoice: ผู้มีอำนาจลงนาม
+  (us) / ผู้อนุมัติ/ผู้รับเงิน. Print, sign and stamp when the customer
+  needs a paper copy. The date under our signature is filled in with the
+  document date; the customer's date line stays blank. Invoices also show a
+  *Due date*: issue date + the overdue-reminder days in
+  *Settings → Notifications*.
+- **Invoice / receipt layout (company pattern)** — invoice and receipt PDFs
+  come as two copies in one file: page 1 ต้นฉบับ / Original (for the
+  customer), page 2 สำเนา / Copy (for our files). Dates are Thai Buddhist
+  era (10/07/2569). The header shows the Thai legal name and the English
+  name (*Settings → Company*: Legal name = บริษัท สไมล์ คลีน จำกัด, Name =
+  Smile Clean CO.,LTD.). The customer's tax ID has ☒ สำนักงานใหญ่ /
+  ☐ สาขาที่ boxes. The line reads "1 งาน" with the booking's site
+  (สถานที่ปฏิบัติงาน); the receipt also names the invoice it pays. The
+  receipt's *Paid by* boxes (cash / transfer to our account / cheque /
+  other) are ticked from the payment method, with the bank account from
+  *Settings → Payments*. Document numbers stay INV-2026-0042 / RC-2026-0001.
 - **Roles & permissions** — *Settings → Roles & permissions*. A Super admin
   can tick/untick what each role may do (Admin, Manager, Dispatch,
   Accountant, Cleaner) and **Save changes**; **reset** puts a role back to

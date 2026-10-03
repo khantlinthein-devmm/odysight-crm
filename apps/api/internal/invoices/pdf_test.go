@@ -48,6 +48,23 @@ func TestRenderPlainInvoicePDFWithoutTaxSettings(t *testing.T) {
 	}
 }
 
+func TestThaiDateAndReceiptMethods(t *testing.T) {
+	if got := thaiDate(time.Date(2026, 7, 10, 0, 0, 0, 0, time.UTC)); got != "10/07/2569" {
+		t.Errorf("thaiDate = %s", got)
+	}
+	pay := settings.PaymentSettings{BankAccount: "KBank 063-1-50243-1"}
+	m := receiptMethods(Receipt{Method: "bank_transfer", Reference: "slip 12"}, pay)
+	if !m[1].checked || m[0].checked || m[2].checked || m[3].checked {
+		t.Errorf("bank transfer ticks %+v", m)
+	}
+	if !strings.Contains(m[1].label, "063-1-50243-1") || !strings.Contains(m[1].label, "slip 12") {
+		t.Errorf("transfer label = %q", m[1].label)
+	}
+	if m := receiptMethods(Receipt{Method: "line_pay"}, pay); !m[3].checked || !strings.Contains(m[3].label, "LINE Pay") {
+		t.Errorf("other method = %+v", m[3])
+	}
+}
+
 func TestNetPayable(t *testing.T) {
 	if got := sampleInvoice().NetPayable(); got != 10400 {
 		t.Fatalf("net payable = %v, want 10400", got)

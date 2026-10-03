@@ -293,6 +293,16 @@ func (r *Repository) LineContactForBooking(ctx context.Context, bookingID int64)
 	return name, lineID, nil
 }
 
+// SiteNameForBooking returns the name of the site a booking is at ("" when
+// the booking has no site).
+func (r *Repository) SiteNameForBooking(ctx context.Context, bookingID int64) string {
+	var name string
+	_ = r.pool.QueryRow(ctx,
+		`SELECT COALESCE(s.name, '') FROM bookings b JOIN sites s ON s.id = b.site_id WHERE b.id = $1`,
+		bookingID).Scan(&name)
+	return name
+}
+
 // MarkUnpaid clears the paid amount of an invoice that was marked paid
 // without a receipt (before receipts existed, or by hand in an older
 // version). Invoices with receipts must have those payments cancelled

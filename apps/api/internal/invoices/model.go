@@ -59,6 +59,8 @@ type Invoice struct {
 	PaidAt             *time.Time
 	CreatedAt          time.Time
 	UpdatedAt          time.Time
+	// SiteName is the booking's work site, looked up only for printing.
+	SiteName string
 }
 
 // BookingSnapshot is the slice of a booking an invoice is drawn from.

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"math"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -82,13 +83,21 @@ func TestRenderReceiptPDF(t *testing.T) {
 		Amount: 5200, Subtotal: 5000, VAT: 350, WHT: 150, TaxRate: 7, WithholdingRate: 3,
 		Currency: "THB", Method: "bank_transfer", Reference: "KBank 0930", VATRegistered: true,
 		Status: ReceiptValid, PaidAt: time.Date(2026, 10, 2, 9, 0, 0, 0, time.UTC)}
-	company := settings.Company{Name: "Smile Clean", TaxID: "0105560000001", VATRegistered: true}
-	pdf, err := renderReceiptPDF(rc, inv, company)
+	company := settings.Company{Name: "Smile Clean CO.,LTD.", LegalName: "บริษัท สไมล์ คลีน จำกัด",
+		Address: "300 ซอยอ่อนนุช 10 แขวงสวนหลวง เขตสวนหลวง กรุงเทพมหานคร 10250", Phone: "062-2828209, 099-015-1961",
+		TaxID: "0245562004320", VATRegistered: true}
+	inv.SiteName = "สาขาสุขุมวิท 39"
+	pay := settings.PaymentSettings{BankAccount: "ธนาคารกสิกรไทย 063-1-50243-1"}
+	pdf, err := renderReceiptPDF(rc, inv, company, pay)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(pdf) < 5000 {
 		t.Fatalf("receipt PDF too small (%d bytes)", len(pdf))
+	}
+	// Original and copy.
+	if n := strings.Count(string(pdf), "/Type /Page\n"); n != 2 {
+		t.Errorf("receipt pages = %d, want 2 (original + copy)", n)
 	}
 	if out := os.Getenv("RECEIPT_PDF_OUT"); out != "" {
 		_ = os.WriteFile(out, pdf, 0o644)
