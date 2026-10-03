@@ -48,10 +48,10 @@ type QuoteLine struct {
 func RenderQuotePDF(q QuoteDoc, company settings.Company) ([]byte, error) {
 	meta := [][2]string{
 		{"เลขที่ / No.", q.Number},
-		{"วันที่ / Date", q.Date.Format("02/01/2006")},
+		{"วันที่ / Date", thaiDate(q.Date)},
 	}
 	if q.ValidUntil != nil {
-		meta = append(meta, [2]string{"ยืนราคาถึง / Valid until", q.ValidUntil.Format("02/01/2006")})
+		meta = append(meta, [2]string{"ยืนราคาถึง / Valid until", thaiDate(*q.ValidUntil)})
 	}
 	if s := strings.TrimSpace(q.SiteName); s != "" {
 		meta = append(meta, [2]string{"สถานที่ / Site", s})
@@ -72,7 +72,7 @@ func RenderQuotePDF(q QuoteDoc, company settings.Company) ([]byte, error) {
 
 	note := strings.TrimSpace(q.Notes)
 	if q.ValidUntil != nil {
-		v := "ราคานี้ยืนถึงวันที่ " + q.ValidUntil.Format("02/01/2006") + " / Prices valid until " + q.ValidUntil.Format("2 Jan 2006")
+		v := "ราคานี้ยืนถึงวันที่ " + thaiDate(*q.ValidUntil) + " / Prices valid until " + q.ValidUntil.Format("2 Jan 2006")
 		if note != "" {
 			note += "\n\n" + v
 		} else {
@@ -84,7 +84,7 @@ func RenderQuotePDF(q QuoteDoc, company settings.Company) ([]byte, error) {
 		meta:      meta,
 		buyerName: q.CustomerName, buyerAddress: q.Address,
 		buyerTaxID: q.TaxID, buyerBranch: q.TaxBranch,
-		items:  items,
+		items: items, unitPriceCol: true,
 		totals: totals, words: q.Total, currency: q.Currency,
 		imageKey:   q.Number,
 		note:       note,

@@ -102,6 +102,7 @@ func (r *ReminderRunner) sendReminders(ctx context.Context) error {
 			noEmail++
 			continue
 		}
+		inv.SiteName = r.repo.SiteNameForBooking(ctx, inv.BookingID)
 		pdf, err := renderInvoicePDF(inv, company, pay, grace, 0)
 		if err != nil {
 			slog.Warn("overdue reminder pdf render failed", "invoice", inv.InvoiceNumber, "error", err)

@@ -131,8 +131,9 @@ func (s *Service) ReceiptPDF(ctx context.Context, id int64) (Receipt, []byte, er
 	if err != nil {
 		return Receipt{}, nil, mapRepoError(err)
 	}
-	company, _ := s.billingSettings(ctx)
-	pdf, err := renderReceiptPDF(rc, inv, company)
+	company, pay := s.billingSettings(ctx)
+	inv.SiteName = s.repo.SiteNameForBooking(ctx, inv.BookingID)
+	pdf, err := renderReceiptPDF(rc, inv, company, pay)
 	if err != nil {
 		return Receipt{}, nil, fmt.Errorf("render receipt %d: %w", id, err)
 	}
@@ -177,9 +178,10 @@ func (s *Service) deliverReceipt(ctx context.Context, rc Receipt, inv Invoice) {
 			s.notifier.EmitLINE(ctx, notifications.EventPaymentReceived, lineID, name, text)
 		}
 	}
-	company, _ := s.billingSettings(ctx)
+	company, pay := s.billingSettings(ctx)
+	inv.SiteName = s.repo.SiteNameForBooking(ctx, inv.BookingID)
 	s.sendMail(ctx, notifications.EventPaymentReceived, rc.CustomerEmail, receiptSubject(rc), receiptEmailBody(rc),
-		rc.ReceiptNumber, func() ([]byte, error) { return renderReceiptPDF(rc, inv, company) })
+		rc.ReceiptNumber, func() ([]byte, error) { return renderReceiptPDF(rc, inv, company, pay) })
 }
 
 func receiptSubject(rc Receipt) string {
