@@ -479,9 +479,7 @@ func drawDoc(pdf *gofpdf.Fpdf, spec docSpec, company settings.Company, pay setti
 	for _, l := range buyer {
 		lines += max(1, int(math.Ceil(pdf.GetStringWidth(l)/(width-8))))
 	}
-	if buyerTaxID != "" {
-		lines++
-	}
+	lines++ // the tax ID line, printed blank to fill in by hand when unknown
 	boxH := 9 + float64(lines)*5
 	pdf.Rect(left, y, width, boxH, "FD")
 	pdf.SetXY(left+3, y+2)
@@ -492,16 +490,21 @@ func drawDoc(pdf *gofpdf.Fpdf, spec docSpec, company settings.Company, pay setti
 	ink(30, 41, 59)
 	pdf.SetX(left + 3)
 	pdf.MultiCell(width-6, 5, strings.Join(buyer, "\n"), "", "L", false)
-	// Tax ID with the Revenue Department's head office / branch boxes.
-	if buyerTaxID != "" {
+	// Tax ID with the Revenue Department's head office / branch boxes, as
+	// on the paper form: always printed, left blank (boxes unticked) when
+	// the customer has no tax ID on record.
+	{
 		ly := pdf.GetY()
 		x := left + 3
-		label := "เลขประจำตัวผู้เสียภาษี / Tax ID  " + formatTaxID(buyerTaxID)
+		label := "เลขประจำตัวผู้เสียภาษี / Tax ID  _______________________"
 		branch := digitsOf(spec.buyerBranch)
-		head := branch == "" || strings.Trim(branch, "0") == ""
+		head := buyerTaxID != "" && (branch == "" || strings.Trim(branch, "0") == "")
+		if buyerTaxID != "" {
+			label = "เลขประจำตัวผู้เสียภาษี / Tax ID  " + formatTaxID(buyerTaxID)
+		}
 		hl := "สำนักงานใหญ่ / Head office"
 		bl := "สาขาที่ / Branch ______"
-		if !head {
+		if buyerTaxID != "" && !head {
 			bl = "สาขาที่ / Branch " + strings.Repeat("0", max(0, 5-len(branch))) + branch
 		}
 		// One line: shrink the type if a wide name would run off the box.
@@ -519,7 +522,7 @@ func drawDoc(pdf *gofpdf.Fpdf, spec docSpec, company settings.Company, pay setti
 		pdf.SetXY(x+4.5, ly)
 		pdf.CellFormat(pdf.GetStringWidth(hl)+5, 5, hl, "", 0, "L", false, 0, "")
 		x = pdf.GetX()
-		checkbox(pdf, x, ly+0.9, !head)
+		checkbox(pdf, x, ly+0.9, buyerTaxID != "" && !head)
 		pdf.SetXY(x+4.5, ly)
 		pdf.CellFormat(right-x-4.5, 5, bl, "", 0, "L", false, 0, "")
 	}
