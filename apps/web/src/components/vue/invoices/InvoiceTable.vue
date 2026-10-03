@@ -8,6 +8,8 @@ import {
   type InvoiceStatus,
   type CreateInvoiceInput,
   type PaymentResult,
+  invoiceStatusLabel,
+  isBillableBooking,
 } from "../../../lib/invoices";
 import RecordPaymentDialog from "./RecordPaymentDialog.vue";
 import { showToast } from "../../../lib/toast";
@@ -46,8 +48,8 @@ const subtotal = ref<string>("");
 
 const statusMeta: Record<InvoiceStatus, { label: string; cls: string }> = {
   draft: { label: "Draft", cls: "bg-gray-100 text-gray-700" },
-  issued: { label: "Issued", cls: "bg-blue-100 text-blue-700" },
-  partially_paid: { label: "Partially paid", cls: "bg-amber-100 text-amber-800" },
+  issued: { label: "Unpaid", cls: "bg-blue-100 text-blue-700" },
+  partially_paid: { label: "Deposit paid", cls: "bg-amber-100 text-amber-800" },
   paid: { label: "Paid", cls: "bg-green-100 text-green-700" },
   void: { label: "Void", cls: "bg-red-100 text-red-700" },
 };
@@ -85,16 +87,16 @@ function openCreate() {
 async function loadCompleted() {
   try {
     const all = await getBookings({ limit: 200 });
-    completedBookings.value = all.filter((b) => b.status === "completed");
+    completedBookings.value = all.filter((b) => isBillableBooking(b.status));
   } catch (e) {
     createError.value =
-      e instanceof ApiError ? e.message : "Failed to load completed bookings";
+      e instanceof ApiError ? e.message : "Failed to load bookings";
   }
 }
 
 async function submitCreate() {
   if (!selectedBooking.value) {
-    createError.value = "Select a completed booking";
+    createError.value = "Select a booking";
     return;
   }
   createBusy.value = true;
@@ -151,8 +153,8 @@ onMounted(() => {
         >
           <option value="">All statuses</option>
           <option value="draft">Draft</option>
-          <option value="issued">Issued</option>
-          <option value="partially_paid">Partially paid</option>
+          <option value="issued">Unpaid</option>
+          <option value="partially_paid">Deposit paid</option>
           <option value="paid">Paid</option>
           <option value="void">Void</option>
         </select>
@@ -222,10 +224,10 @@ onMounted(() => {
             <td class="px-4 py-3">
               <span
                 :class="[
-                  'inline-flex rounded-full px-2 py-1 text-xs font-medium',
+                  'inline-flex whitespace-nowrap rounded-full px-2 py-1 text-xs font-medium',
                   statusMeta[inv.status].cls,
                 ]"
-              >{{ statusMeta[inv.status].label }}</span>
+              >{{ invoiceStatusLabel(inv) }}</span>
             </td>
             <td class="px-4 py-3 text-right">
               <div class="flex justify-end gap-2">
@@ -253,7 +255,7 @@ onMounted(() => {
     <ConfirmDialog
       v-if="showCreate"
       :title="'Create Invoice'"
-      :message="'Generate an invoice from a completed booking.'"
+      :message="'Bill a booking — before the job (the customer pays a deposit against it) or after it.'"
       :confirm-label="'Create'"
       :busy="createBusy"
       @confirm="submitCreate"
@@ -267,19 +269,19 @@ onMounted(() => {
           v-else-if="completedBookings.length === 0"
           class="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-700"
         >
-          No completed bookings yet. Mark a booking as completed from the
-          Bookings page, then return here to create its invoice.
+          No bookings to invoice yet. Create the booking first on the
+          Bookings page.
         </p>
         <select
           v-model="selectedBooking"
           class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
         >
-          <option :value="null" disabled>Select a completed booking</option>
+          <option :value="null" disabled>Select a booking</option>
           <option
             v-for="b in completedBookings"
             :key="b.id"
             :value="b"
-          >{{ b.bookingNumber }} — {{ b.customerName }}</option>
+          >{{ b.bookingNumber }} — {{ b.customerName }} ({{ b.status.replace("_", " ") }})</option>
         </select>
         <label
           class="block text-xs text-gray-500"
@@ -305,6 +307,7 @@ onMounted(() => {
       :subtitle="paying.customerName"
       :invoice-id="paying.id"
       :balance="paying.balanceDue ?? paying.netPayable ?? paying.total"
+      :payable="paying.netPayable ?? paying.total"
       :currency="paying.currency"
       @done="onPaid"
       @cancel="paying = null"

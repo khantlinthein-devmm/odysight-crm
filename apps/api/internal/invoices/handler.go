@@ -156,7 +156,7 @@ func (h *Handler) RecordPayment(w http.ResponseWriter, r *http.Request) {
 	response.JSON(w, http.StatusCreated, PaymentResultDTO{Invoice: toDTO(inv), Receipt: toReceiptDTO(rc)})
 }
 
-// Collect handles POST /api/v1/invoices/collect — bill a completed booking
+// Collect handles POST /api/v1/invoices/collect — bill a booking
 // and record its payment in one step.
 func (h *Handler) Collect(w http.ResponseWriter, r *http.Request) {
 	req, ok := decodeJSON[CollectRequest](w, r)

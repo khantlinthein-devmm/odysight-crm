@@ -47,6 +47,36 @@ export interface Invoice {
   createdAt: string;
 }
 
+/** Bookings that can be invoiced: any live booking (deposit before the job
+ * or full bill after it), not cancelled or no-show ones. */
+export function isBillableBooking(status: string): boolean {
+  return status !== "cancelled" && status !== "no_show";
+}
+
+/** Share of the amount due already paid, 0–100. */
+export function paidPercent(inv: Pick<Invoice, "amountPaid" | "netPayable" | "total">): number {
+  const due = inv.netPayable ?? inv.total;
+  if (!due || !inv.amountPaid) return 0;
+  return Math.min(100, Math.round((inv.amountPaid / due) * 100));
+}
+
+/** Staff-facing status: issued = not paid yet, partially_paid = a deposit
+ * (or part) received, with the share paid. */
+export function invoiceStatusLabel(inv: Pick<Invoice, "status" | "amountPaid" | "netPayable" | "total">): string {
+  switch (inv.status) {
+    case "draft":
+      return "Draft";
+    case "issued":
+      return "Unpaid";
+    case "partially_paid":
+      return `Deposit paid · ${paidPercent(inv)}%`;
+    case "paid":
+      return "Paid";
+    case "void":
+      return "Void";
+  }
+}
+
 export type CreateInvoiceInput = {
   bookingId: number;
   subtotal?: number;

@@ -71,7 +71,7 @@ type BookingSnapshot struct {
 	ServiceType       string
 	DurationMinutes   int
 	Status            string
-	Completed         bool
+	Billable          bool
 	CustomerTaxID     string
 	CustomerTaxBranch string
 	WithholdingRate   float64

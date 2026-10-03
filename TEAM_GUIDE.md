@@ -139,6 +139,16 @@ Nobody is forced to use checklists. When a commercial client wants proof:
   payment is received). Invoices are always ใบแจ้งหนี้. Give company
   customers their tax ID and *Withholding tax 3%* on the customer form;
   invoices show the deduction and net payable.
+- **Deposits and invoice status** — an invoice can be made as soon as the
+  booking exists (not only after the job): Bookings → **Invoice**. The
+  status follows the money: **Unpaid** → **Deposit paid · 50%** (after a
+  part payment) → **Paid**. On the invoice, **Record payment** has a
+  *Deposit 50%* button and a *Full balance* button; each payment issues a
+  receipt (ใบเสร็จ/ใบกำกับภาษี for that amount). Status can't be set by
+  hand. If a payment was recorded by mistake, tap **Cancel payment** next
+  to its receipt: the receipt is cancelled and the invoice goes back to
+  Unpaid / Deposit paid. **Collect payment** (completed jobs) is for
+  customers who pay the full amount on the spot.
 - **Signatures on documents** — PDFs follow Thai practice: each has two
   signature blocks ("ในนาม …", the line, the name in brackets, the role and
   the date). Quotation: ผู้อนุมัติสั่งซื้อ (customer) / ผู้เสนอราคา (us).
