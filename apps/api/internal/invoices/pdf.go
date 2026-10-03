@@ -15,18 +15,19 @@ import (
 	"github.com/odysight/crm/pkg/thaibaht"
 )
 
-// Sarabun (SIL OFL 1.1, see fonts/OFL.txt) covers Thai and Latin, so Thai
-// customer names, addresses and the bilingual labels render correctly.
+// IBM Plex Sans Thai Looped (SIL OFL 1.1, see fonts/OFL.txt) covers Thai and
+// Latin, so Thai customer names, addresses and the bilingual labels render
+// correctly; its looped Thai letters read easily on paper.
 var (
-	//go:embed fonts/Sarabun-Regular.ttf
+	//go:embed fonts/IBMPlexSansThaiLooped-Regular.ttf
 	fontRegular []byte
-	//go:embed fonts/Sarabun-Bold.ttf
+	//go:embed fonts/IBMPlexSansThaiLooped-Bold.ttf
 	fontBold []byte
 	//go:embed assets/logo.png
 	logoPNG []byte
 )
 
-const fontFamily = "Sarabun"
+const fontFamily = "IBMPlexSansThaiLooped"
 
 // docSpec describes one printed document; invoices and receipts share the
 // layout (seller header, customer box, one line item, totals, signatures).
@@ -456,24 +457,32 @@ func drawDoc(pdf *gofpdf.Fpdf, spec docSpec, company settings.Company, pay setti
 	if buyerTaxID != "" {
 		ly := pdf.GetY()
 		x := left + 3
-		label := "เลขประจำตัวผู้เสียภาษี / Tax ID   " + formatTaxID(buyerTaxID)
-		pdf.SetXY(x, ly)
-		pdf.CellFormat(pdf.GetStringWidth(label)+6, 5, label, "", 0, "L", false, 0, "")
-		x = pdf.GetX()
+		label := "เลขประจำตัวผู้เสียภาษี / Tax ID  " + formatTaxID(buyerTaxID)
 		branch := digitsOf(spec.buyerBranch)
 		head := branch == "" || strings.Trim(branch, "0") == ""
-		checkbox(pdf, x, ly+0.9, head)
-		pdf.SetXY(x+4.5, ly)
 		hl := "สำนักงานใหญ่ / Head office"
-		pdf.CellFormat(pdf.GetStringWidth(hl)+6, 5, hl, "", 0, "L", false, 0, "")
-		x = pdf.GetX()
-		checkbox(pdf, x, ly+0.9, !head)
-		pdf.SetXY(x+4.5, ly)
-		bl := "สาขาที่ / Branch ________"
+		bl := "สาขาที่ / Branch ______"
 		if !head {
 			bl = "สาขาที่ / Branch " + strings.Repeat("0", max(0, 5-len(branch))) + branch
 		}
-		pdf.CellFormat(50, 5, bl, "", 0, "L", false, 0, "")
+		// One line: shrink the type if a wide name would run off the box.
+		size := 10.0
+		for ; size > 8; size -= 0.5 {
+			font("", size)
+			if pdf.GetStringWidth(label+hl+bl)+2*4.5+2*5 <= width-6 {
+				break
+			}
+		}
+		pdf.SetXY(x, ly)
+		pdf.CellFormat(pdf.GetStringWidth(label)+5, 5, label, "", 0, "L", false, 0, "")
+		x = pdf.GetX()
+		checkbox(pdf, x, ly+0.9, head)
+		pdf.SetXY(x+4.5, ly)
+		pdf.CellFormat(pdf.GetStringWidth(hl)+5, 5, hl, "", 0, "L", false, 0, "")
+		x = pdf.GetX()
+		checkbox(pdf, x, ly+0.9, !head)
+		pdf.SetXY(x+4.5, ly)
+		pdf.CellFormat(right-x-4.5, 5, bl, "", 0, "L", false, 0, "")
 	}
 	y += boxH + 6
 
@@ -635,11 +644,13 @@ func drawDoc(pdf *gofpdf.Fpdf, spec docSpec, company settings.Company, pay setti
 	pdf.SetDrawColor(100, 116, 139)
 	for i, t := range spec.totals {
 		last := i == len(spec.totals)-1
+		style, size := "", 10.0
 		if last {
-			font("B", 11)
+			style, size = "B", 11
 			pdf.SetFillColor(241, 245, 249)
-		} else {
-			font("", 10)
+		}
+		for font(style, size); size > 8 && pdf.GetStringWidth(" "+t[0]) > 61; size -= 0.5 {
+			font(style, size-0.5)
 		}
 		pdf.SetXY(103, ty)
 		pdf.CellFormat(62, 7, " "+t[0], "1", 0, "L", last, 0, "")
