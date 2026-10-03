@@ -171,8 +171,10 @@ Nobody is forced to use checklists. When a commercial client wants proof:
   customer), page 2 สำเนา / Copy (for our files). Dates are Thai Buddhist
   era (10/07/2569). The header shows the Thai legal name and the English
   name (*Settings → Company*: Legal name = บริษัท สไมล์ คลีน จำกัด, Name =
-  Smile Clean CO.,LTD.). The customer's tax ID has ☒ สำนักงานใหญ่ /
-  ☐ สาขาที่ boxes. The line reads "1 งาน" with the booking's site
+  Smile Clean CO.,LTD.). The customer box shows the customer's phone and
+  tax ID (from the customer record) with ☒ สำนักงานใหญ่ / ☐ สาขาที่ boxes;
+  a tax ID added to the customer later also appears on documents issued
+  before it was recorded. The line reads "1 งาน" with the booking's site
   (สถานที่ปฏิบัติงาน); the receipt also names the invoice it pays. The
   receipt's *Paid by* boxes (cash / transfer to our account / cheque /
   other) are ticked from the payment method, with the bank account from

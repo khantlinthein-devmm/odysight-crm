@@ -49,6 +49,12 @@ func TestRenderQuotePDF(t *testing.T) {
 	if out := os.Getenv("QUOTE_PDF_OUT"); out != "" {
 		_ = os.WriteFile(out, pdf, 0o644)
 	}
+	// A typical quote (several two-line items, accepted) fits on one page.
+	five := sampleQuote(6)
+	five.Status = "accepted"
+	if pdf, _ := RenderQuotePDF(five, company); pageCount(pdf) != 1 {
+		t.Fatalf("6-line accepted quote: %d pages, want 1", pageCount(pdf))
+	}
 	long := sampleQuote(40)
 	long.Status = "accepted"
 	pdf, err = RenderQuotePDF(long, company)
