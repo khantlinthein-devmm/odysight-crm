@@ -42,8 +42,10 @@ type docSpec struct {
 	description      string
 	lineAmount       float64
 	// items, when set, replaces the single description/lineAmount row.
-	items    []docItem
-	totals   [][2]string
+	items  []docItem
+	totals [][2]string
+	// boldRow is the totals row printed bold and shaded (1-based; 0 = last).
+	boldRow  int
 	words    float64
 	currency string
 	// Payment block (QR + bank details); skipped when payAmount is zero.
@@ -157,9 +159,11 @@ func renderInvoicePDF(inv Invoice, company settings.Company, pay settings.Paymen
 		dep := math.Round(due*float64(depositPct)) / 100
 		rest := due - dep
 		spec.payAmount = dep
-		spec.terms = fmt.Sprintf("ขอเรียกเก็บเงินมัดจำ %[1]d%% เพื่อยืนยันการจอง: %[2]s %[3]s (ยอดคงเหลือ %[2]s %[4]s)\n"+
-			"Deposit due (%[1]d%%) to confirm the booking: %[2]s %[3]s (remaining balance %[2]s %[4]s)",
-			depositPct, inv.Currency, amount(dep), amount(rest))
+		// The deposit to pay now and what remains, as rows of the totals.
+		spec.totals = append(spec.totals,
+			[2]string{fmt.Sprintf("เงินมัดจำ %d%% / Deposit due now", depositPct), amount(dep)},
+			[2]string{"ยอดคงเหลือ / Remaining balance", amount(rest)})
+		spec.boldRow = len(spec.totals) - 1
 	}
 	switch inv.Status {
 	case StatusPaid:
@@ -681,8 +685,12 @@ func drawDoc(pdf *gofpdf.Fpdf, spec docSpec, company settings.Company, pay setti
 	y += 3
 	ty := y
 	pdf.SetDrawColor(100, 116, 139)
+	boldRow := spec.boldRow
+	if boldRow == 0 {
+		boldRow = len(spec.totals)
+	}
 	for i, t := range spec.totals {
-		last := i == len(spec.totals)-1
+		last := i == boldRow-1
 		style, size := "", 10.0
 		if last {
 			style, size = "B", 11
