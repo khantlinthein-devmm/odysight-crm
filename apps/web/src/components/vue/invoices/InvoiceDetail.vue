@@ -10,6 +10,7 @@ import {
   sendInvoiceEmail,
   sendReceiptEmail,
   invoiceStatusLabel,
+  markInvoiceUnpaid,
   type Invoice,
   type PaymentResult,
   type Receipt,
@@ -89,6 +90,30 @@ async function confirmUndo() {
     showToast(`Payment cancelled — receipt ${rc.receiptNumber} is void`, "success");
   } catch (e) {
     showToast(e instanceof ApiError ? e.message : "Failed to cancel the payment", "error");
+  }
+}
+
+// Invoices marked paid before receipts existed have nothing to cancel:
+// they can be reopened directly.
+const validReceipts = computed(() => receipts.value.filter((r) => r.status === "valid"));
+const canMarkUnpaid = computed(
+  () =>
+    canUndoPayments &&
+    !!invoice.value &&
+    (invoice.value.status === "paid" || invoice.value.status === "partially_paid") &&
+    (invoice.value.amountPaid ?? 0) > 0 &&
+    validReceipts.value.length === 0,
+);
+const confirmUnpaid = ref(false);
+async function doMarkUnpaid() {
+  confirmUnpaid.value = false;
+  if (!invoice.value) return;
+  try {
+    invoice.value = await markInvoiceUnpaid(invoice.value.id);
+    void loadQr();
+    showToast("Invoice is unpaid again", "success");
+  } catch (e) {
+    showToast(e instanceof ApiError ? e.message : "Failed to reopen the invoice", "error");
   }
 }
 
@@ -347,9 +372,17 @@ onMounted(load);
         class="mx-auto max-w-2xl rounded-xl border border-gray-200 bg-white p-5 shadow-sm"
       >
         <h3 class="text-sm font-semibold text-gray-900">Payments &amp; receipts</h3>
-        <p v-if="receipts.length === 0" class="mt-2 text-sm text-gray-500">
+        <p v-if="receipts.length === 0 && !canMarkUnpaid" class="mt-2 text-sm text-gray-500">
           No payments recorded yet.
         </p>
+        <div v-if="canMarkUnpaid" class="mt-2 flex flex-wrap items-center justify-between gap-2 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-900">
+          <span>Marked {{ invoice.status === "paid" ? "paid" : "part paid" }} without a receipt. If the customer hasn't actually paid, reopen it.</span>
+          <button
+            type="button"
+            class="rounded-lg border border-amber-300 bg-white px-3 py-1 text-xs font-medium text-amber-900 hover:bg-amber-100"
+            @click="confirmUnpaid = true"
+          >Mark as unpaid</button>
+        </div>
         <ul v-else class="mt-3 divide-y divide-gray-100">
           <li v-for="rc in receipts" :key="rc.id" class="flex flex-wrap items-center justify-between gap-2 py-2.5 text-sm">
             <div>
@@ -400,6 +433,14 @@ onMounted(load);
         :currency="invoice.currency"
         @done="onPaid"
         @cancel="paying = false"
+      />
+      <ConfirmDialog
+        v-if="confirmUnpaid"
+        title="Mark as unpaid?"
+        :message="`${invoice.invoiceNumber} goes back to Unpaid with the full amount due. The booking and quote are not changed.`"
+        confirm-label="Mark as unpaid"
+        @confirm="doMarkUnpaid"
+        @cancel="confirmUnpaid = false"
       />
       <ConfirmDialog
         v-if="pendingUndo"

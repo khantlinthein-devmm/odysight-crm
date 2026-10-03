@@ -244,6 +244,15 @@ func (s *Service) Update(ctx context.Context, id int64, req UpdateInvoiceRequest
 	return updated, nil
 }
 
+// MarkUnpaid reopens an invoice that was marked paid without a receipt.
+func (s *Service) MarkUnpaid(ctx context.Context, id int64) (Invoice, error) {
+	inv, err := s.repo.MarkUnpaid(ctx, id)
+	if err != nil {
+		return Invoice{}, mapRepoError(err)
+	}
+	return inv, nil
+}
+
 // SendEmail explicitly (re)sends the invoice/Pdf to the customer.
 func (s *Service) SendEmail(ctx context.Context, id int64) error {
 	inv, err := s.repo.GetByID(ctx, id)
@@ -435,6 +444,10 @@ func mapRepoError(err error) error {
 		return response.NewAPIError(422, err.Error())
 	case errors.Is(err, ErrInvoiceHasPaid):
 		return response.NewAPIError(422, "this invoice has payments; refund them before voiding it")
+	case errors.Is(err, ErrInvoiceHasReceipts):
+		return response.NewAPIError(422, "this invoice has receipts — use Cancel payment on each receipt instead")
+	case errors.Is(err, ErrInvoiceNotPaid):
+		return response.NewAPIError(422, "this invoice has nothing paid")
 	default:
 		return err
 	}

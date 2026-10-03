@@ -170,6 +170,18 @@ export async function getInvoice(id: number): Promise<Invoice> {
   return apiFetch<Invoice>(`/api/v1/invoices/${id}`);
 }
 
+/** Reopens an invoice that was marked paid without any receipt. */
+export async function markInvoiceUnpaid(id: number): Promise<Invoice> {
+  if (USE_MOCKS) {
+    await delay(200);
+    const inv = mockInvoices.find((i) => i.id === id);
+    if (!inv) throw new ApiError(404, `Invoice ${id} not found`);
+    Object.assign(inv, { status: "issued", amountPaid: 0, paidAt: null });
+    return { ...inv };
+  }
+  return apiFetch<Invoice>(`/api/v1/invoices/${id}/mark-unpaid`, { method: "POST" });
+}
+
 export async function createInvoice(input: CreateInvoiceInput): Promise<Invoice> {
   if (USE_MOCKS) {
     await delay(400);
