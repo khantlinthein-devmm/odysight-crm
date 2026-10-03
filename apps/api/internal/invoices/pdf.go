@@ -15,18 +15,19 @@ import (
 	"github.com/odysight/crm/pkg/thaibaht"
 )
 
-// Sarabun (SIL OFL 1.1, see fonts/OFL.txt) covers Thai and Latin, so Thai
-// customer names, addresses and the bilingual labels render correctly.
+// IBM Plex Sans Thai Looped (SIL OFL 1.1, see fonts/OFL.txt) covers Thai and
+// Latin, so Thai customer names, addresses and the bilingual labels render
+// correctly; its looped Thai letters read easily on paper.
 var (
-	//go:embed fonts/Sarabun-Regular.ttf
+	//go:embed fonts/IBMPlexSansThaiLooped-Regular.ttf
 	fontRegular []byte
-	//go:embed fonts/Sarabun-Bold.ttf
+	//go:embed fonts/IBMPlexSansThaiLooped-Bold.ttf
 	fontBold []byte
 	//go:embed assets/logo.png
 	logoPNG []byte
 )
 
-const fontFamily = "Sarabun"
+const fontFamily = "IBMPlexSansThaiLooped"
 
 // docSpec describes one printed document; invoices and receipts share the
 // layout (seller header, customer box, one line item, totals, signatures).
@@ -350,7 +351,9 @@ func drawDoc(pdf *gofpdf.Fpdf, spec docSpec, company settings.Company, pay setti
 	// Seller block (left), beside the company logo.
 	pdf.RegisterImageOptionsReader("logo", gofpdf.ImageOptions{ImageType: "PNG"}, bytes.NewReader(logoPNG))
 	pdf.ImageOptions("logo", left, 13, 22, 22, false, gofpdf.ImageOptions{ImageType: "PNG"}, 0, "")
-	const sellerX, sellerW = left + 25, 78.0
+	// Letterhead as on the company's paper forms: Thai and English names,
+	// the office and address, then phone and tax ID on one line.
+	const sellerX, sellerW = left + 25, 120.0
 	sellerName := strings.TrimSpace(company.LegalName)
 	if sellerName == "" {
 		sellerName = company.Name
@@ -359,7 +362,6 @@ func drawDoc(pdf *gofpdf.Fpdf, spec docSpec, company settings.Company, pay setti
 	font("B", 14)
 	ink(30, 41, 59)
 	pdf.MultiCell(sellerW, 6.5, sellerName, "", "L", false)
-	// The English name under the Thai legal name, as on Thai letterheads.
 	if en := strings.TrimSpace(company.Name); en != "" && en != sellerName {
 		font("B", 11)
 		pdf.SetX(sellerX)
@@ -367,48 +369,65 @@ func drawDoc(pdf *gofpdf.Fpdf, spec docSpec, company settings.Company, pay setti
 	}
 	var seller []string
 	if a := strings.TrimSpace(company.Address); a != "" {
-		seller = append(seller, a)
+		office := "สำนักงานใหญ่"
+		if b := digitsOf(company.TaxBranch); strings.Trim(b, "0") != "" {
+			office = "สาขาที่ " + strings.Repeat("0", max(0, 5-len(b))) + b
+		}
+		seller = append(seller, office+" : "+a)
 	}
+	var contact []string
 	if p := strings.TrimSpace(company.Phone); p != "" {
-		seller = append(seller, "โทร / Tel: "+p)
+		contact = append(contact, "โทร. "+p)
 	}
 	if id := digitsOf(company.TaxID); id != "" {
-		seller = append(seller, "เลขประจำตัวผู้เสียภาษี / Tax ID: "+formatTaxID(id), branchLabel(company.TaxBranch))
+		contact = append(contact, "เลขประจำตัวผู้เสียภาษี "+id)
+	}
+	if len(contact) > 0 {
+		seller = append(seller, strings.Join(contact, "   "))
 	}
 	font("", 9.5)
 	ink(71, 85, 105)
 	pdf.SetX(sellerX)
-	pdf.MultiCell(sellerW, 4.6, strings.Join(seller, "\n"), "", "L", false)
-	sellerBottom := max(pdf.GetY(), 36)
+	// Below the copy label the address can run to the right margin.
+	pdf.MultiCell(right-sellerX, 4.8, strings.Join(seller, "\n"), "", "L", false)
+	y := max(pdf.GetY(), 36) + 3
 
-	// Title + meta (right).
-	pdf.SetXY(115, 15)
-	font("B", 15)
-	ink(30, 58, 95)
-	pdf.CellFormat(80, 7, spec.thTitle, "", 2, "R", false, 0, "")
-	font("B", 10)
-	pdf.CellFormat(80, 5, spec.enTitle, "", 2, "R", false, 0, "")
+	// ต้นฉบับ / สำเนา, boxed in the top-right corner.
 	if copyLabel != "" {
-		font("", 9)
-		ink(100, 116, 139)
-		pdf.CellFormat(80, 5, copyLabel, "", 2, "R", false, 0, "")
-		ink(30, 58, 95)
+		font("B", 9)
+		ink(127, 29, 29)
+		pdf.SetDrawColor(153, 27, 27)
+		pdf.RoundedRect(162, 14, 33, 8, 1.5, "1234", "D")
+		pdf.SetXY(162, 15.5)
+		pdf.CellFormat(33, 5, copyLabel, "", 0, "C", false, 0, "")
+		pdf.SetDrawColor(203, 213, 225)
 	}
-	pdf.Ln(2)
+
+	// Title in a box (left) and the document number, date, … (right).
+	pdf.SetDrawColor(153, 27, 27)
+	pdf.SetLineWidth(0.5)
+	pdf.RoundedRect(left+10, y, 88, 16, 2.5, "1234", "D")
+	pdf.SetLineWidth(0.2)
+	pdf.SetDrawColor(203, 213, 225)
+	pdf.SetXY(left+10, y+1.5)
+	font("B", 14)
+	ink(30, 58, 95)
+	pdf.CellFormat(88, 7, spec.thTitle, "", 2, "C", false, 0, "")
+	font("B", 10)
+	pdf.CellFormat(88, 5.5, spec.enTitle, "", 0, "C", false, 0, "")
 	font("", 9.5)
 	ink(30, 41, 59)
+	my := y
 	for _, m := range spec.meta {
-		pdf.SetX(123)
+		pdf.SetXY(123, my)
 		pdf.CellFormat(29, 5, m[0], "", 0, "L", false, 0, "")
-		pdf.CellFormat(43, 5, m[1], "", 1, "R", false, 0, "")
+		pdf.CellFormat(43, 5, m[1], "", 0, "R", false, 0, "")
+		my += 5
 	}
-	y := pdf.GetY()
-	if sellerBottom > y {
-		y = sellerBottom
-	}
+	y = max(y+16, my)
 
 	// Customer box.
-	y += 5
+	y += 4
 	pdf.SetDrawColor(203, 213, 225)
 	pdf.SetFillColor(248, 250, 252)
 	buyer := []string{spec.buyerName}
@@ -438,24 +457,32 @@ func drawDoc(pdf *gofpdf.Fpdf, spec docSpec, company settings.Company, pay setti
 	if buyerTaxID != "" {
 		ly := pdf.GetY()
 		x := left + 3
-		label := "เลขประจำตัวผู้เสียภาษี / Tax ID: " + formatTaxID(buyerTaxID)
-		pdf.SetXY(x, ly)
-		pdf.CellFormat(pdf.GetStringWidth(label)+6, 5, label, "", 0, "L", false, 0, "")
-		x = pdf.GetX()
+		label := "เลขประจำตัวผู้เสียภาษี / Tax ID  " + formatTaxID(buyerTaxID)
 		branch := digitsOf(spec.buyerBranch)
 		head := branch == "" || strings.Trim(branch, "0") == ""
-		checkbox(pdf, x, ly+0.9, head)
-		pdf.SetXY(x+4.5, ly)
 		hl := "สำนักงานใหญ่ / Head office"
-		pdf.CellFormat(pdf.GetStringWidth(hl)+6, 5, hl, "", 0, "L", false, 0, "")
-		x = pdf.GetX()
-		checkbox(pdf, x, ly+0.9, !head)
-		pdf.SetXY(x+4.5, ly)
-		bl := "สาขาที่ / Branch ________"
+		bl := "สาขาที่ / Branch ______"
 		if !head {
 			bl = "สาขาที่ / Branch " + strings.Repeat("0", max(0, 5-len(branch))) + branch
 		}
-		pdf.CellFormat(50, 5, bl, "", 0, "L", false, 0, "")
+		// One line: shrink the type if a wide name would run off the box.
+		size := 10.0
+		for ; size > 8; size -= 0.5 {
+			font("", size)
+			if pdf.GetStringWidth(label+hl+bl)+2*4.5+2*5 <= width-6 {
+				break
+			}
+		}
+		pdf.SetXY(x, ly)
+		pdf.CellFormat(pdf.GetStringWidth(label)+5, 5, label, "", 0, "L", false, 0, "")
+		x = pdf.GetX()
+		checkbox(pdf, x, ly+0.9, head)
+		pdf.SetXY(x+4.5, ly)
+		pdf.CellFormat(pdf.GetStringWidth(hl)+5, 5, hl, "", 0, "L", false, 0, "")
+		x = pdf.GetX()
+		checkbox(pdf, x, ly+0.9, !head)
+		pdf.SetXY(x+4.5, ly)
+		pdf.CellFormat(right-x-4.5, 5, bl, "", 0, "L", false, 0, "")
 	}
 	y += boxH + 6
 
@@ -617,11 +644,13 @@ func drawDoc(pdf *gofpdf.Fpdf, spec docSpec, company settings.Company, pay setti
 	pdf.SetDrawColor(100, 116, 139)
 	for i, t := range spec.totals {
 		last := i == len(spec.totals)-1
+		style, size := "", 10.0
 		if last {
-			font("B", 11)
+			style, size = "B", 11
 			pdf.SetFillColor(241, 245, 249)
-		} else {
-			font("", 10)
+		}
+		for font(style, size); size > 8 && pdf.GetStringWidth(" "+t[0]) > 61; size -= 0.5 {
+			font(style, size-0.5)
 		}
 		pdf.SetXY(103, ty)
 		pdf.CellFormat(62, 7, " "+t[0], "1", 0, "L", last, 0, "")
@@ -825,12 +854,13 @@ func digitsOf(s string) string {
 	return b.String()
 }
 
-// formatTaxID prints a 13-digit TIN in the customary 1-2345-67890-12-3 form.
+// formatTaxID prints a 13-digit TIN grouped the way it is written on Thai
+// forms: 0 1055 46095 72 4.
 func formatTaxID(id string) string {
 	if len(id) != 13 {
 		return id
 	}
-	return id[0:1] + "-" + id[1:5] + "-" + id[5:10] + "-" + id[10:12] + "-" + id[12:13]
+	return id[0:1] + " " + id[1:5] + " " + id[5:10] + " " + id[10:12] + " " + id[12:13]
 }
 
 // branchLabel renders the branch the Revenue Department way: head office for

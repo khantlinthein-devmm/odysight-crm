@@ -75,7 +75,7 @@ func TestAmountAndTaxIDFormatting(t *testing.T) {
 	if got := amount(1234567.5); got != "1,234,567.50" {
 		t.Errorf("amount = %s", got)
 	}
-	if got := formatTaxID("0105561234567"); got != "0-1055-61234-56-7" {
+	if got := formatTaxID("0105561234567"); got != "0 1055 61234 56 7" {
 		t.Errorf("formatTaxID = %s", got)
 	}
 	if got := branchLabel("1"); got != "สาขาที่ / Branch 00001" {
