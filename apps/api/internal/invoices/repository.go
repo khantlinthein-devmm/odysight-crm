@@ -292,3 +292,39 @@ func (r *Repository) LineContactForBooking(ctx context.Context, bookingID int64)
 	}
 	return name, lineID, nil
 }
+
+// MarkUnpaid clears the paid amount of an invoice that was marked paid
+// without a receipt (before receipts existed, or by hand in an older
+// version). Invoices with receipts must have those payments cancelled
+// instead, so the receipts and the ledger stay consistent.
+func (r *Repository) MarkUnpaid(ctx context.Context, id int64) (Invoice, error) {
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return Invoice{}, fmt.Errorf("begin tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	current, err := lockInvoice(ctx, tx, id)
+	if err != nil {
+		return Invoice{}, err
+	}
+	if current.Status != StatusPaid && current.Status != StatusPartiallyPaid {
+		return Invoice{}, ErrInvoiceNotPaid
+	}
+	var receipts int
+	if err := tx.QueryRow(ctx,
+		`SELECT COUNT(*) FROM receipts WHERE invoice_id = $1 AND status = 'valid'`, id).Scan(&receipts); err != nil {
+		return Invoice{}, fmt.Errorf("count receipts of invoice %d: %w", id, err)
+	}
+	if receipts > 0 {
+		return Invoice{}, ErrInvoiceHasReceipts
+	}
+	updated, err := scanInvoice(tx.QueryRow(ctx,
+		`UPDATE invoices SET status = 'issued', amount_paid = 0, paid_at = NULL WHERE id = $1 RETURNING `+invoiceColumns, id))
+	if err != nil {
+		return Invoice{}, fmt.Errorf("mark invoice %d unpaid: %w", id, err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return Invoice{}, fmt.Errorf("commit: %w", err)
+	}
+	return updated, nil
+}

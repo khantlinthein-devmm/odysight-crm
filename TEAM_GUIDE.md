@@ -149,6 +149,10 @@ Nobody is forced to use checklists. When a commercial client wants proof:
   to its receipt: the receipt is cancelled and the invoice goes back to
   Unpaid / Deposit paid. **Collect payment** (completed jobs) is for
   customers who pay the full amount on the spot.
+  An invoice marked paid without any receipt (from an older version) shows
+  **Mark as unpaid** instead. Fixing a wrong payment never needs a new
+  booking or quote; only a wrong price needs the invoice voided (after
+  cancelling its payments) and a new one made from the same booking.
 - **Signatures on documents** — PDFs follow Thai practice: each has two
   signature blocks ("ในนาม …", the line, the name in brackets, the role and
   the date). Quotation: ผู้อนุมัติสั่งซื้อ (customer) / ผู้เสนอราคา (us).

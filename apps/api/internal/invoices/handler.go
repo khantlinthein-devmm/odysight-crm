@@ -100,6 +100,20 @@ func (h *Handler) Email(w http.ResponseWriter, r *http.Request) {
 	response.JSON(w, http.StatusOK, map[string]string{"status": "sent"})
 }
 
+// MarkUnpaid handles POST /api/v1/invoices/{id}/mark-unpaid
+func (h *Handler) MarkUnpaid(w http.ResponseWriter, r *http.Request) {
+	id, ok := parseID(w, r)
+	if !ok {
+		return
+	}
+	inv, err := h.service.MarkUnpaid(r.Context(), id)
+	if err != nil {
+		response.HandleError(w, r, err)
+		return
+	}
+	response.JSON(w, http.StatusOK, toDTO(inv))
+}
+
 // PDF handles GET /api/v1/invoices/{id}/pdf
 func (h *Handler) PDF(w http.ResponseWriter, r *http.Request) {
 	id, ok := parseID(w, r)

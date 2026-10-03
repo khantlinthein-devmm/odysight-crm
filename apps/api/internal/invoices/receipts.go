@@ -14,12 +14,14 @@ import (
 )
 
 var (
-	ErrReceiptNotFound  = errors.New("receipt not found")
-	ErrPaymentNotFound  = errors.New("payment not found")
-	ErrInvoiceNotOpen   = errors.New("invoice is not open for payment")
-	ErrInvoiceFullyPaid = errors.New("invoice is already fully paid")
-	ErrOverpayment      = errors.New("payment exceeds the balance due")
-	ErrInvoiceHasPaid   = errors.New("invoice has payments")
+	ErrReceiptNotFound    = errors.New("receipt not found")
+	ErrPaymentNotFound    = errors.New("payment not found")
+	ErrInvoiceNotOpen     = errors.New("invoice is not open for payment")
+	ErrInvoiceFullyPaid   = errors.New("invoice is already fully paid")
+	ErrOverpayment        = errors.New("payment exceeds the balance due")
+	ErrInvoiceHasPaid     = errors.New("invoice has payments")
+	ErrInvoiceHasReceipts = errors.New("invoice has receipts")
+	ErrInvoiceNotPaid     = errors.New("invoice has nothing paid")
 )
 
 const (

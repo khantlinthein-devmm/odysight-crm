@@ -20,6 +20,7 @@ func Routes(h *Handler, az *auth.Authorizer) chi.Router {
 		r.With(az.Require(auth.PermPaymentsCreate)).Post("/payments", h.RecordPayment)
 		r.With(az.Require(auth.PermInvoicesUpdate)).Post("/email", h.Email)
 		r.With(az.Require(auth.PermInvoicesUpdate)).Patch("/", h.Update)
+		r.With(az.Require(auth.PermPaymentsUpdate)).Post("/mark-unpaid", h.MarkUnpaid)
 	})
 	return r
 }
