@@ -12,6 +12,7 @@ import {
   isBillableBooking,
 } from "../../../lib/invoices";
 import RecordPaymentDialog from "./RecordPaymentDialog.vue";
+import VatBreakdown from "./VatBreakdown.vue";
 import { showToast } from "../../../lib/toast";
 import { getBookings, type Booking } from "../../../lib/bookings";
 import { getSessionUser } from "../../../lib/auth";
@@ -45,6 +46,12 @@ const createError = ref("");
 const selectedBooking = ref<Booking | null>(null);
 const completedBookings = ref<Booking[]>([]);
 const subtotal = ref<string>("");
+// The price the invoice will be drawn from: the typed one, else the booking's.
+const draftPrice = computed(() => {
+  const typed = parseFloat(String(subtotal.value));
+  if (!isNaN(typed) && typed > 0) return typed;
+  return selectedBooking.value?.price ?? null;
+});
 
 const statusMeta: Record<InvoiceStatus, { label: string; cls: string }> = {
   draft: { label: "Draft", cls: "bg-gray-100 text-gray-700" },
@@ -298,6 +305,7 @@ onMounted(() => {
           {{ selectedBooking.serviceType }} at {{ fmtDate(selectedBooking.scheduledFor) }}
           <span v-if="selectedBooking.price != null"> · booking price {{ selectedBooking.price.toFixed(2) }}</span>
         </p>
+        <VatBreakdown :price="draftPrice" currency="THB" />
       </div>
     </ConfirmDialog>
 
