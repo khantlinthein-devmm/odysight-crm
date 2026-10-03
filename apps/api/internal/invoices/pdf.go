@@ -481,7 +481,21 @@ func drawDoc(pdf *gofpdf.Fpdf, spec docSpec, company settings.Company, pay setti
 			{"จำนวนเงิน\nAmount", 31, "R"},
 		}
 	}
+	// The table is ruled like a Thai paper form: an outer border, column
+	// lines down to the bottom, and empty rows filling the space left.
+	tableTop := y
+	closeTable := func(bottom float64) {
+		pdf.SetDrawColor(100, 116, 139)
+		pdf.Rect(left, tableTop, width, bottom-tableTop, "D")
+		x := left
+		for _, c := range cols[:len(cols)-1] {
+			x += c.w
+			pdf.Line(x, tableTop, x, bottom)
+		}
+		pdf.SetDrawColor(203, 213, 225)
+	}
 	drawHead := func() {
+		tableTop = y
 		pdf.SetFillColor(30, 58, 95)
 		ink(255, 255, 255)
 		font("B", 8.5)
@@ -514,6 +528,7 @@ func drawDoc(pdf *gofpdf.Fpdf, spec docSpec, company settings.Company, pay setti
 		}
 		h := float64(lines)*5.5 + 3
 		if y+h > 262 {
+			closeTable(y)
 			newPage()
 			drawHead()
 		}
@@ -538,31 +553,68 @@ func drawDoc(pdf *gofpdf.Fpdf, spec docSpec, company settings.Company, pay setti
 			pdf.SetDrawColor(203, 213, 225)
 		}
 	}
-	y += 4
-	pdf.Line(left, y, right, y)
+	y += 3
 
-	// Keep totals, payment, stamp and signatures together on the last page.
-	need := float64(len(spec.totals))*7 + 9
+	// Keep totals, payment, stamp and signatures together on the last page:
+	// measure the left column (words, note, paid-by) against the totals.
+	wrapped := func(text string, w float64) float64 {
+		n := 0
+		for _, para := range strings.Split(text, "\n") {
+			n += max(1, int(math.Ceil(pdf.GetStringWidth(para)/w)))
+		}
+		return float64(n)
+	}
+	words := "(" + thaibaht.Text(spec.words) + ")"
+	font("B", 10.5)
+	wordsH := 5 + wrapped(words, 79)*5.5 + 3
+	leftH := wordsH
+	if spec.currency != "" && spec.currency != "THB" {
+		leftH += 4.5
+	}
+	font("", 9.5)
+	if spec.note != "" {
+		leftH += 2 + wrapped(spec.note, 85)*5
+	}
+	if len(spec.payMethods) > 0 {
+		leftH += 7
+		for _, m := range spec.payMethods {
+			leftH += wrapped(m.label, 83)*5 + 0.5
+		}
+	}
+	need := 3 + max(float64(len(spec.totals))*7, leftH) + 6
+	termsH := 0.0
+	if spec.terms != "" {
+		font("B", 10.5)
+		termsH = wrapped(spec.terms, width-10)*5.6 + 6
+		need += termsH + 6
+	}
 	if strings.TrimSpace(pay.PromptPayID+pay.BankAccount) != "" && spec.payAmount > 0 {
-		need += 43
+		need += 42
 	}
 	if spec.stamp != "" {
 		need += 16
 	}
-	if spec.terms != "" {
-		need += 23
-	}
-	if n := len(spec.payMethods); n > 0 {
-		need = max(need, float64(n)*5.5+30)
-	}
-	// The signature blocks start at 230 mm.
-	if y+need > 229 {
-		newPage()
+	// The signature boxes start at 228 mm: when everything fits, the table's
+	// empty rows run down to the totals; otherwise the totals go overleaf.
+	const signTop = 228.0
+	if fill := signTop - need; fill > y {
+		pdf.SetDrawColor(226, 232, 240)
+		for ry := y + 7; ry < fill-1; ry += 7 {
+			pdf.Line(left, ry, right, ry)
+		}
+		y = fill
+		closeTable(y)
+	} else {
+		closeTable(y)
+		if y+need > signTop {
+			newPage()
+		}
 	}
 
-	// Totals (right) and amount in words (left).
+	// Totals (right, ruled) and amount in words (left, shaded box).
 	y += 3
 	ty := y
+	pdf.SetDrawColor(100, 116, 139)
 	for i, t := range spec.totals {
 		last := i == len(spec.totals)-1
 		if last {
@@ -572,17 +624,21 @@ func drawDoc(pdf *gofpdf.Fpdf, spec docSpec, company settings.Company, pay setti
 			font("", 10)
 		}
 		pdf.SetXY(103, ty)
-		pdf.CellFormat(62, 7, t[0], "", 0, "L", last, 0, "")
-		pdf.CellFormat(30, 7, t[1], "", 1, "R", last, 0, "")
+		pdf.CellFormat(62, 7, " "+t[0], "1", 0, "L", last, 0, "")
+		pdf.CellFormat(30, 7, t[1]+" ", "1", 1, "R", last, 0, "")
 		ty += 7
 	}
-	pdf.SetXY(left, y)
+	pdf.SetFillColor(241, 245, 249)
+	pdf.Rect(left, y, 85, wordsH, "FD")
+	pdf.SetDrawColor(203, 213, 225)
+	pdf.SetXY(left+3, y+1.5)
 	font("B", 9)
 	ink(100, 116, 139)
-	pdf.CellFormat(85, 5, "จำนวนเงินตัวอักษร / Amount in words", "", 2, "L", false, 0, "")
+	pdf.CellFormat(79, 5, "จำนวนเงินตัวอักษร / Amount in words", "", 2, "L", false, 0, "")
 	font("B", 10.5)
 	ink(30, 41, 59)
-	pdf.MultiCell(85, 5.5, "("+thaibaht.Text(spec.words)+")", "", "L", false)
+	pdf.MultiCell(79, 5.5, words, "", "L", false)
+	pdf.SetY(y + wordsH)
 	if spec.currency != "" && spec.currency != "THB" {
 		font("", 8.5)
 		ink(100, 116, 139)
@@ -616,13 +672,8 @@ func drawDoc(pdf *gofpdf.Fpdf, spec docSpec, company settings.Company, pay setti
 	y = max(ty, pdf.GetY()) + 6
 
 	if spec.terms != "" {
-		y = max(y, pdf.GetY()+4)
 		font("B", 10.5)
-		lines := 0
-		for _, para := range strings.Split(spec.terms, "\n") {
-			lines += max(1, int(math.Ceil(pdf.GetStringWidth(para)/(width-10))))
-		}
-		h := float64(lines)*5.6 + 6
+		h := termsH
 		pdf.SetFillColor(255, 247, 237)
 		pdf.SetDrawColor(251, 146, 60)
 		pdf.Rect(left, y, width, h, "FD")
@@ -671,7 +722,7 @@ func drawDoc(pdf *gofpdf.Fpdf, spec docSpec, company settings.Company, pay setti
 			ink(30, 41, 59)
 			pdf.MultiCell(right-textX, 6.2, bank, "", "L", false)
 		}
-		y = max(y+43, pdf.GetY()+4)
+		y = max(y+42, pdf.GetY()+4)
 	}
 
 	if spec.stamp != "" {
@@ -695,6 +746,9 @@ func drawDoc(pdf *gofpdf.Fpdf, spec docSpec, company settings.Company, pay setti
 			continue
 		}
 		sx := left + float64(i)*95
+		pdf.SetDrawColor(100, 116, 139)
+		pdf.Rect(sx, sy-1.5, 85, 35.5, "D")
+		pdf.SetDrawColor(203, 213, 225)
 		ink(71, 85, 105)
 		var org string
 		switch spec.signFor[i] {

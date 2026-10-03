@@ -176,7 +176,8 @@ Nobody is forced to use checklists. When a commercial client wants proof:
   (สถานที่ปฏิบัติงาน); the receipt also names the invoice it pays. The
   receipt's *Paid by* boxes (cash / transfer to our account / cheque /
   other) are ticked from the payment method, with the bank account from
-  *Settings → Payments*. Document numbers stay INV-2026-0042 / RC-2026-0001.
+  *Settings → Payments*. The PDFs are ruled like the paper forms: a bordered
+  item table with empty rows, boxed totals and boxed signature blocks. Document numbers stay INV-2026-0042 / RC-2026-0001.
 - **Roles & permissions** — *Settings → Roles & permissions*. A Super admin
   can tick/untick what each role may do (Admin, Manager, Dispatch,
   Accountant, Cleaner) and **Save changes**; **reset** puts a role back to
