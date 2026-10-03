@@ -9,10 +9,13 @@ import {
   downloadReceiptPdf,
   sendInvoiceEmail,
   sendReceiptEmail,
+  invoiceStatusLabel,
   type Invoice,
   type PaymentResult,
   type Receipt,
 } from "../../../lib/invoices";
+import { updatePayment } from "../../../lib/payments";
+import ConfirmDialog from "../ui/ConfirmDialog.vue";
 import { paymentMethodLabel } from "../../../lib/settings";
 import RecordPaymentDialog from "./RecordPaymentDialog.vue";
 import { getSessionUser } from "../../../lib/auth";
@@ -35,6 +38,7 @@ const emailing = ref(false);
 
 const canPay = hasPermission(getSessionUser()?.role ?? "viewer", "payments.create");
 const canReadPayments = hasPermission(getSessionUser()?.role ?? "viewer", "payments.read");
+const canUndoPayments = hasPermission(getSessionUser()?.role ?? "viewer", "payments.update");
 const receipts = ref<Receipt[]>([]);
 const paying = ref(false);
 
@@ -53,8 +57,8 @@ const STATUS_STYLE: Record<string, string> = {
   paid: "bg-green-100 text-green-700",
   void: "bg-red-100 text-red-700",
 };
-function statusLabel(s: string): string {
-  return s === "partially_paid" ? "PARTIALLY PAID" : s.toUpperCase();
+function statusLabel(): string {
+  return invoice.value ? invoiceStatusLabel(invoice.value).toUpperCase() : "";
 }
 
 async function loadReceipts() {
@@ -68,6 +72,24 @@ function onPaid(result: PaymentResult) {
   void loadQr();
   void loadReceipts();
   showToast(`Receipt ${result.receipt.receiptNumber} issued`, "success");
+}
+
+// Undo a payment recorded by mistake: the payment is refunded, its receipt
+// cancelled, and the invoice goes back to unpaid / deposit paid.
+const pendingUndo = ref<Receipt | null>(null);
+async function confirmUndo() {
+  const rc = pendingUndo.value;
+  pendingUndo.value = null;
+  if (!rc) return;
+  try {
+    await updatePayment(rc.paymentId, { status: "refunded" });
+    invoice.value = await getInvoice(props.invoiceId);
+    void loadQr();
+    void loadReceipts();
+    showToast(`Payment cancelled — receipt ${rc.receiptNumber} is void`, "success");
+  } catch (e) {
+    showToast(e instanceof ApiError ? e.message : "Failed to cancel the payment", "error");
+  }
 }
 
 async function receiptPdf(rc: Receipt) {
@@ -196,7 +218,7 @@ onMounted(load);
             {{ invoice.invoiceNumber }}
           </h2>
           <p class="text-sm text-gray-500">
-            Booking {{ invoice.bookingNumber }} · {{ statusLabel(invoice.status) }}
+            Booking {{ invoice.bookingNumber }} · {{ statusLabel() }}
           </p>
         </div>
         <div class="flex items-center gap-2">
@@ -249,7 +271,7 @@ onMounted(load);
             <p>{{ invoice.bookingNumber }}</p>
             <p>{{ fmtDate(invoice.issuedAt) }}</p>
             <p class="mt-1 inline-block rounded-full px-2 py-0.5 text-xs font-medium" :class="STATUS_STYLE[invoice.status]">
-              {{ statusLabel(invoice.status) }}
+              {{ statusLabel() }}
             </p>
           </div>
         </div>
@@ -357,6 +379,12 @@ onMounted(load);
                 class="rounded-lg border border-gray-300 px-2.5 py-1 text-xs text-gray-700 hover:bg-gray-50"
                 @click="emailReceipt(rc)"
               >Email</button>
+              <button
+                v-if="rc.status === 'valid' && canUndoPayments"
+                type="button"
+                class="rounded-lg border border-red-200 px-2.5 py-1 text-xs text-red-600 hover:bg-red-50"
+                @click="pendingUndo = rc"
+              >Cancel payment</button>
             </div>
           </li>
         </ul>
@@ -368,9 +396,18 @@ onMounted(load);
         :subtitle="invoice.customerName"
         :invoice-id="invoice.id"
         :balance="balance"
+        :payable="invoice.netPayable ?? invoice.total"
         :currency="invoice.currency"
         @done="onPaid"
         @cancel="paying = false"
+      />
+      <ConfirmDialog
+        v-if="pendingUndo"
+        title="Cancel this payment?"
+        :message="`Use this when a payment was recorded by mistake. Receipt ${pendingUndo.receiptNumber} (${money(pendingUndo.amount, pendingUndo.currency)}) is cancelled and the amount goes back onto the invoice balance.`"
+        confirm-label="Cancel payment"
+        @confirm="confirmUndo"
+        @cancel="pendingUndo = null"
       />
     </template>
   </div>

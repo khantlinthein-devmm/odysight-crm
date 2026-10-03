@@ -116,7 +116,8 @@ func (s *Service) PromptPayQR(ctx context.Context, id int64) ([]byte, error) {
 	return promptpay.PNG(payload, 512)
 }
 
-// Create bills a completed booking, pricing it from the service catalog.
+// Create bills a booking, pricing it from the service catalog. It can be
+// issued before the job so the customer can pay a deposit against it.
 // When req.IdempotencyKey is set, an existing invoice for that key is
 // returned instead of creating a duplicate (contract billing retries).
 func (s *Service) Create(ctx context.Context, req CreateInvoiceRequest) (Invoice, error) {
@@ -140,8 +141,8 @@ func (s *Service) create(ctx context.Context, req CreateInvoiceRequest, notify b
 	if err != nil {
 		return Invoice{}, mapRepoError(err)
 	}
-	if !b.Completed {
-		return Invoice{}, response.NewAPIError(422, "only completed bookings can be invoiced")
+	if !b.Billable {
+		return Invoice{}, response.NewAPIError(422, "a cancelled or no-show booking cannot be invoiced")
 	}
 
 	catalog, taxRate, currency, err := s.pricing(ctx)
@@ -418,8 +419,8 @@ func mapRepoError(err error) error {
 		return response.NewAPIError(404, "invoice not found")
 	case errors.Is(err, ErrBookingNotFound):
 		return response.NewAPIError(404, "booking not found")
-	case errors.Is(err, ErrBookingNotCompleted):
-		return response.NewAPIError(422, "only completed bookings can be invoiced")
+	case errors.Is(err, ErrBookingNotBillable):
+		return response.NewAPIError(422, "a cancelled or no-show booking cannot be invoiced")
 	case errors.Is(err, ErrActiveInvoiceExists):
 		return response.NewAPIError(409, "booking already has an active invoice")
 	case errors.Is(err, ErrReceiptNotFound):

@@ -14,7 +14,8 @@ import { isOfflineQueued } from "../../../lib/offline";
 import { currencyCode, getWorkspaceSettings, serviceLabel } from "../../../lib/settings";
 import { getSessionUser } from "../../../lib/auth";
 import { hasPermission } from "../../../lib/roles";
-import { createInvoice, type PaymentResult } from "../../../lib/invoices";
+import { createInvoice, getInvoices, isBillableBooking, type PaymentResult } from "../../../lib/invoices";
+import { ApiError } from "../../../lib/api";
 import RecordPaymentDialog from "../invoices/RecordPaymentDialog.vue";
 import BookingForm from "./BookingForm.vue";
 import { getQuote, updateQuote, type Quote } from "../../../lib/quotes";
@@ -259,6 +260,15 @@ async function handleInvoice(booking: Booking) {
     showToast("Invoice created", "success");
     window.location.href = `/invoices/${created.id}`;
   } catch (err) {
+    // One active invoice per booking: open the existing one instead.
+    if (err instanceof ApiError && err.status === 409) {
+      const found = (await getInvoices({ search: booking.bookingNumber }).catch(() => []))
+        .find((i) => i.bookingNumber === booking.bookingNumber && i.status !== "void");
+      if (found) {
+        window.location.href = `/invoices/${found.id}`;
+        return;
+      }
+    }
     const message =
       err instanceof Error && err.message
         ? err.message
@@ -441,9 +451,9 @@ onMounted(() => {
             Collect payment
           </button>
           <button
-            v-if="canInvoice && booking.status === 'completed'"
+            v-if="canInvoice && isBillableBooking(booking.status)"
             type="button"
-            title="Customer pays later: send an invoice"
+            :title="booking.status === 'completed' ? 'Customer pays later: send an invoice' : 'Invoice before the job, e.g. for a 50% deposit'"
             :disabled="invoicingId === booking.id"
             class="rounded-lg bg-navy-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-navy-700 disabled:opacity-50"
             @click="handleInvoice(booking)"

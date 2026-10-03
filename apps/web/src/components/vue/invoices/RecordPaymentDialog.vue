@@ -25,6 +25,9 @@ const props = defineProps<{
   bookingId?: number;
   /** Balance due, prefilled as the amount. */
   balance?: number;
+  /** Total the customer pays (net of withholding tax), for the deposit
+   * shortcut. */
+  payable?: number;
   /** Booking price, when known (collect mode). */
   price?: number | null;
   currency: string;
@@ -49,6 +52,15 @@ const form = reactive({
   method: "cash",
   reference: "",
   paidAt: todayStr,
+});
+
+// Deposit shortcut: half of what the customer pays, while more than that is
+// still owed (i.e. before the deposit is in).
+const DEPOSIT_PERCENT = 50;
+const depositAmount = computed(() => {
+  if (!props.payable || !props.balance) return 0;
+  const d = Math.round(props.payable * DEPOSIT_PERCENT) / 100;
+  return d < props.balance - 0.005 ? d : 0;
 });
 
 const busy = ref(false);
@@ -165,6 +177,20 @@ const inputClass =
               :class="inputClass"
               :placeholder="collecting ? 'Full amount' : ''"
             />
+            <div v-if="balance && depositAmount" class="mt-1.5 flex flex-wrap gap-2">
+              <button
+                type="button"
+                class="rounded-full border px-3 py-1 text-xs font-medium"
+                :class="form.amount === depositAmount ? 'border-amber-400 bg-amber-50 text-amber-800' : 'border-gray-300 text-gray-700 hover:bg-gray-50'"
+                @click="form.amount = depositAmount"
+              >Deposit {{ DEPOSIT_PERCENT }}% · {{ depositAmount.toFixed(2) }}</button>
+              <button
+                type="button"
+                class="rounded-full border px-3 py-1 text-xs font-medium"
+                :class="form.amount === balance ? 'border-green-400 bg-green-50 text-green-800' : 'border-gray-300 text-gray-700 hover:bg-gray-50'"
+                @click="form.amount = balance"
+              >Full balance · {{ balance.toFixed(2) }}</button>
+            </div>
             <p v-if="balance" class="mt-1 text-xs text-gray-500">
               Balance due {{ currency }} {{ balance.toFixed(2) }}
               <span v-if="partial" class="font-medium text-amber-700">· partial payment — the rest stays open</span>

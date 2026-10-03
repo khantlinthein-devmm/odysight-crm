@@ -43,7 +43,7 @@ func (s *Service) RecordPayment(ctx context.Context, invoiceID int64, req Record
 }
 
 // Collect is the pay-on-completion flow for one-time customers: it bills the
-// completed booking (reusing its open invoice if there is one) and records
+// booking (reusing its open invoice if there is one) and records
 // the payment straight away, so the customer only receives the receipt.
 func (s *Service) Collect(ctx context.Context, req CollectRequest) (Invoice, Receipt, error) {
 	if err := req.Validate(); err != nil {
@@ -258,7 +258,7 @@ func parsePaidAt(v string) (time.Time, bool) {
 	return d.Add(12 * time.Hour), true
 }
 
-// CollectRequest bills a completed booking and records its payment at once.
+// CollectRequest bills a booking and records its payment at once.
 type CollectRequest struct {
 	BookingID       int64    `json:"bookingId"`
 	Subtotal        *float64 `json:"subtotal"`

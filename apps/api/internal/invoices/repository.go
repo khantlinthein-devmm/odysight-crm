@@ -17,7 +17,7 @@ import (
 var (
 	ErrNotFound            = errors.New("invoice not found")
 	ErrBookingNotFound     = errors.New("booking not found")
-	ErrBookingNotCompleted = errors.New("booking not completed")
+	ErrBookingNotBillable  = errors.New("booking is cancelled")
 	ErrActiveInvoiceExists = errors.New("booking has an active invoice")
 )
 
@@ -137,7 +137,9 @@ func (r *Repository) BookingForInvoice(ctx context.Context, bookingID int64) (Bo
 	if err != nil {
 		return BookingSnapshot{}, fmt.Errorf("load booking %d for invoice: %w", bookingID, err)
 	}
-	b.Completed = b.Status == "completed"
+	// Any live booking can be billed: before the job (a deposit invoice) or
+	// after it. Cancelled and no-show bookings cannot.
+	b.Billable = b.Status != "cancelled" && b.Status != "no_show"
 	return b, nil
 }
 
