@@ -50,7 +50,7 @@ func (s *Service) document(ctx context.Context, id int64) (Quote, invoices.Quote
 	doc := invoices.QuoteDoc{
 		Number: q.QuoteNumber, Date: q.CreatedAt, ValidUntil: q.ValidUntil, Status: string(q.Status),
 		CustomerName: rc.Name, Address: address, TaxID: rc.TaxID, TaxBranch: rc.TaxBranch, Phone: rc.Phone,
-		SiteName: rc.SiteName,
+		SiteName: rc.SiteName, PricesIncludeVAT: q.PricesIncludeVAT,
 		Subtotal: q.Subtotal, TaxRate: q.TaxRate, Total: q.Total, Currency: q.Currency, Notes: q.Notes,
 	}
 	for _, it := range q.Items {
@@ -95,16 +95,17 @@ func (s *Service) Create(ctx context.Context, req CreateQuoteRequest) (Quote, er
 	if req.TaxRate != nil {
 		taxRate = *req.TaxRate
 	}
-	sub, total := totals(req.Items, taxRate)
+	sub, total := totals(req.Items, taxRate, req.PricesIncludeVAT)
 	q := Quote{
-		CustomerID: req.CustomerID,
-		SiteID:     req.SiteID,
-		Status:     Status(req.Status),
-		Subtotal:   sub,
-		TaxRate:    taxRate,
-		Total:      total,
-		Currency:   strings.ToUpper(strings.TrimSpace(req.Currency)),
-		Notes:      req.Notes,
+		PricesIncludeVAT: req.PricesIncludeVAT,
+		CustomerID:       req.CustomerID,
+		SiteID:           req.SiteID,
+		Status:           Status(req.Status),
+		Subtotal:         sub,
+		TaxRate:          taxRate,
+		Total:            total,
+		Currency:         strings.ToUpper(strings.TrimSpace(req.Currency)),
+		Notes:            req.Notes,
 	}
 	if req.ValidUntil != nil {
 		v, _ := parseDate(strings.TrimSpace(*req.ValidUntil))
@@ -130,7 +131,7 @@ func (s *Service) Update(ctx context.Context, id int64, req UpdateQuoteRequest, 
 	}
 	// An accepted quote is the agreed price: it can be linked to the booking
 	// or contract it became, but not re-priced.
-	if current.Status == StatusAccepted && (req.Items != nil || req.TaxRate != nil || req.Currency != nil) {
+	if current.Status == StatusAccepted && (req.Items != nil || req.TaxRate != nil || req.PricesIncludeVAT != nil || req.Currency != nil) {
 		return Quote{}, response.NewAPIError(422, "an accepted quote cannot be changed — create a new quote")
 	}
 	if req.Notes != nil && utf8.RuneCountInString(*req.Notes) > 2000 {
@@ -164,6 +165,7 @@ func (s *Service) Update(ctx context.Context, id int64, req UpdateQuoteRequest, 
 		patch.ClearValidUntil = *req.ClearValidUntil
 	}
 	patch.TaxRate = req.TaxRate
+	patch.PricesIncludeVAT = req.PricesIncludeVAT
 	if req.Currency != nil {
 		v := strings.ToUpper(strings.TrimSpace(*req.Currency))
 		patch.Currency = &v

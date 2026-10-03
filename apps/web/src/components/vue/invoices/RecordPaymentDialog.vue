@@ -152,7 +152,7 @@ const inputClass =
         <div class="grid min-h-0 flex-1 grid-cols-1 gap-4 overflow-y-auto px-6 py-5 sm:grid-cols-2">
           <div v-if="collecting && !price" class="sm:col-span-2">
             <label class="mb-1 block text-sm font-medium text-gray-700" for="rp-price">
-              Job price before VAT ({{ currency }})
+              Job price ({{ currency }})
             </label>
             <input
               id="rp-price"
@@ -198,7 +198,7 @@ const inputClass =
               <span v-if="partial" class="font-medium text-amber-700">· partial payment — the rest stays open</span>
             </p>
             <p v-else-if="collecting" class="mt-1 text-xs text-gray-500">
-              Blank = full amount (price + VAT, less withholding tax if any).
+              Blank = full amount (with VAT, less withholding tax if any).
             </p>
             <VatBreakdown v-if="collecting && price" class="mt-2" :price="price" :currency="currency" />
           </div>

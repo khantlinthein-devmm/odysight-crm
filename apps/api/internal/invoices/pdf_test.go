@@ -65,6 +65,19 @@ func TestThaiDateAndReceiptMethods(t *testing.T) {
 	}
 }
 
+func TestSplitVAT(t *testing.T) {
+	// ราคารวม VAT: 11,000 is 10,280.37 + 719.63, not 10,230 + 770.
+	if sub, vat, total := splitVAT(11000, 7, true); sub != 10280.37 || vat != 719.63 || total != 11000 {
+		t.Errorf("inclusive: %v + %v = %v", sub, vat, total)
+	}
+	if sub, vat, total := splitVAT(11000, 7, false); sub != 11000 || vat != 770 || total != 11770 {
+		t.Errorf("exclusive: %v + %v = %v", sub, vat, total)
+	}
+	if sub, vat, total := splitVAT(11000, 0, true); sub != 11000 || vat != 0 || total != 11000 {
+		t.Errorf("no VAT: %v + %v = %v", sub, vat, total)
+	}
+}
+
 func TestNetPayable(t *testing.T) {
 	if got := sampleInvoice().NetPayable(); got != 10400 {
 		t.Fatalf("net payable = %v, want 10400", got)
