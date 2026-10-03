@@ -139,6 +139,8 @@ Nobody is forced to use checklists. When a commercial client wants proof:
   payment is received). Invoices are always ใบแจ้งหนี้. Give company
   customers their tax ID and *Withholding tax 3%* on the customer form;
   invoices show the deduction and net payable.
+  When creating an invoice (or collecting payment for a job), a box shows
+  the price before VAT, the VAT amount and the total before you confirm.
 - **Deposits and invoice status** — an invoice can be made as soon as the
   booking exists (not only after the job): Bookings → **Invoice**. The
   status follows the money: **Unpaid** → **Deposit paid · 50%** (after a

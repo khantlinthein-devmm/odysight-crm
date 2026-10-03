@@ -12,6 +12,7 @@ import {
   paymentMethodLabel,
 } from "../../../lib/settings";
 import { ApiError } from "../../../lib/api";
+import VatBreakdown from "./VatBreakdown.vue";
 
 /**
  * Records money received. With invoiceId it pays that invoice (full or
@@ -162,6 +163,7 @@ const inputClass =
               :class="inputClass"
               placeholder="Leave blank to use the catalog price"
             />
+            <VatBreakdown class="mt-2" :price="form.price" :currency="currency" />
           </div>
 
           <div class="sm:col-span-2">
@@ -198,6 +200,7 @@ const inputClass =
             <p v-else-if="collecting" class="mt-1 text-xs text-gray-500">
               Blank = full amount (price + VAT, less withholding tax if any).
             </p>
+            <VatBreakdown v-if="collecting && price" class="mt-2" :price="price" :currency="currency" />
           </div>
 
           <div>

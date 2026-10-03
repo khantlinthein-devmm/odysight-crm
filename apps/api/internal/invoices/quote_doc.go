@@ -70,6 +70,8 @@ func RenderQuotePDF(q QuoteDoc, company settings.Company) ([]byte, error) {
 		totals = append(totals, [2]string{fmt.Sprintf("ภาษีมูลค่าเพิ่ม / VAT %s%%", trimRate(q.TaxRate)), amount(tax)})
 	}
 	totals = append(totals, [2]string{"จำนวนเงินรวมทั้งสิ้น / Grand total", amount(q.Total)})
+	grand := len(totals)
+	totals = append(totals, [2]string{fmt.Sprintf("เงินมัดจำ %d%% / Deposit %d%%", DepositPercent, DepositPercent), amount(depositOf(q.Total))})
 
 	// The validity date is in the header (ยืนราคาถึง / Valid until).
 	note := strings.TrimSpace(q.Notes)
@@ -79,7 +81,7 @@ func RenderQuotePDF(q QuoteDoc, company settings.Company) ([]byte, error) {
 		buyerName: q.CustomerName, buyerAddress: q.Address,
 		buyerTaxID: q.TaxID, buyerBranch: q.TaxBranch, buyerPhone: q.Phone,
 		items: items, unitPriceCol: true,
-		totals: totals, words: q.Total, currency: q.Currency,
+		totals: totals, boldRow: grand, words: q.Total, currency: q.Currency,
 		imageKey:   q.Number,
 		note:       note,
 		signLabels: [2]string{"ผู้อนุมัติสั่งซื้อ / Accepted by", "ผู้เสนอราคา / Quoted by"},

@@ -42,8 +42,10 @@ type docSpec struct {
 	description      string
 	lineAmount       float64
 	// items, when set, replaces the single description/lineAmount row.
-	items    []docItem
-	totals   [][2]string
+	items  []docItem
+	totals [][2]string
+	// boldRow is the totals row printed bold and shaded (1-based; 0 = last).
+	boldRow  int
 	words    float64
 	currency string
 	// Payment block (QR + bank details); skipped when payAmount is zero.
@@ -61,7 +63,7 @@ type docSpec struct {
 	// blocks marked in signDated — our side; the customer's stays blank.
 	signDate  time.Time
 	signDated [2]bool
-	// terms is a highlighted condition printed under the totals (e.g. the
+	// terms is a condition printed under the totals (e.g. the
 	// deposit required to book, on quotations).
 	terms string
 	// copyLabel marks a single-copy document; copies prints the document
@@ -157,9 +159,11 @@ func renderInvoicePDF(inv Invoice, company settings.Company, pay settings.Paymen
 		dep := math.Round(due*float64(depositPct)) / 100
 		rest := due - dep
 		spec.payAmount = dep
-		spec.terms = fmt.Sprintf("ขอเรียกเก็บเงินมัดจำ %[1]d%% เพื่อยืนยันการจอง: %[2]s %[3]s (ยอดคงเหลือ %[2]s %[4]s)\n"+
-			"Deposit due (%[1]d%%) to confirm the booking: %[2]s %[3]s (remaining balance %[2]s %[4]s)",
-			depositPct, inv.Currency, amount(dep), amount(rest))
+		// The deposit to pay now and what remains, as rows of the totals.
+		spec.totals = append(spec.totals,
+			[2]string{fmt.Sprintf("เงินมัดจำ %d%% / Deposit due now", depositPct), amount(dep)},
+			[2]string{"ยอดคงเหลือ / Remaining balance", amount(rest)})
+		spec.boldRow = len(spec.totals) - 1
 	}
 	switch inv.Status {
 	case StatusPaid:
@@ -479,9 +483,7 @@ func drawDoc(pdf *gofpdf.Fpdf, spec docSpec, company settings.Company, pay setti
 	for _, l := range buyer {
 		lines += max(1, int(math.Ceil(pdf.GetStringWidth(l)/(width-8))))
 	}
-	if buyerTaxID != "" {
-		lines++
-	}
+	lines++ // the tax ID line, printed blank to fill in by hand when unknown
 	boxH := 9 + float64(lines)*5
 	pdf.Rect(left, y, width, boxH, "FD")
 	pdf.SetXY(left+3, y+2)
@@ -492,16 +494,21 @@ func drawDoc(pdf *gofpdf.Fpdf, spec docSpec, company settings.Company, pay setti
 	ink(30, 41, 59)
 	pdf.SetX(left + 3)
 	pdf.MultiCell(width-6, 5, strings.Join(buyer, "\n"), "", "L", false)
-	// Tax ID with the Revenue Department's head office / branch boxes.
-	if buyerTaxID != "" {
+	// Tax ID with the Revenue Department's head office / branch boxes, as
+	// on the paper form: always printed, left blank (boxes unticked) when
+	// the customer has no tax ID on record.
+	{
 		ly := pdf.GetY()
 		x := left + 3
-		label := "เลขประจำตัวผู้เสียภาษี / Tax ID  " + formatTaxID(buyerTaxID)
+		label := "เลขประจำตัวผู้เสียภาษี / Tax ID  _______________________"
 		branch := digitsOf(spec.buyerBranch)
-		head := branch == "" || strings.Trim(branch, "0") == ""
+		head := buyerTaxID != "" && (branch == "" || strings.Trim(branch, "0") == "")
+		if buyerTaxID != "" {
+			label = "เลขประจำตัวผู้เสียภาษี / Tax ID  " + formatTaxID(buyerTaxID)
+		}
 		hl := "สำนักงานใหญ่ / Head office"
 		bl := "สาขาที่ / Branch ______"
-		if !head {
+		if buyerTaxID != "" && !head {
 			bl = "สาขาที่ / Branch " + strings.Repeat("0", max(0, 5-len(branch))) + branch
 		}
 		// One line: shrink the type if a wide name would run off the box.
@@ -519,7 +526,7 @@ func drawDoc(pdf *gofpdf.Fpdf, spec docSpec, company settings.Company, pay setti
 		pdf.SetXY(x+4.5, ly)
 		pdf.CellFormat(pdf.GetStringWidth(hl)+5, 5, hl, "", 0, "L", false, 0, "")
 		x = pdf.GetX()
-		checkbox(pdf, x, ly+0.9, !head)
+		checkbox(pdf, x, ly+0.9, buyerTaxID != "" && !head)
 		pdf.SetXY(x+4.5, ly)
 		pdf.CellFormat(right-x-4.5, 5, bl, "", 0, "L", false, 0, "")
 	}
@@ -650,9 +657,9 @@ func drawDoc(pdf *gofpdf.Fpdf, spec docSpec, company settings.Company, pay setti
 	need := 3 + max(float64(len(spec.totals))*7, leftH) + 6
 	termsH := 0.0
 	if spec.terms != "" {
-		font("B", 10.5)
-		termsH = wrapped(spec.terms, width-10)*5.6 + 6
-		need += termsH + 6
+		font("", 10)
+		termsH = wrapped(spec.terms, width) * 5.2
+		need += termsH + 5
 	}
 	if strings.TrimSpace(pay.PromptPayID+pay.BankAccount) != "" && spec.payAmount > 0 {
 		need += 42
@@ -678,8 +685,12 @@ func drawDoc(pdf *gofpdf.Fpdf, spec docSpec, company settings.Company, pay setti
 	y += 3
 	ty := y
 	pdf.SetDrawColor(100, 116, 139)
+	boldRow := spec.boldRow
+	if boldRow == 0 {
+		boldRow = len(spec.totals)
+	}
 	for i, t := range spec.totals {
-		last := i == len(spec.totals)-1
+		last := i == boldRow-1
 		style, size := "", 10.0
 		if last {
 			style, size = "B", 11
@@ -737,16 +748,12 @@ func drawDoc(pdf *gofpdf.Fpdf, spec docSpec, company settings.Company, pay setti
 	y = max(ty, pdf.GetY()) + 6
 
 	if spec.terms != "" {
-		font("B", 10.5)
-		h := termsH
-		pdf.SetFillColor(255, 247, 237)
-		pdf.SetDrawColor(251, 146, 60)
-		pdf.Rect(left, y, width, h, "FD")
-		pdf.SetDrawColor(203, 213, 225)
-		pdf.SetXY(left+5, y+3)
-		ink(154, 52, 18)
-		pdf.MultiCell(width-10, 5.6, spec.terms, "", "L", false)
-		y += h + 6
+		// Plain text, like the rest of the form.
+		font("", 10)
+		pdf.SetXY(left, y)
+		ink(30, 41, 59)
+		pdf.MultiCell(width, 5.2, spec.terms, "", "L", false)
+		y += termsH + 5
 	}
 
 	// Payment: PromptPay QR for the amount due, plus bank details.
