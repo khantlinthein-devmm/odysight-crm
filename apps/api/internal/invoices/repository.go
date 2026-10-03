@@ -293,14 +293,35 @@ func (r *Repository) LineContactForBooking(ctx context.Context, bookingID int64)
 	return name, lineID, nil
 }
 
-// SiteNameForBooking returns the name of the site a booking is at ("" when
-// the booking has no site).
-func (r *Repository) SiteNameForBooking(ctx context.Context, bookingID int64) string {
-	var name string
+// PrintDetails are looked up when a document is printed: the booking's work
+// site and the customer's phone and current tax ID.
+type PrintDetails struct {
+	SiteName  string
+	Phone     string
+	TaxID     string
+	TaxBranch string
+}
+
+// PrintDetailsForBooking loads the print details for a booking (zero values
+// when the booking or its customer is gone).
+func (r *Repository) PrintDetailsForBooking(ctx context.Context, bookingID int64) PrintDetails {
+	var d PrintDetails
 	_ = r.pool.QueryRow(ctx,
-		`SELECT COALESCE(s.name, '') FROM bookings b JOIN sites s ON s.id = b.site_id WHERE b.id = $1`,
-		bookingID).Scan(&name)
-	return name
+		`SELECT COALESCE(s.name, ''), COALESCE(c.phone, ''), COALESCE(c.tax_id, ''), COALESCE(c.tax_branch, '')
+		   FROM bookings b
+		   LEFT JOIN sites s ON s.id = b.site_id
+		   LEFT JOIN customers c ON c.id = b.customer_id
+		  WHERE b.id = $1`, bookingID).Scan(&d.SiteName, &d.Phone, &d.TaxID, &d.TaxBranch)
+	return d
+}
+
+// apply adds the print details to an invoice. The customer's tax ID is
+// filled in only when the invoice was issued before it was recorded.
+func (d PrintDetails) apply(inv *Invoice) {
+	inv.SiteName, inv.CustomerPhone = d.SiteName, d.Phone
+	if digitsOf(inv.CustomerTaxID) == "" && digitsOf(d.TaxID) != "" {
+		inv.CustomerTaxID, inv.CustomerTaxBranch = d.TaxID, d.TaxBranch
+	}
 }
 
 // MarkUnpaid clears the paid amount of an invoice that was marked paid

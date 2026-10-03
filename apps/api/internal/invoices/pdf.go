@@ -38,6 +38,7 @@ type docSpec struct {
 	buyerAddress     string
 	buyerTaxID       string
 	buyerBranch      string
+	buyerPhone       string
 	description      string
 	lineAmount       float64
 	// items, when set, replaces the single description/lineAmount row.
@@ -137,7 +138,7 @@ func renderInvoicePDF(inv Invoice, company settings.Company, pay settings.Paymen
 		thTitle: "ใบแจ้งหนี้", enTitle: "INVOICE",
 		meta:      meta,
 		buyerName: inv.CustomerName, buyerAddress: inv.Address,
-		buyerTaxID: inv.CustomerTaxID, buyerBranch: inv.CustomerTaxBranch,
+		buyerTaxID: inv.CustomerTaxID, buyerBranch: inv.CustomerTaxBranch, buyerPhone: inv.CustomerPhone,
 		description: inv.ServiceName + siteLine(inv.SiteName), lineAmount: inv.Subtotal, qtyUnit: "งาน",
 		totals: totals, words: inv.Total, currency: inv.Currency,
 		imageKey:   inv.InvoiceNumber,
@@ -177,6 +178,9 @@ func renderReceiptPDF(rc Receipt, inv Invoice, company settings.Company, pay set
 	if rc.VATRegistered {
 		thTitle, enTitle = "ใบเสร็จรับเงิน / ใบกำกับภาษี", "RECEIPT / TAX INVOICE"
 	}
+	if digitsOf(rc.CustomerTaxID) == "" {
+		rc.CustomerTaxID, rc.CustomerTaxBranch = inv.CustomerTaxID, inv.CustomerTaxBranch
+	}
 	meta := [][2]string{
 		{"เลขที่ / No.", rc.ReceiptNumber},
 		{"วันที่ / Date", thaiDate(rc.PaidAt)},
@@ -203,7 +207,7 @@ func renderReceiptPDF(rc Receipt, inv Invoice, company settings.Company, pay set
 		thTitle: thTitle, enTitle: enTitle,
 		meta:      meta,
 		buyerName: rc.CustomerName, buyerAddress: rc.Address,
-		buyerTaxID: rc.CustomerTaxID, buyerBranch: rc.CustomerTaxBranch,
+		buyerTaxID: rc.CustomerTaxID, buyerBranch: rc.CustomerTaxBranch, buyerPhone: inv.CustomerPhone,
 		description: desc, lineAmount: rc.Subtotal, qtyUnit: "งาน",
 		totals: totals, words: rc.Gross(), currency: rc.Currency,
 		imageKey: rc.ReceiptNumber,
@@ -433,6 +437,9 @@ func drawDoc(pdf *gofpdf.Fpdf, spec docSpec, company settings.Company, pay setti
 	buyer := []string{spec.buyerName}
 	if a := strings.TrimSpace(spec.buyerAddress); a != "" {
 		buyer = append(buyer, a)
+	}
+	if p := strings.TrimSpace(spec.buyerPhone); p != "" {
+		buyer = append(buyer, "โทร. / Tel: "+p)
 	}
 	buyerTaxID := digitsOf(spec.buyerTaxID)
 	font("", 10)

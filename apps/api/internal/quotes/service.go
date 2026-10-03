@@ -49,7 +49,7 @@ func (s *Service) document(ctx context.Context, id int64) (Quote, invoices.Quote
 	}
 	doc := invoices.QuoteDoc{
 		Number: q.QuoteNumber, Date: q.CreatedAt, ValidUntil: q.ValidUntil, Status: string(q.Status),
-		CustomerName: rc.Name, Address: address, TaxID: rc.TaxID, TaxBranch: rc.TaxBranch,
+		CustomerName: rc.Name, Address: address, TaxID: rc.TaxID, TaxBranch: rc.TaxBranch, Phone: rc.Phone,
 		SiteName: rc.SiteName,
 		Subtotal: q.Subtotal, TaxRate: q.TaxRate, Total: q.Total, Currency: q.Currency, Notes: q.Notes,
 	}

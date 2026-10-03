@@ -25,6 +25,7 @@ type QuoteDoc struct {
 	Address      string
 	TaxID        string
 	TaxBranch    string
+	Phone        string
 	SiteName     string
 
 	Lines    []QuoteLine
@@ -83,7 +84,7 @@ func RenderQuotePDF(q QuoteDoc, company settings.Company) ([]byte, error) {
 		thTitle: "ใบเสนอราคา", enTitle: "QUOTATION",
 		meta:      meta,
 		buyerName: q.CustomerName, buyerAddress: q.Address,
-		buyerTaxID: q.TaxID, buyerBranch: q.TaxBranch,
+		buyerTaxID: q.TaxID, buyerBranch: q.TaxBranch, buyerPhone: q.Phone,
 		items: items, unitPriceCol: true,
 		totals: totals, words: q.Total, currency: q.Currency,
 		imageKey:   q.Number,

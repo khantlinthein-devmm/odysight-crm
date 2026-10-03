@@ -59,7 +59,7 @@ func (s *Service) PDF(ctx context.Context, id int64, depositPct int) (Invoice, [
 		return Invoice{}, nil, response.NewAPIError(422, "a deposit request is only for an unpaid invoice")
 	}
 	company, pay := s.billingSettings(ctx)
-	inv.SiteName = s.repo.SiteNameForBooking(ctx, inv.BookingID)
+	s.repo.PrintDetailsForBooking(ctx, inv.BookingID).apply(&inv)
 	pdfBytes, err := renderInvoicePDF(inv, company, pay, s.dueDays(ctx), depositPct)
 	if err != nil {
 		return Invoice{}, nil, err
@@ -70,7 +70,7 @@ func (s *Service) PDF(ctx context.Context, id int64, depositPct int) (Invoice, [
 // renderPDF renders an invoice PDF with company branding from settings.
 func (s *Service) renderPDF(ctx context.Context, inv Invoice) ([]byte, error) {
 	company, pay := s.billingSettings(ctx)
-	inv.SiteName = s.repo.SiteNameForBooking(ctx, inv.BookingID)
+	s.repo.PrintDetailsForBooking(ctx, inv.BookingID).apply(&inv)
 	return renderInvoicePDF(inv, company, pay, s.dueDays(ctx), 0)
 }
 

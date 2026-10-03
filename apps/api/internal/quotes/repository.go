@@ -295,8 +295,8 @@ func (r *Repository) Update(ctx context.Context, id int64, p Patch) (Quote, erro
 
 // Recipient is who a quotation is addressed to.
 type Recipient struct {
-	Name, Address, TaxID, TaxBranch string
-	SiteName, SiteAddress           string
+	Name, Address, TaxID, TaxBranch, Phone string
+	SiteName, SiteAddress                  string
 }
 
 // Recipient loads the customer (and site, if any) of a quote.
@@ -304,12 +304,12 @@ func (r *Repository) Recipient(ctx context.Context, quoteID int64) (Recipient, e
 	var rc Recipient
 	err := r.pool.QueryRow(ctx,
 		`SELECT TRIM(c.first_name || ' ' || c.last_name), COALESCE(c.address, ''),
-		        COALESCE(c.tax_id, ''), COALESCE(c.tax_branch, ''),
+		        COALESCE(c.tax_id, ''), COALESCE(c.tax_branch, ''), COALESCE(c.phone, ''),
 		        COALESCE(s.name, ''), COALESCE(s.address, '')
 		   FROM quotes q
 		   JOIN customers c ON c.id = q.customer_id
 		   LEFT JOIN sites s ON s.id = q.site_id
-		  WHERE q.id = $1`, quoteID).Scan(&rc.Name, &rc.Address, &rc.TaxID, &rc.TaxBranch,
+		  WHERE q.id = $1`, quoteID).Scan(&rc.Name, &rc.Address, &rc.TaxID, &rc.TaxBranch, &rc.Phone,
 		&rc.SiteName, &rc.SiteAddress)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Recipient{}, ErrNotFound
