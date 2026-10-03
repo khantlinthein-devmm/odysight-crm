@@ -15,6 +15,7 @@ import { getSites, type Site } from "../../../lib/sites";
 import { getSessionUser } from "../../../lib/auth";
 import { hasPermission } from "../../../lib/roles";
 import { showToast } from "../../../lib/toast";
+import { getWorkspaceSettings } from "../../../lib/settings";
 import ConfirmDialog from "../ui/ConfirmDialog.vue";
 
 // Quotations: build a quote with several service lines, download the PDF to
@@ -91,6 +92,8 @@ interface Draft {
   siteId: number | "";
   validUntil: string;
   vat: boolean;
+  /** Line prices include VAT (ราคารวม VAT). */
+  inclusive: boolean;
   notes: string;
   lines: Line[];
 }
@@ -109,8 +112,14 @@ function blankLine(): Line {
   return { serviceName: "", description: "", quantity: 1, unitPrice: 0 };
 }
 
+// New quotes follow Settings → Company → Prices include VAT.
+const companyInclusive = ref(false);
+getWorkspaceSettings()
+  .then((s) => (companyInclusive.value = !!s.company.pricesIncludeVat))
+  .catch(() => {});
+
 function startNew() {
-  editing.value = { id: null, customerId: "", siteId: "", validUntil: plusDays(30), vat: true, notes: "", lines: [blankLine()] };
+  editing.value = { id: null, customerId: "", siteId: "", validUntil: plusDays(30), vat: true, inclusive: companyInclusive.value, notes: "", lines: [blankLine()] };
 }
 
 function startEdit(q: Quote) {
@@ -120,6 +129,7 @@ function startEdit(q: Quote) {
     siteId: q.siteId ?? "",
     validUntil: q.validUntil ?? "",
     vat: q.taxRate > 0,
+    inclusive: !!q.pricesIncludeVat,
     notes: q.notes ?? "",
     lines: q.items.map((i) => ({ serviceName: i.serviceName, description: i.description ?? "", quantity: i.quantity, unitPrice: i.unitPrice })),
   };
@@ -143,9 +153,14 @@ watch(
 const draftTotals = computed(() => {
   const e = editing.value;
   if (!e) return { subtotal: 0, vat: 0, total: 0 };
-  const subtotal = e.lines.reduce((s, l) => s + (Number(l.quantity) || 0) * (Number(l.unitPrice) || 0), 0);
-  const vat = e.vat ? Math.round(subtotal * 7) / 100 : 0;
-  return { subtotal, vat, total: subtotal + vat };
+  const sum = e.lines.reduce((s, l) => s + Math.round((Number(l.quantity) || 0) * (Number(l.unitPrice) || 0) * 100) / 100, 0);
+  if (e.vat && e.inclusive) {
+    // ราคารวม VAT: the lines are what the customer pays; VAT is inside.
+    const subtotal = Math.round((sum * 100 / 107) * 100) / 100;
+    return { subtotal, vat: Math.round((sum - subtotal) * 100) / 100, total: sum };
+  }
+  const vat = e.vat ? Math.round(sum * 7) / 100 : 0;
+  return { subtotal: sum, vat, total: sum + vat };
 });
 
 function lineTotal(l: Line): number {
@@ -182,6 +197,7 @@ async function save(andDownload: boolean) {
         status: "draft",
         currency: "THB",
         taxRate: e.vat ? 7 : 0,
+        pricesIncludeVat: e.vat && e.inclusive,
         validUntil: e.validUntil || null,
         notes: e.notes.trim(),
         items,
@@ -192,6 +208,7 @@ async function save(andDownload: boolean) {
         ...(e.siteId === "" ? { clearSiteId: true } : { siteId: Number(e.siteId) }),
         ...(e.validUntil ? { validUntil: e.validUntil } : { clearValidUntil: true }),
         taxRate: e.vat ? 7 : 0,
+        pricesIncludeVat: e.vat && e.inclusive,
         notes: e.notes.trim(),
         items,
       });
@@ -336,7 +353,11 @@ onMounted(fetchQuotes);
             <input id="q-vat" v-model="editing.vat" type="checkbox" class="h-4 w-4" />
             Add VAT 7%
           </label>
-          <div class="flex justify-between text-gray-600"><span>Subtotal</span><span class="tabular-nums">{{ money({ currency: "THB" }, draftTotals.subtotal) }}</span></div>
+          <label v-if="editing.vat" class="flex items-center gap-2 text-gray-700">
+            <input id="q-inclusive" v-model="editing.inclusive" type="checkbox" class="h-4 w-4" />
+            Prices include VAT (ราคารวม VAT)
+          </label>
+          <div class="flex justify-between text-gray-600"><span>{{ editing.vat && editing.inclusive ? "Value before VAT" : "Subtotal" }}</span><span class="tabular-nums">{{ money({ currency: "THB" }, draftTotals.subtotal) }}</span></div>
           <div v-if="editing.vat" class="flex justify-between text-gray-600"><span>VAT 7%</span><span class="tabular-nums">{{ money({ currency: "THB" }, draftTotals.vat) }}</span></div>
           <div class="flex justify-between border-t border-gray-100 pt-1.5 font-semibold text-gray-900"><span>Total</span><span class="tabular-nums">{{ money({ currency: "THB" }, draftTotals.total) }}</span></div>
         </div>

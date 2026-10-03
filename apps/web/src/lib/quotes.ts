@@ -23,6 +23,8 @@ export interface Quote {
   subtotal: number;
   taxRate: number;
   total: number;
+  /** Line prices include VAT; subtotal is the value before VAT. */
+  pricesIncludeVat?: boolean;
   currency: string;
   notes: string;
   version: number;
@@ -39,6 +41,7 @@ export interface CreateQuoteInput {
   status?: QuoteStatus;
   validUntil?: string | null;
   taxRate?: number;
+  pricesIncludeVat?: boolean;
   currency?: string;
   notes?: string;
   items: QuoteItem[];
@@ -94,6 +97,7 @@ export interface UpdateQuoteInput {
   validUntil?: string;
   clearValidUntil?: boolean;
   taxRate?: number;
+  pricesIncludeVat?: boolean;
   items?: QuoteItem[];
   convertedBookingId?: number;
 }

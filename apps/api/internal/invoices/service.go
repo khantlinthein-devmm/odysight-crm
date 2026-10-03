@@ -153,7 +153,7 @@ func (s *Service) create(ctx context.Context, req CreateInvoiceRequest, notify b
 		return Invoice{}, response.NewAPIError(422, "a cancelled or no-show booking cannot be invoiced")
 	}
 
-	catalog, taxRate, currency, err := s.pricing(ctx)
+	catalog, taxRate, inclusive, currency, err := s.pricing(ctx)
 	if err != nil {
 		return Invoice{}, err
 	}
@@ -178,7 +178,7 @@ func (s *Service) create(ctx context.Context, req CreateInvoiceRequest, notify b
 		return Invoice{}, response.NewAPIError(422,
 			"this booking has no price: set a price on the booking or enter an amount")
 	}
-	taxAmount := round2(subtotal * taxRate / 100)
+	subtotal, taxAmount, total := splitVAT(subtotal, taxRate, inclusive)
 	// Withholding tax is computed on the pre-VAT amount (Thai WHT rules).
 	whtRate := b.WithholdingRate
 	if req.WithholdingRate != nil {
@@ -196,7 +196,7 @@ func (s *Service) create(ctx context.Context, req CreateInvoiceRequest, notify b
 		Subtotal:          round2(subtotal),
 		TaxRate:           taxRate,
 		TaxAmount:         taxAmount,
-		Total:             round2(subtotal + taxAmount),
+		Total:             total,
 		Currency:          currency,
 		Status:            StatusIssued,
 		CustomerTaxID:     b.CustomerTaxID,
@@ -387,16 +387,16 @@ func htmlEscape(s string) string {
 }
 
 // pricing reads the effective service catalog, tax rate, currency and SMTP config.
-func (s *Service) pricing(ctx context.Context) (map[string]settings.ServiceItem, float64, string, error) {
+func (s *Service) pricing(ctx context.Context) (map[string]settings.ServiceItem, float64, bool, string, error) {
 	raw, err := s.settings.GetAll(ctx)
 	if err != nil {
-		return nil, 0, "", fmt.Errorf("load settings: %w", err)
+		return nil, 0, false, "", fmt.Errorf("load settings: %w", err)
 	}
 	catalog := map[string]settings.ServiceItem{}
 	if items, ok := raw[settings.KeyServices]; ok {
 		var list []settings.ServiceItem
 		if err := json.Unmarshal(items, &list); err != nil {
-			return nil, 0, "", fmt.Errorf("parse service catalog: %w", err)
+			return nil, 0, false, "", fmt.Errorf("parse service catalog: %w", err)
 		}
 		for _, it := range list {
 			catalog[it.ID] = it
@@ -411,7 +411,7 @@ func (s *Service) pricing(ctx context.Context) (map[string]settings.ServiceItem,
 	if v, ok := raw[settings.KeyPayments]; ok && company.VATRegistered {
 		var p settings.PaymentSettings
 		if err := json.Unmarshal(v, &p); err != nil {
-			return nil, 0, "", fmt.Errorf("parse payment settings: %w", err)
+			return nil, 0, false, "", fmt.Errorf("parse payment settings: %w", err)
 		}
 		taxRate = p.TaxRatePercent
 	}
@@ -419,11 +419,24 @@ func (s *Service) pricing(ctx context.Context) (map[string]settings.ServiceItem,
 	if v, ok := raw[settings.KeyLocalization]; ok {
 		var loc settings.Localization
 		if err := json.Unmarshal(v, &loc); err != nil {
-			return nil, 0, "", fmt.Errorf("parse localization settings: %w", err)
+			return nil, 0, false, "", fmt.Errorf("parse localization settings: %w", err)
 		}
 		currency = strings.ToUpper(loc.Currency)
 	}
-	return catalog, taxRate, currency, nil
+	return catalog, taxRate, company.PricesIncludeVAT && taxRate > 0, currency, nil
+}
+
+// splitVAT turns a price into value before VAT, VAT and total. When prices
+// include VAT (ราคารวม VAT) the price is the total and the VAT inside it is
+// rate/(100+rate) of it: 11,000 at 7% is 10,280.37 + 719.63.
+func splitVAT(price, rate float64, inclusive bool) (subtotal, vat, total float64) {
+	price = round2(price)
+	if inclusive && rate > 0 {
+		subtotal = round2(price * 100 / (100 + rate))
+		return subtotal, round2(price - subtotal), price
+	}
+	vat = round2(price * rate / 100)
+	return price, vat, round2(price + vat)
 }
 
 func round2(v float64) float64 {

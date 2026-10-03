@@ -32,8 +32,11 @@ type QuoteDoc struct {
 	Subtotal float64
 	TaxRate  float64
 	Total    float64
-	Currency string
-	Notes    string
+	// PricesIncludeVAT: line prices include VAT; Subtotal is the value
+	// before VAT and Total the sum of the lines.
+	PricesIncludeVAT bool
+	Currency         string
+	Notes            string
 }
 
 // QuoteLine is one priced row of a quotation.
@@ -66,6 +69,9 @@ func RenderQuotePDF(q QuoteDoc, company settings.Company) ([]byte, error) {
 		items = append(items, docItem{desc: desc, qty: l.Quantity, unit: l.UnitPrice, amount: l.Amount})
 	}
 	totals := [][2]string{{"รวมเป็นเงิน / Subtotal", amount(q.Subtotal)}}
+	if q.PricesIncludeVAT {
+		totals = [][2]string{{"มูลค่าก่อน VAT / Value before VAT", amount(q.Subtotal)}}
+	}
 	if tax := q.Total - q.Subtotal; tax > 0.005 {
 		totals = append(totals, [2]string{fmt.Sprintf("ภาษีมูลค่าเพิ่ม / VAT %s%%", trimRate(q.TaxRate)), amount(tax)})
 	}

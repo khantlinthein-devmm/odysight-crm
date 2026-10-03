@@ -17,7 +17,7 @@ const editable = computed(() =>
 
 const form = ref<CompanySettings>({
   name: "", phone: "", address: "", invoiceFooter: "", logoUrl: "",
-  legalName: "", taxId: "", taxBranch: "00000", vatRegistered: false,
+  legalName: "", taxId: "", taxBranch: "00000", vatRegistered: false, pricesIncludeVat: false,
 });
 const loading = ref(true);
 const saving = ref(false);
@@ -115,6 +115,17 @@ const input =
           <span class="block text-xs text-gray-500">
             Off: new invoices carry no VAT. On: VAT at the rate under Payments is added.
             Existing invoices keep what they were issued with.
+          </span>
+        </span>
+      </label>
+      <label v-if="form.vatRegistered" class="flex items-start gap-2 sm:col-span-2">
+        <input v-model="form.pricesIncludeVat" type="checkbox" class="mt-0.5 h-4 w-4 rounded border-gray-300" :disabled="!editable" />
+        <span class="text-sm text-gray-700">
+          Prices include VAT (ราคารวม VAT)
+          <span class="block text-xs text-gray-500">
+            On: the price on a booking or quote is what the customer pays, and the VAT is
+            taken out of it — 11,000 = 10,280.37 + VAT 719.63. Off: VAT is added on top
+            (11,000 + 770 = 11,770).
           </span>
         </span>
       </label>

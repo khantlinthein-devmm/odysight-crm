@@ -32,23 +32,26 @@ type QuoteItem struct {
 }
 
 type Quote struct {
-	ID                 int64
-	QuoteNumber        string
-	CustomerID         int64
-	SiteID             *int64
-	Status             Status
-	ValidUntil         *time.Time
-	Subtotal           float64
-	TaxRate            float64
-	Total              float64
-	Currency           string
-	Notes              string
-	Version            int
-	AcceptedAt         *time.Time
-	RejectedAt         *time.Time
-	ConvertedBookingID *int64
+	ID          int64
+	QuoteNumber string
+	CustomerID  int64
+	SiteID      *int64
+	Status      Status
+	ValidUntil  *time.Time
+	Subtotal    float64
+	TaxRate     float64
+	Total       float64
+	Currency    string
+	Notes       string
+	// PricesIncludeVAT: line prices include VAT; Subtotal is the value
+	// before VAT and Total the sum of the lines.
+	PricesIncludeVAT    bool
+	Version             int
+	AcceptedAt          *time.Time
+	RejectedAt          *time.Time
+	ConvertedBookingID  *int64
 	ConvertedContractID *int64
-	Items              []QuoteItem
-	CreatedAt          time.Time
-	UpdatedAt          time.Time
+	Items               []QuoteItem
+	CreatedAt           time.Time
+	UpdatedAt           time.Time
 }

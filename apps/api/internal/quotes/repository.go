@@ -23,7 +23,7 @@ func NewRepository(pool *pgxpool.Pool) *Repository {
 	return &Repository{pool: pool}
 }
 
-const quoteColumns = `id, quote_number, customer_id, site_id, status, valid_until, subtotal, tax_rate, total, currency, notes, version, accepted_at, rejected_at, converted_booking_id, converted_contract_id, created_at, updated_at`
+const quoteColumns = `id, quote_number, customer_id, site_id, status, valid_until, subtotal, tax_rate, total, currency, notes, version, accepted_at, rejected_at, converted_booking_id, converted_contract_id, created_at, updated_at, prices_include_vat`
 
 func parseDate(v string) (time.Time, error) {
 	return time.Parse("2006-01-02", strings.TrimSpace(v))
@@ -34,7 +34,7 @@ func scanQuote(row pgx.Row) (Quote, error) {
 	err := row.Scan(&q.ID, &q.QuoteNumber, &q.CustomerID, &q.SiteID, &q.Status,
 		&q.ValidUntil, &q.Subtotal, &q.TaxRate, &q.Total, &q.Currency, &q.Notes,
 		&q.Version, &q.AcceptedAt, &q.RejectedAt, &q.ConvertedBookingID,
-		&q.ConvertedContractID, &q.CreatedAt, &q.UpdatedAt)
+		&q.ConvertedContractID, &q.CreatedAt, &q.UpdatedAt, &q.PricesIncludeVAT)
 	return q, err
 }
 
@@ -141,13 +141,23 @@ func (r *Repository) GetByID(ctx context.Context, id int64) (Quote, error) {
 	return q, nil
 }
 
-func totals(items []QuoteItemInput, taxRate float64) (float64, float64) {
-	sub := 0.0
+func totals(items []QuoteItemInput, taxRate float64, inclusive bool) (float64, float64) {
+	sum := 0.0
 	for _, it := range items {
-		sub += it.Quantity * it.UnitPrice
+		sum += round2(it.Quantity * it.UnitPrice)
 	}
-	sub = round2(sub)
-	return sub, round2(sub + sub*taxRate/100)
+	return splitTotals(sum, taxRate, inclusive)
+}
+
+// splitTotals turns the sum of the lines into (value before VAT, total).
+// With prices including VAT the sum is the total: 11,000 at 7% is
+// 10,280.37 before VAT.
+func splitTotals(sum, taxRate float64, inclusive bool) (float64, float64) {
+	sum = round2(sum)
+	if inclusive && taxRate > 0 {
+		return round2(sum * 100 / (100 + taxRate)), sum
+	}
+	return sum, round2(sum + sum*taxRate/100)
 }
 
 func (r *Repository) Create(ctx context.Context, q Quote, items []QuoteItemInput) (Quote, error) {
@@ -171,9 +181,9 @@ func (r *Repository) Create(ctx context.Context, q Quote, items []QuoteItemInput
 	}
 	var id int64
 	if err := tx.QueryRow(ctx,
-		`INSERT INTO quotes (quote_number, customer_id, site_id, status, valid_until, subtotal, tax_rate, total, currency, notes, version)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 1) RETURNING id`,
-		"TMP", q.CustomerID, q.SiteID, q.Status, q.ValidUntil, q.Subtotal, q.TaxRate, q.Total, q.Currency, q.Notes).Scan(&id); err != nil {
+		`INSERT INTO quotes (quote_number, customer_id, site_id, status, valid_until, subtotal, tax_rate, total, currency, notes, version, prices_include_vat)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 1, $11) RETURNING id`,
+		"TMP", q.CustomerID, q.SiteID, q.Status, q.ValidUntil, q.Subtotal, q.TaxRate, q.Total, q.Currency, q.Notes, q.PricesIncludeVAT).Scan(&id); err != nil {
 		return Quote{}, fmt.Errorf("create quote: %w", err)
 	}
 	for i, it := range items {
@@ -203,6 +213,7 @@ type Patch struct {
 	ValidUntil          *time.Time
 	ClearValidUntil     bool
 	TaxRate             *float64
+	PricesIncludeVAT    *bool
 	Currency            *string
 	Notes               *string
 	Items               []QuoteItemInput
@@ -254,12 +265,13 @@ func (r *Repository) Update(ctx context.Context, id int64, p Patch) (Quote, erro
 			notes       = COALESCE($9, notes),
 			converted_booking_id  = COALESCE($10, converted_booking_id),
 			converted_contract_id = COALESCE($11, converted_contract_id),
+			prices_include_vat    = COALESCE($12, prices_include_vat),
 			accepted_at = CASE WHEN $4 = 'accepted' THEN now() ELSE accepted_at END,
 			rejected_at = CASE WHEN $4 = 'rejected' THEN now() ELSE rejected_at END,
 			version     = version + 1
 		 WHERE id = $1
 		 RETURNING `+quoteColumns,
-		id, p.ClearSiteID, p.SiteID, statusVal, p.ClearValidUntil, p.ValidUntil, p.TaxRate, p.Currency, p.Notes, p.ConvertedBookingID, p.ConvertedContractID))
+		id, p.ClearSiteID, p.SiteID, statusVal, p.ClearValidUntil, p.ValidUntil, p.TaxRate, p.Currency, p.Notes, p.ConvertedBookingID, p.ConvertedContractID, p.PricesIncludeVAT))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Quote{}, ErrNotFound
 	}
@@ -270,10 +282,8 @@ func (r *Repository) Update(ctx context.Context, id int64, p Patch) (Quote, erro
 		if _, err := tx.Exec(ctx, `DELETE FROM quote_items WHERE quote_id = $1`, id); err != nil {
 			return Quote{}, fmt.Errorf("clear quote items: %w", err)
 		}
-		sub := 0.0
 		for i, it := range p.Items {
 			line := round2(it.Quantity * it.UnitPrice)
-			sub += line
 			if _, err := tx.Exec(ctx,
 				`INSERT INTO quote_items (quote_id, service_name, description, quantity, unit_price, line_total, sort_order)
 				 VALUES ($1, $2, $3, $4, $5, $6, $7)`,
@@ -281,8 +291,14 @@ func (r *Repository) Update(ctx context.Context, id int64, p Patch) (Quote, erro
 				return Quote{}, fmt.Errorf("replace quote item: %w", err)
 			}
 		}
-		sub = round2(sub)
-		total := round2(sub + sub*updated.TaxRate/100)
+	}
+	// New lines, VAT rate or VAT mode: recompute the totals from the lines.
+	if p.HasItems || p.TaxRate != nil || p.PricesIncludeVAT != nil {
+		var sum float64
+		if err := tx.QueryRow(ctx, `SELECT COALESCE(SUM(line_total), 0)::float8 FROM quote_items WHERE quote_id = $1`, id).Scan(&sum); err != nil {
+			return Quote{}, fmt.Errorf("sum quote items: %w", err)
+		}
+		sub, total := splitTotals(sum, updated.TaxRate, updated.PricesIncludeVAT)
 		if _, err := tx.Exec(ctx, `UPDATE quotes SET subtotal = $2, total = $3 WHERE id = $1`, id, sub, total); err != nil {
 			return Quote{}, fmt.Errorf("recalc quote totals: %w", err)
 		}

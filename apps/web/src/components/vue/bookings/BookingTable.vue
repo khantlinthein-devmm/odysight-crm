@@ -170,13 +170,18 @@ async function openFromQuote() {
   try {
     const q = await getQuote(id);
     const c = await getCustomer(q.customerId).catch(() => null);
+    const inclusive = await getWorkspaceSettings()
+      .then((st) => !!st.company.pricesIncludeVat)
+      .catch(() => false);
     const lines = q.items.map((i) => `${i.serviceName} × ${i.quantity}`).join(", ");
     prefill.value = {
       customerId: q.customerId,
       customerName: c ? `${c.firstName} ${c.lastName}`.trim() : "",
       customerEmail: c?.email ?? "",
       siteId: q.siteId ?? null,
-      price: q.subtotal,
+      // The booking price is read the way Settings says prices are entered:
+      // with VAT inside (ราคารวม VAT) it is what the customer pays.
+      price: inclusive ? q.total : q.subtotal,
       notes: `Quote ${q.quoteNumber}: ${lines}`.slice(0, 500),
     };
     fromQuote.value = q;

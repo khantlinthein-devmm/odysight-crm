@@ -28,6 +28,7 @@ type QuoteDTO struct {
 	Subtotal            float64        `json:"subtotal"`
 	TaxRate             float64        `json:"taxRate"`
 	Total               float64        `json:"total"`
+	PricesIncludeVAT    bool           `json:"pricesIncludeVat"`
 	Currency            string         `json:"currency"`
 	Notes               string         `json:"notes"`
 	Version             int            `json:"version"`
@@ -66,10 +67,10 @@ func toDTO(q Quote) QuoteDTO {
 	return QuoteDTO{
 		ID: q.ID, QuoteNumber: q.QuoteNumber, CustomerID: q.CustomerID, SiteID: q.SiteID,
 		Status: string(q.Status), ValidUntil: validUntil, Subtotal: q.Subtotal,
-		TaxRate: q.TaxRate, Total: q.Total, Currency: q.Currency, Notes: q.Notes,
+		TaxRate: q.TaxRate, Total: q.Total, PricesIncludeVAT: q.PricesIncludeVAT, Currency: q.Currency, Notes: q.Notes,
 		Version: q.Version, AcceptedAt: accepted, RejectedAt: rejected,
 		ConvertedBookingID: q.ConvertedBookingID, ConvertedContractID: q.ConvertedContractID,
-		Items: items,
+		Items:     items,
 		CreatedAt: q.CreatedAt.Format("2006-01-02T15:04:05Z07:00"),
 		UpdatedAt: q.UpdatedAt.Format("2006-01-02T15:04:05Z07:00"),
 	}
@@ -83,14 +84,16 @@ type QuoteItemInput struct {
 }
 
 type CreateQuoteRequest struct {
-	CustomerID int64            `json:"customerId"`
-	SiteID     *int64           `json:"siteId"`
-	Status     string           `json:"status"`
-	ValidUntil *string          `json:"validUntil"`
-	TaxRate    *float64         `json:"taxRate"`
-	Currency   string           `json:"currency"`
-	Notes      string           `json:"notes"`
-	Items      []QuoteItemInput `json:"items"`
+	CustomerID int64    `json:"customerId"`
+	SiteID     *int64   `json:"siteId"`
+	Status     string   `json:"status"`
+	ValidUntil *string  `json:"validUntil"`
+	TaxRate    *float64 `json:"taxRate"`
+	// PricesIncludeVAT: the line prices include VAT (ราคารวม VAT).
+	PricesIncludeVAT bool             `json:"pricesIncludeVat"`
+	Currency         string           `json:"currency"`
+	Notes            string           `json:"notes"`
+	Items            []QuoteItemInput `json:"items"`
 }
 
 func (r *CreateQuoteRequest) Validate() error {
@@ -143,17 +146,18 @@ func (r *CreateQuoteRequest) Validate() error {
 }
 
 type UpdateQuoteRequest struct {
-	SiteID           *int64           `json:"siteId"`
-	ClearSiteID      *bool            `json:"clearSiteId"`
-	Status           *string          `json:"status"`
-	ValidUntil       *string          `json:"validUntil"`
-	ClearValidUntil  *bool            `json:"clearValidUntil"`
-	TaxRate          *float64         `json:"taxRate"`
-	Currency         *string          `json:"currency"`
-	Notes            *string          `json:"notes"`
-	Items            []QuoteItemInput `json:"items"`
-	ConvertedBookingID  *int64        `json:"convertedBookingId"`
-	ConvertedContractID *int64        `json:"convertedContractId"`
+	SiteID              *int64           `json:"siteId"`
+	ClearSiteID         *bool            `json:"clearSiteId"`
+	Status              *string          `json:"status"`
+	ValidUntil          *string          `json:"validUntil"`
+	ClearValidUntil     *bool            `json:"clearValidUntil"`
+	TaxRate             *float64         `json:"taxRate"`
+	PricesIncludeVAT    *bool            `json:"pricesIncludeVat"`
+	Currency            *string          `json:"currency"`
+	Notes               *string          `json:"notes"`
+	Items               []QuoteItemInput `json:"items"`
+	ConvertedBookingID  *int64           `json:"convertedBookingId"`
+	ConvertedContractID *int64           `json:"convertedContractId"`
 }
 
 func (r *UpdateQuoteRequest) Validate() error {
@@ -195,7 +199,7 @@ func (r *UpdateQuoteRequest) Validate() error {
 
 func (r *UpdateQuoteRequest) IsEmpty() bool {
 	return r.SiteID == nil && r.ClearSiteID == nil && r.Status == nil &&
-		r.ValidUntil == nil && r.ClearValidUntil == nil && r.TaxRate == nil &&
+		r.ValidUntil == nil && r.ClearValidUntil == nil && r.TaxRate == nil && r.PricesIncludeVAT == nil &&
 		r.Currency == nil && r.Notes == nil && r.Items == nil &&
 		r.ConvertedBookingID == nil && r.ConvertedContractID == nil
 }

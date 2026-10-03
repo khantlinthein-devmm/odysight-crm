@@ -44,6 +44,9 @@ type Company struct {
 	TaxID         string `json:"taxId"`
 	TaxBranch     string `json:"taxBranch"`
 	VATRegistered bool   `json:"vatRegistered"`
+	// PricesIncludeVAT: prices entered on bookings, quotes and the catalog
+	// already include VAT (ราคารวม VAT); documents split the VAT out of them.
+	PricesIncludeVAT bool `json:"pricesIncludeVat"`
 }
 
 type Localization struct {
@@ -84,17 +87,17 @@ type ServiceItem struct {
 }
 
 type NotificationSettings struct {
-	NewLeadEmail           bool     `json:"newLeadEmail"`
-	BookingChangeEmail     bool     `json:"bookingChangeEmail"`
-	PaymentFailEmail       bool     `json:"paymentFailEmail"`
-	OverdueReminderEmail   bool     `json:"overdueReminderEmail"`
-	OverdueReminderDays    int      `json:"overdueReminderDays"`
-	Recipients             []string `json:"recipients"`
+	NewLeadEmail         bool     `json:"newLeadEmail"`
+	BookingChangeEmail   bool     `json:"bookingChangeEmail"`
+	PaymentFailEmail     bool     `json:"paymentFailEmail"`
+	OverdueReminderEmail bool     `json:"overdueReminderEmail"`
+	OverdueReminderDays  int      `json:"overdueReminderDays"`
+	Recipients           []string `json:"recipients"`
 }
 
 // SMSProvider describes a supported SMS delivery channel.
 const (
-	SMSProviderHTTP   = "http"   // generic webhook (Twilio-style APIs)
+	SMSProviderHTTP     = "http" // generic webhook (Twilio-style APIs)
 	SMSProviderDisabled = ""     // channel turned off
 )
 

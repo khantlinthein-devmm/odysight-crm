@@ -140,7 +140,14 @@ Nobody is forced to use checklists. When a commercial client wants proof:
   customers their tax ID and *Withholding tax 3%* on the customer form;
   invoices show the deduction and net payable.
   When creating an invoice (or collecting payment for a job), a box shows
-  the price before VAT, the VAT amount and the total before you confirm.
+  the value before VAT, the VAT amount and the total before you confirm.
+  **Prices include VAT (ราคารวม VAT)** — tick it in Settings → Company when
+  the price you agree with the customer is what they pay, VAT included.
+  The VAT is then taken out of the price the correct way: 11,000 =
+  10,280.37 + VAT 719.63 (VAT is 7% of the value before VAT, i.e. 7/107 of
+  the price — not 11,000 − 770 = 10,230). Booking prices, catalog prices
+  and quote lines are all read as VAT-included; the quote editor has the
+  same tick box per quote. Invoices already issued keep their amounts.
 - **Deposits and invoice status** — an invoice can be made as soon as the
   booking exists (not only after the job): Bookings → **Invoice**. The
   status follows the money: **Unpaid** → **Deposit paid · 50%** (after a

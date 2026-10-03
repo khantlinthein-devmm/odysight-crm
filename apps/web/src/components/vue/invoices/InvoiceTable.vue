@@ -292,7 +292,7 @@ onMounted(() => {
         </select>
         <label
           class="block text-xs text-gray-500"
-        >Price before VAT (empty = booking price, else catalog price)</label>
+        >Price (empty = booking price, else catalog price)</label>
         <input
           v-model="subtotal"
           type="number"

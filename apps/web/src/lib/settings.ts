@@ -14,6 +14,8 @@ export interface CompanySettings {
   /** Branch code; "00000" = head office. */
   taxBranch: string;
   vatRegistered: boolean;
+  /** Prices on bookings, quotes and the catalog include VAT (ราคารวม VAT). */
+  pricesIncludeVat: boolean;
 }
 
 export interface LocalizationSettings {
@@ -102,6 +104,7 @@ export const DEFAULT_SETTINGS: WorkspaceSettings = {
     taxId: "",
     taxBranch: "00000",
     vatRegistered: false,
+    pricesIncludeVat: false,
   },
   localization: {
     timezone: "Asia/Bangkok",

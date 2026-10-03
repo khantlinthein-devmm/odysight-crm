@@ -9,12 +9,20 @@ func item(name string, qty, price float64) QuoteItemInput {
 func TestQuoteTotalsFromPriceCalculatorInputs(t *testing.T) {
 	// Quote persists what the price calculator computes: no duplicated logic,
 	// just quantity x unit price plus tax.
-	sub, total := totals([]QuoteItemInput{item("Deep clean", 2, 1500), item("Windows", 1, 800)}, 7)
+	sub, total := totals([]QuoteItemInput{item("Deep clean", 2, 1500), item("Windows", 1, 800)}, 7, false)
 	if sub != 3800 {
 		t.Fatalf("subtotal = %v, want 3800", sub)
 	}
 	if total != 4066 {
 		t.Fatalf("total = %v, want 4066", total)
+	}
+}
+
+func TestQuoteTotalsWithPricesIncludingVAT(t *testing.T) {
+	// ราคารวม VAT: the customer pays 11,000; 719.63 of it is VAT.
+	sub, total := totals([]QuoteItemInput{item("House cleaning", 1, 11000)}, 7, true)
+	if sub != 10280.37 || total != 11000 {
+		t.Fatalf("got %v / %v, want 10280.37 / 11000", sub, total)
 	}
 }
 
