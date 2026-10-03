@@ -61,7 +61,7 @@ type docSpec struct {
 	// blocks marked in signDated — our side; the customer's stays blank.
 	signDate  time.Time
 	signDated [2]bool
-	// terms is a highlighted condition printed under the totals (e.g. the
+	// terms is a condition printed under the totals (e.g. the
 	// deposit required to book, on quotations).
 	terms string
 	// copyLabel marks a single-copy document; copies prints the document
@@ -653,9 +653,9 @@ func drawDoc(pdf *gofpdf.Fpdf, spec docSpec, company settings.Company, pay setti
 	need := 3 + max(float64(len(spec.totals))*7, leftH) + 6
 	termsH := 0.0
 	if spec.terms != "" {
-		font("B", 10.5)
-		termsH = wrapped(spec.terms, width-10)*5.6 + 6
-		need += termsH + 6
+		font("", 10)
+		termsH = wrapped(spec.terms, width) * 5.2
+		need += termsH + 5
 	}
 	if strings.TrimSpace(pay.PromptPayID+pay.BankAccount) != "" && spec.payAmount > 0 {
 		need += 42
@@ -740,16 +740,12 @@ func drawDoc(pdf *gofpdf.Fpdf, spec docSpec, company settings.Company, pay setti
 	y = max(ty, pdf.GetY()) + 6
 
 	if spec.terms != "" {
-		font("B", 10.5)
-		h := termsH
-		pdf.SetFillColor(255, 247, 237)
-		pdf.SetDrawColor(251, 146, 60)
-		pdf.Rect(left, y, width, h, "FD")
-		pdf.SetDrawColor(203, 213, 225)
-		pdf.SetXY(left+5, y+3)
-		ink(154, 52, 18)
-		pdf.MultiCell(width-10, 5.6, spec.terms, "", "L", false)
-		y += h + 6
+		// Plain text, like the rest of the form.
+		font("", 10)
+		pdf.SetXY(left, y)
+		ink(30, 41, 59)
+		pdf.MultiCell(width, 5.2, spec.terms, "", "L", false)
+		y += termsH + 5
 	}
 
 	// Payment: PromptPay QR for the amount due, plus bank details.
