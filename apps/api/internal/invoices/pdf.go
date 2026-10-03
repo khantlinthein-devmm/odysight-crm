@@ -265,6 +265,28 @@ func receiptMethods(rc Receipt, pay settings.PaymentSettings) []checkItem {
 	}
 }
 
+// drawStamp prints the status stamp (PAID, RECEIVED, ACCEPTED, …) as a
+// 31×16 mm box at (x, y): Thai on the first line, English on the second.
+func drawStamp(pdf *gofpdf.Fpdf, spec docSpec, x, y float64) {
+	const w = 31.0
+	c := spec.stampRGB
+	pdf.SetDrawColor(c[0], c[1], c[2])
+	pdf.SetTextColor(c[0], c[1], c[2])
+	pdf.SetLineWidth(0.8)
+	pdf.Rect(x, y, w, 16, "D")
+	th, en, _ := strings.Cut(spec.stamp, " / ")
+	for i, line := range []string{th, en} {
+		size := 11.0
+		for pdf.SetFont(fontFamily, "B", size); size > 7 && pdf.GetStringWidth(line) > w-3; size -= 0.5 {
+			pdf.SetFont(fontFamily, "B", size-0.5)
+		}
+		pdf.SetXY(x, y+1.8+float64(i)*6.2)
+		pdf.CellFormat(w, 6, line, "", 0, "C", false, 0, "")
+	}
+	pdf.SetLineWidth(0.2)
+	pdf.SetDrawColor(203, 213, 225)
+}
+
 // checkbox draws a 3.2 mm box at (x, y), crossed when checked.
 func checkbox(pdf *gofpdf.Fpdf, x, y float64, checked bool) {
 	pdf.SetDrawColor(71, 85, 105)
@@ -408,17 +430,27 @@ func drawDoc(pdf *gofpdf.Fpdf, spec docSpec, company settings.Company, pay setti
 	}
 
 	// Title in a box (left) and the document number, date, … (right).
+	// A status stamp (PAID, RECEIVED, ACCEPTED, …) sits beside the title,
+	// so it never pushes the totals or signatures down.
+	titleX, titleW := left+10, 88.0
+	if spec.stamp != "" {
+		titleX, titleW = left, 72
+		drawStamp(pdf, spec, left+75, y)
+	}
 	pdf.SetDrawColor(153, 27, 27)
 	pdf.SetLineWidth(0.5)
-	pdf.RoundedRect(left+10, y, 88, 16, 2.5, "1234", "D")
+	pdf.RoundedRect(titleX, y, titleW, 16, 2.5, "1234", "D")
 	pdf.SetLineWidth(0.2)
 	pdf.SetDrawColor(203, 213, 225)
-	pdf.SetXY(left+10, y+1.5)
-	font("B", 14)
+	size := 14.0
+	for font("B", size); size > 10 && pdf.GetStringWidth(spec.thTitle) > titleW-4; size -= 0.5 {
+		font("B", size-0.5)
+	}
+	pdf.SetXY(titleX, y+1.5)
 	ink(30, 58, 95)
-	pdf.CellFormat(88, 7, spec.thTitle, "", 2, "C", false, 0, "")
+	pdf.CellFormat(titleW, 7, spec.thTitle, "", 2, "C", false, 0, "")
 	font("B", 10)
-	pdf.CellFormat(88, 5.5, spec.enTitle, "", 0, "C", false, 0, "")
+	pdf.CellFormat(titleW, 5.5, spec.enTitle, "", 0, "C", false, 0, "")
 	font("", 9.5)
 	ink(30, 41, 59)
 	my := y
@@ -560,7 +592,7 @@ func drawDoc(pdf *gofpdf.Fpdf, spec docSpec, company settings.Company, pay setti
 		for _, para := range strings.Split(it.desc, "\n") {
 			lines += max(1, int(math.Ceil(pdf.GetStringWidth(para)/(cols[1].w-3))))
 		}
-		h := float64(lines)*5.5 + 3
+		h := float64(lines)*5 + 2.5
 		if y+h > 262 {
 			closeTable(y)
 			newPage()
@@ -576,8 +608,8 @@ func drawDoc(pdf *gofpdf.Fpdf, spec docSpec, company settings.Company, pay setti
 		}
 		x := left
 		for j, c := range cols {
-			pdf.SetXY(x, y+1.5)
-			pdf.MultiCell(c.w, 5.5, row[j], "", c.align, false)
+			pdf.SetXY(x, y+1.2)
+			pdf.MultiCell(c.w, 5, row[j], "", c.align, false)
 			x += c.w
 		}
 		y += h
@@ -625,12 +657,9 @@ func drawDoc(pdf *gofpdf.Fpdf, spec docSpec, company settings.Company, pay setti
 	if strings.TrimSpace(pay.PromptPayID+pay.BankAccount) != "" && spec.payAmount > 0 {
 		need += 42
 	}
-	if spec.stamp != "" {
-		need += 16
-	}
-	// The signature boxes start at 228 mm: when everything fits, the table's
+	// The signature boxes start at 234 mm: when everything fits, the table's
 	// empty rows run down to the totals; otherwise the totals go overleaf.
-	const signTop = 228.0
+	const signTop = 234.0
 	if fill := signTop - need; fill > y {
 		pdf.SetDrawColor(226, 232, 240)
 		for ry := y + 7; ry < fill-1; ry += 7 {
@@ -761,22 +790,9 @@ func drawDoc(pdf *gofpdf.Fpdf, spec docSpec, company settings.Company, pay setti
 		y = max(y+42, pdf.GetY()+4)
 	}
 
-	if spec.stamp != "" {
-		c := spec.stampRGB
-		pdf.SetDrawColor(c[0], c[1], c[2])
-		ink(c[0], c[1], c[2])
-		font("B", 14)
-		pdf.SetLineWidth(0.8)
-		pdf.Rect(130, y, 65, 14, "D")
-		pdf.SetXY(130, y+3.5)
-		pdf.CellFormat(65, 7, spec.stamp, "", 0, "C", false, 0, "")
-		pdf.SetLineWidth(0.2)
-		pdf.SetDrawColor(203, 213, 225)
-	}
-
 	// Signatures, Thai style: "ในนาม <organisation>", the signing line,
 	// the name in brackets, the role and the date.
-	sy := 230.0
+	sy := 236.0
 	for i, label := range spec.signLabels {
 		if label == "" {
 			continue
@@ -816,7 +832,7 @@ func drawDoc(pdf *gofpdf.Fpdf, spec docSpec, company settings.Company, pay setti
 	if footer == "" {
 		footer = "ขอบคุณที่ใช้บริการ / Thank you for your business!"
 	}
-	pdf.SetXY(left, 271)
+	pdf.SetXY(left, 274)
 	font("", 9)
 	ink(148, 163, 184)
 	pdf.MultiCell(width, 4.5, footer, "", "C", false)

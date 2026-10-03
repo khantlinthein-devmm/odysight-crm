@@ -71,15 +71,8 @@ func RenderQuotePDF(q QuoteDoc, company settings.Company) ([]byte, error) {
 	}
 	totals = append(totals, [2]string{"จำนวนเงินรวมทั้งสิ้น / Grand total", amount(q.Total)})
 
+	// The validity date is in the header (ยืนราคาถึง / Valid until).
 	note := strings.TrimSpace(q.Notes)
-	if q.ValidUntil != nil {
-		v := "ราคานี้ยืนถึงวันที่ " + thaiDate(*q.ValidUntil) + " / Prices valid until " + q.ValidUntil.Format("2 Jan 2006")
-		if note != "" {
-			note += "\n\n" + v
-		} else {
-			note = v
-		}
-	}
 	spec := docSpec{
 		thTitle: "ใบเสนอราคา", enTitle: "QUOTATION",
 		meta:      meta,
