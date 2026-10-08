@@ -51,6 +51,9 @@ type Receipt struct {
 	PaidAt          time.Time
 	CancelledAt     *time.Time
 	CreatedAt       time.Time
+	// PaidBefore is the cash on the invoice's earlier valid receipts, so a
+	// reprint shows the balance as it stood when this receipt was issued.
+	PaidBefore float64
 	// Read from the invoice snapshot.
 	InvoiceNumber     string
 	BookingID         int64
@@ -65,6 +68,18 @@ type Receipt struct {
 
 // Gross is the invoice value (service + VAT) the receipt covers.
 func (r Receipt) Gross() float64 { return round2(r.Subtotal + r.VAT) }
+
+// BalanceAfter is what the customer still owed on the invoice once this
+// receipt's payment was received.
+func (r Receipt) BalanceAfter(inv Invoice) float64 {
+	return math.Max(0, round2(inv.NetPayable()-r.PaidBefore-r.Amount))
+}
+
+// Instalment reports whether the invoice is being paid in more than one
+// payment, so the receipt should say which payment this is and what is left.
+func (r Receipt) Instalment(inv Invoice) bool {
+	return r.PaidBefore > 0.005 || r.BalanceAfter(inv) > 0.005
+}
 
 // ReceiptParts is how a payment divides into service value, VAT and WHT.
 type ReceiptParts struct {
@@ -85,12 +100,29 @@ func splitPayment(inv Invoice, prior ReceiptParts, received float64, final bool)
 			VAT:      round2(inv.TaxAmount - prior.VAT),
 			WHT:      round2(inv.WithholdingAmount - prior.WHT),
 		}
-		// Only trust the remainder when it reconciles with the cash (it will
-		// not for invoices settled by a legacy payment without a receipt).
 		if math.Abs(rest.Subtotal+rest.VAT-rest.WHT-received) < 0.005 && rest.Subtotal >= 0 && rest.VAT >= 0 && rest.WHT >= 0 {
 			return rest
 		}
 	}
+	p := proRata(inv, received)
+	// The remainder does not match the cash (e.g. an earlier payment has no
+	// receipt). When the VAT left on the invoice differs from the pro-rata VAT
+	// only by rounding, still close it exactly: receipted VAT must add up to
+	// the invoice's VAT for the VAT report. The service value takes the
+	// difference, so the receipt still reconciles with the cash.
+	if final {
+		restVAT := round2(inv.TaxAmount - prior.VAT)
+		if restVAT >= 0 && math.Abs(restVAT-p.VAT) <= 0.05 {
+			p.Subtotal = round2(p.Subtotal + p.VAT - restVAT)
+			p.VAT = restVAT
+		}
+	}
+	return p
+}
+
+// proRata splits cash received into the share of service value, VAT and WHT
+// it covers.
+func proRata(inv Invoice, received float64) ReceiptParts {
 	net := inv.NetPayable()
 	if net <= 0 || inv.Total <= 0 {
 		return ReceiptParts{Subtotal: round2(received)}
@@ -121,7 +153,9 @@ const receiptSelect = `SELECT r.id, r.receipt_number, r.invoice_id, r.payment_id
 		r.subtotal_part::float8, r.vat_part::float8, r.wht_part::float8, r.tax_rate::float8, r.withholding_rate::float8,
 		r.currency, r.method, r.reference, r.vat_registered, r.status, r.paid_at, r.cancelled_at, r.created_at,
 		i.invoice_number, COALESCE(i.booking_id, 0), i.booking_number, i.customer_name, i.customer_email, i.address,
-		i.service_name, i.customer_tax_id, i.customer_tax_branch
+		i.service_name, i.customer_tax_id, i.customer_tax_branch,
+		COALESCE((SELECT SUM(e.amount) FROM receipts e
+		           WHERE e.invoice_id = r.invoice_id AND e.status = 'valid' AND e.id < r.id), 0)::float8
 	FROM receipts r JOIN invoices i ON i.id = r.invoice_id`
 
 func scanReceipt(row pgx.Row) (Receipt, error) {
@@ -130,7 +164,7 @@ func scanReceipt(row pgx.Row) (Receipt, error) {
 		&rc.Subtotal, &rc.VAT, &rc.WHT, &rc.TaxRate, &rc.WithholdingRate,
 		&rc.Currency, &rc.Method, &rc.Reference, &rc.VATRegistered, &rc.Status, &rc.PaidAt, &rc.CancelledAt, &rc.CreatedAt,
 		&rc.InvoiceNumber, &rc.BookingID, &rc.BookingNumber, &rc.CustomerName, &rc.CustomerEmail, &rc.Address,
-		&rc.ServiceName, &rc.CustomerTaxID, &rc.CustomerTaxBranch)
+		&rc.ServiceName, &rc.CustomerTaxID, &rc.CustomerTaxBranch, &rc.PaidBefore)
 	return rc, err
 }
 
