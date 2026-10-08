@@ -400,6 +400,17 @@ export async function downloadReceiptPdf(receipt: Pick<Receipt, "id" | "receiptN
   await downloadPdf(`${api}/api/v1/receipts/${receipt.id}/pdf`, `${receipt.receiptNumber}.pdf`);
 }
 
+/** One receipt for the whole invoice once it is paid in full (not a tax invoice). */
+export async function downloadSummaryReceiptPdf(invoice: Pick<Invoice, "id" | "invoiceNumber">): Promise<void> {
+  if (USE_MOCKS) {
+    await delay(300);
+    return;
+  }
+  const api = getApiBaseUrl();
+  if (!api) throw new ApiError(0, "PUBLIC_API_URL is not configured");
+  await downloadPdf(`${api}/api/v1/invoices/${invoice.id}/receipt-summary/pdf`, `${invoice.invoiceNumber}-receipt.pdf`);
+}
+
 export async function sendReceiptEmail(id: number): Promise<void> {
   if (USE_MOCKS) {
     await delay(300);

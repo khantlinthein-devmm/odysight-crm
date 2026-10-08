@@ -255,6 +255,23 @@ func (h *Handler) ReceiptPDF(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write(pdfBytes)
 }
 
+// SummaryReceiptPDF handles GET /api/v1/invoices/{id}/receipt-summary/pdf
+func (h *Handler) SummaryReceiptPDF(w http.ResponseWriter, r *http.Request) {
+	id, ok := parseID(w, r)
+	if !ok {
+		return
+	}
+	inv, pdfBytes, err := h.service.SummaryReceiptPDF(r.Context(), id)
+	if err != nil {
+		response.HandleError(w, r, err)
+		return
+	}
+	w.Header().Set("Content-Type", "application/pdf")
+	w.Header().Set("Content-Disposition", `inline; filename="`+inv.InvoiceNumber+`-receipt.pdf"`)
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(pdfBytes)
+}
+
 // EmailReceipt handles POST /api/v1/receipts/{id}/email
 func (h *Handler) EmailReceipt(w http.ResponseWriter, r *http.Request) {
 	id, ok := parseID(w, r)

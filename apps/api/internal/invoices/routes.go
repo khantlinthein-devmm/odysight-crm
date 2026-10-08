@@ -17,6 +17,7 @@ func Routes(h *Handler, az *auth.Authorizer) chi.Router {
 		r.Get("/pdf", h.PDF)
 		r.Get("/promptpay.png", h.PromptPay)
 		r.Get("/receipts", h.InvoiceReceipts)
+		r.With(az.Require(auth.PermPaymentsRead)).Get("/receipt-summary/pdf", h.SummaryReceiptPDF)
 		r.With(az.Require(auth.PermPaymentsCreate)).Post("/payments", h.RecordPayment)
 		r.With(az.Require(auth.PermInvoicesUpdate)).Post("/email", h.Email)
 		r.With(az.Require(auth.PermInvoicesUpdate)).Patch("/", h.Update)

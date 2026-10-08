@@ -192,8 +192,8 @@ func renderReceiptPDF(rc Receipt, inv Invoice, company settings.Company, pay set
 		{"อ้างอิง / Booking", rc.BookingNumber},
 	}
 	desc := rc.ServiceName + "\nอ้างอิงใบแจ้งหนี้ / Invoice ref: " + rc.InvoiceNumber + siteLine(inv.SiteName)
-	if rc.Gross() < inv.Total-0.005 {
-		desc += "\n(ชำระบางส่วน / Partial payment)"
+	if label := instalmentLabel(rc, inv); label != "" {
+		desc += "\n(" + label + ")"
 	}
 	totals := [][2]string{{"รวมเงิน / Total amount", amount(rc.Subtotal)}}
 	if rc.VAT > 0 {
@@ -204,8 +204,19 @@ func renderReceiptPDF(rc Receipt, inv Invoice, company settings.Company, pay set
 		totals = append(totals, [2]string{fmt.Sprintf("ภาษีหัก ณ ที่จ่าย / WHT %s%%", trimRate(rc.WithholdingRate)), "-" + amount(rc.WHT)})
 	}
 	totals = append(totals, [2]string{"ยอดเงินสุทธิ / Total net received", amount(rc.Amount)})
-	if bal := inv.BalanceDue(); bal > 0 && rc.Status == ReceiptValid {
-		totals = append(totals, [2]string{"ยอดคงค้าง / Balance due", amount(bal)})
+	boldRow := len(totals)
+	// Paid in instalments: show where this payment leaves the invoice, as it
+	// stood when the receipt was issued (a reprint must not change).
+	if rc.Instalment(inv) {
+		invLabel := "ยอดตามใบแจ้งหนี้ / Invoice total"
+		if inv.WithholdingAmount > 0 {
+			invLabel = "ยอดสุทธิตามใบแจ้งหนี้ / Invoice net total"
+		}
+		totals = append(totals,
+			[2]string{invLabel, amount(inv.NetPayable())},
+			[2]string{"ชำระก่อนหน้า / Paid before", amount(rc.PaidBefore)},
+			[2]string{"ชำระครั้งนี้ / This payment", amount(rc.Amount)},
+			[2]string{"ยอดคงเหลือ / Balance remaining", amount(rc.BalanceAfter(inv))})
 	}
 	spec := docSpec{
 		thTitle: thTitle, enTitle: enTitle,
@@ -213,7 +224,7 @@ func renderReceiptPDF(rc Receipt, inv Invoice, company settings.Company, pay set
 		buyerName: rc.CustomerName, buyerAddress: rc.Address,
 		buyerTaxID: rc.CustomerTaxID, buyerBranch: rc.CustomerTaxBranch, buyerPhone: inv.CustomerPhone,
 		description: desc, lineAmount: rc.Subtotal, qtyUnit: "งาน",
-		totals: totals, words: rc.Gross(), currency: rc.Currency,
+		totals: totals, boldRow: boldRow, words: rc.Gross(), currency: rc.Currency,
 		imageKey: rc.ReceiptNumber,
 		stamp:    "ได้รับเงินแล้ว / RECEIVED", stampRGB: [3]int{22, 163, 74},
 		payMethods: receiptMethods(rc, pay),
@@ -227,6 +238,90 @@ func renderReceiptPDF(rc Receipt, inv Invoice, company settings.Company, pay set
 		spec.stamp, spec.stampRGB = "ยกเลิก / CANCELLED", [3]int{220, 38, 38}
 	}
 	return renderDoc(spec, company, settings.PaymentSettings{})
+}
+
+// renderSummaryReceiptPDF produces one receipt for an invoice paid in full in
+// several payments: the whole invoice amount, with a row per instalment
+// receipt. The instalment receipts stay the tax invoices (VAT is due when
+// each payment arrives), so this summary says so instead of re-issuing VAT.
+func renderSummaryReceiptPDF(inv Invoice, receipts []Receipt, company settings.Company, pay settings.PaymentSettings) ([]byte, error) {
+	if inv.Status != StatusPaid {
+		return nil, ErrInvoiceNotPaid
+	}
+	date := inv.IssuedAt
+	if inv.PaidAt != nil {
+		date = *inv.PaidAt
+	}
+	meta := [][2]string{
+		{"ใบแจ้งหนี้ / Invoice", inv.InvoiceNumber},
+		{"วันที่ชำระครบ / Paid in full", thaiDate(date)},
+		{"อ้างอิง / Booking", inv.BookingNumber},
+	}
+	var sum ReceiptParts
+	var received float64
+	items := make([]docItem, 0, len(receipts))
+	numbers := make([]string, 0, len(receipts))
+	for i, rc := range receipts {
+		desc := fmt.Sprintf("%s\nงวดที่ %d / Instalment %d: ใบเสร็จ / Receipt %s ลงวันที่ / dated %s, รับเงิน / received %s",
+			inv.ServiceName, i+1, i+1, rc.ReceiptNumber, thaiDate(rc.PaidAt), amount(rc.Amount))
+		items = append(items, docItem{desc: desc, qty: 1, amount: rc.Subtotal})
+		sum.Subtotal += rc.Subtotal
+		sum.VAT += rc.VAT
+		sum.WHT += rc.WHT
+		received += rc.Amount
+		numbers = append(numbers, rc.ReceiptNumber)
+	}
+	sum = ReceiptParts{Subtotal: round2(sum.Subtotal), VAT: round2(sum.VAT), WHT: round2(sum.WHT)}
+	received = round2(received)
+	gross := round2(sum.Subtotal + sum.VAT)
+
+	totals := [][2]string{{"รวมเงิน / Total amount", amount(sum.Subtotal)}}
+	if sum.VAT > 0 {
+		totals = append(totals, [2]string{fmt.Sprintf("ภาษีมูลค่าเพิ่ม / VAT %s%%", trimRate(inv.TaxRate)), amount(sum.VAT)})
+	}
+	totals = append(totals, [2]string{"จำนวนเงินรวมทั้งสิ้น / Grand total", amount(gross)})
+	if sum.WHT > 0 {
+		totals = append(totals, [2]string{fmt.Sprintf("ภาษีหัก ณ ที่จ่าย / WHT %s%%", trimRate(inv.WithholdingRate)), "-" + amount(sum.WHT)})
+	}
+	totals = append(totals, [2]string{"ยอดเงินสุทธิ / Total net received", amount(received)})
+
+	list := strings.Join(numbers, ", ")
+	note := "ใบเสร็จฉบับนี้สรุปการรับชำระตามใบแจ้งหนี้ " + inv.InvoiceNumber + " ครบถ้วนแล้ว จากใบเสร็จ " + list +
+		" / This receipt confirms invoice " + inv.InvoiceNumber + " is paid in full by receipts " + list + "."
+	thTitle, enTitle := "ใบเสร็จรับเงิน (ฉบับรวม)", "RECEIPT (SUMMARY)"
+	if company.VATRegistered {
+		note += "\nไม่ใช่ใบกำกับภาษี ใบกำกับภาษีคือใบเสร็จแต่ละฉบับข้างต้น / Not a tax invoice: the tax invoices are the receipts listed."
+	}
+	spec := docSpec{
+		thTitle: thTitle, enTitle: enTitle,
+		meta:      meta,
+		buyerName: inv.CustomerName, buyerAddress: inv.Address,
+		buyerTaxID: inv.CustomerTaxID, buyerBranch: inv.CustomerTaxBranch, buyerPhone: inv.CustomerPhone,
+		items: items, qtyUnit: "งาน",
+		totals: totals, words: gross, currency: inv.Currency,
+		imageKey: inv.InvoiceNumber + "-summary",
+		stamp:    "ชำระครบ / PAID IN FULL", stampRGB: [3]int{22, 163, 74},
+		note:       note,
+		signLabels: [2]string{"ผู้มีอำนาจลงนาม / Authorized signature", "ผู้อนุมัติ/ผู้รับเงิน / Approved / Collected by"},
+		signFor:    [2]string{"seller", ""},
+		signDate:   date,
+		signDated:  [2]bool{true, false},
+		copies:     []string{"ต้นฉบับ / Original", "สำเนา / Copy"},
+	}
+	return renderDoc(spec, company, settings.PaymentSettings{})
+}
+
+// instalmentLabel names the payment when an invoice is paid in instalments:
+// partial while a balance remains after it, final when it clears the invoice.
+// A single payment of the whole invoice needs no label.
+func instalmentLabel(rc Receipt, inv Invoice) string {
+	switch {
+	case rc.BalanceAfter(inv) > 0.005:
+		return "ชำระบางส่วน / Partial payment"
+	case rc.PaidBefore > 0.005:
+		return "ชำระครบ / Final payment"
+	}
+	return ""
 }
 
 // receiptMethods is the receipt's "paid by" checklist, the way Thai receipts

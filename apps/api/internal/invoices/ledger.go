@@ -140,6 +140,36 @@ func (s *Service) ReceiptPDF(ctx context.Context, id int64) (Receipt, []byte, er
 	return rc, pdf, nil
 }
 
+// SummaryReceiptPDF renders one receipt for the whole invoice once it is paid
+// in full, listing the instalment receipts that paid it.
+func (s *Service) SummaryReceiptPDF(ctx context.Context, invoiceID int64) (Invoice, []byte, error) {
+	inv, err := s.repo.GetByID(ctx, invoiceID)
+	if err != nil {
+		return Invoice{}, nil, mapRepoError(err)
+	}
+	if inv.Status != StatusPaid {
+		return Invoice{}, nil, response.NewAPIError(422, "the invoice is not paid in full yet")
+	}
+	list, _, err := s.repo.ListReceipts(ctx, pagination.Params{Limit: 500, Status: ReceiptValid}, inv.ID)
+	if err != nil {
+		return Invoice{}, nil, err
+	}
+	if len(list) == 0 {
+		return Invoice{}, nil, response.NewAPIError(422, "this invoice was marked paid without receipts")
+	}
+	// ListReceipts is newest first; instalments print in the order paid.
+	for i, j := 0, len(list)-1; i < j; i, j = i+1, j-1 {
+		list[i], list[j] = list[j], list[i]
+	}
+	company, pay := s.billingSettings(ctx)
+	s.repo.PrintDetailsForBooking(ctx, inv.BookingID).apply(&inv)
+	pdf, err := renderSummaryReceiptPDF(inv, list, company, pay)
+	if err != nil {
+		return Invoice{}, nil, fmt.Errorf("render summary receipt for invoice %d: %w", inv.ID, err)
+	}
+	return inv, pdf, nil
+}
+
 // SendReceipt (re)sends a receipt to the customer by email.
 func (s *Service) SendReceipt(ctx context.Context, id int64) error {
 	rc, pdf, err := s.ReceiptPDF(ctx, id)
