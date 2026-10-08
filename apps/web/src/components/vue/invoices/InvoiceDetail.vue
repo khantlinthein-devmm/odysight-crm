@@ -7,6 +7,7 @@ import {
   updateInvoice,
   downloadInvoicePdf,
   downloadReceiptPdf,
+  downloadSummaryReceiptPdf,
   sendInvoiceEmail,
   sendReceiptEmail,
   invoiceStatusLabel,
@@ -123,6 +124,19 @@ async function receiptPdf(rc: Receipt) {
     await downloadReceiptPdf(rc);
   } catch {
     showToast("Failed to download receipt PDF", "error");
+  }
+}
+
+// Paid in full in more than one payment: one receipt for the whole invoice.
+const canSummaryReceipt = computed(
+  () => invoice.value?.status === "paid" && validReceipts.value.length > 1,
+);
+async function summaryReceiptPdf() {
+  if (!invoice.value) return;
+  try {
+    await downloadSummaryReceiptPdf(invoice.value);
+  } catch {
+    showToast("Failed to download the full-payment receipt", "error");
   }
 }
 
@@ -443,6 +457,17 @@ onMounted(load);
             </div>
           </li>
         </ul>
+        <div
+          v-if="canSummaryReceipt"
+          class="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-lg bg-green-50 px-3 py-2 text-sm text-green-900"
+        >
+          <span>Paid in full over {{ validReceipts.length }} payments. Download one receipt for the whole {{ money(invoice.total, invoice.currency) }}.</span>
+          <button
+            type="button"
+            class="rounded-lg border border-green-300 bg-white px-3 py-1 text-xs font-medium text-green-900 hover:bg-green-100"
+            @click="summaryReceiptPdf"
+          >Full-payment receipt PDF</button>
+        </div>
       </section>
 
       <RecordPaymentDialog

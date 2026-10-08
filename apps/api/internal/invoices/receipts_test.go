@@ -173,6 +173,37 @@ func TestRenderReceiptPDF(t *testing.T) {
 	}
 }
 
+func TestRenderSummaryReceiptPDF(t *testing.T) {
+	sub, vat, total := splitVAT(9000, 7, true)
+	paid := time.Date(2026, 10, 6, 9, 0, 0, 0, time.UTC)
+	inv := Invoice{InvoiceNumber: "INV-2026-0050", BookingNumber: "BK-2026-0200", CustomerName: "คุณสมชาย",
+		Address: "1 ถนนสุขุมวิท กรุงเทพฯ", ServiceName: "ทำความสะอาดบ้าน / Home cleaning",
+		Subtotal: sub, TaxRate: 7, TaxAmount: vat, Total: total, Currency: "THB",
+		Status: StatusPaid, AmountPaid: 9000, IssuedAt: paid.AddDate(0, 0, -10), PaidAt: &paid}
+	p1 := splitPayment(inv, ReceiptParts{}, 4500, false)
+	p2 := splitPayment(inv, p1, 4500, true)
+	rcs := []Receipt{
+		{ReceiptNumber: "RC-2026-0015", Amount: 4500, Subtotal: p1.Subtotal, VAT: p1.VAT, PaidAt: paid.AddDate(0, 0, -5)},
+		{ReceiptNumber: "RC-2026-0016", Amount: 4500, Subtotal: p2.Subtotal, VAT: p2.VAT, PaidAt: paid, PaidBefore: 4500},
+	}
+	company := settings.Company{Name: "Smile Clean CO.,LTD.", TaxID: "0245562004320", VATRegistered: true}
+	pdf, err := renderSummaryReceiptPDF(inv, rcs, company, settings.PaymentSettings{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n := strings.Count(string(pdf), "/Type /Page\n"); n != 2 {
+		t.Errorf("summary receipt pages = %d, want 2 (original + copy)", n)
+	}
+	if out := os.Getenv("SUMMARY_PDF_OUT"); out != "" {
+		_ = os.WriteFile(out, pdf, 0o644)
+	}
+
+	inv.Status = StatusPartiallyPaid
+	if _, err := renderSummaryReceiptPDF(inv, rcs[:1], company, settings.PaymentSettings{}); !errors.Is(err, ErrInvoiceNotPaid) {
+		t.Errorf("summary for a part-paid invoice: %v", err)
+	}
+}
+
 // TestLedgerDB exercises the payment ledger against a real database: partial
 // payments, receipts, overpayment, refund and void protection. It skips
 // unless TEST_DATABASE_URL points at a migrated database.
