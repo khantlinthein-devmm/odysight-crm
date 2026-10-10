@@ -22,6 +22,7 @@ const (
 	EventInvoiceOverdue   = "invoice.overdue"
 	EventPaymentReceived  = "payment.received"
 	EventFeedbackRequest  = "feedback.request"
+	EventCleanerDocExpiring = "cleaner_document.expiring"
 )
 
 // Emailer abstracts the SMTP sender so the service stays testable.

@@ -8,6 +8,7 @@ import { getSessionUser } from "../../../lib/auth";
 import { hasPermission } from "../../../lib/roles";
 import { serviceLabel } from "../../../lib/settings";
 import ConfirmDialog from "../ui/ConfirmDialog.vue";
+import CleanerDocuments from "./CleanerDocuments.vue";
 
 const props = defineProps<{ cleanerId: number }>();
 
@@ -258,6 +259,8 @@ onMounted(load);
         </div>
 
         <div class="space-y-6 lg:col-span-2">
+          <CleanerDocuments :cleaner-id="cleaner.id" />
+
           <div class="rounded-lg border border-gray-200 bg-white">
             <div class="flex items-center justify-between border-b border-gray-200 px-5 py-4">
               <h2 class="text-sm font-semibold text-gray-900">Upcoming Assignments</h2>
@@ -330,7 +333,7 @@ onMounted(load);
     </div>
 
     <ConfirmDialog
-      v-if="confirmingInactive"
+      :open="confirmingInactive"
       title="Deactivate cleaner?"
       message="Inactive cleaners are hidden from new-booking dropdowns but their history is kept."
       confirmLabel="Deactivate"

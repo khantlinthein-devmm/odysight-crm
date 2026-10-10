@@ -3,10 +3,12 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"syscall"
@@ -23,6 +25,7 @@ import (
 	"github.com/odysight/crm/internal/auth"
 	"github.com/odysight/crm/internal/bookings"
 	"github.com/odysight/crm/internal/checklists"
+	"github.com/odysight/crm/internal/cleanerdocs"
 	"github.com/odysight/crm/internal/cleaners"
 	"github.com/odysight/crm/internal/contracts"
 	"github.com/odysight/crm/internal/customers"
@@ -45,6 +48,7 @@ import (
 	apmw "github.com/odysight/crm/pkg/middleware"
 	"github.com/odysight/crm/pkg/migrate"
 	"github.com/odysight/crm/pkg/response"
+	"github.com/odysight/crm/pkg/sealbox"
 )
 
 func main() {
@@ -209,6 +213,29 @@ func run() error {
 	checklistService := checklists.NewService(checklistRepo)
 	checklistHandler := checklists.NewHandler(checklistService, checklists.NewPhotoStore(cfg.UploadDir, cfg.MaxUploadMB))
 
+	// Cleaner passport / work-permit documents. Scans and numbers are sealed
+	// with DOCUMENTS_ENC_KEY; without a key the endpoints answer 503 rather
+	// than store anything in the clear. A malformed key is fatal.
+	var docBox *sealbox.Box
+	var docStore *cleanerdocs.Store
+	if cfg.DocumentsEncKey != "" {
+		docBox, err = sealbox.New(cfg.DocumentsEncKey)
+		if err != nil {
+			return fmt.Errorf("DOCUMENTS_ENC_KEY: %w", err)
+		}
+		docStore = cleanerdocs.NewStore(filepath.Join(cfg.UploadDir, "cleaner-docs"), docBox, cfg.MaxUploadMB)
+	} else {
+		slog.Warn("DOCUMENTS_ENC_KEY not set; cleaner document storage disabled")
+	}
+	cleanerDocRepo := cleanerdocs.NewRepository(pool)
+	cleanerDocService := cleanerdocs.NewService(cleanerDocRepo, docBox, docStore)
+	cleanerDocHandler := cleanerdocs.NewHandler(cleanerDocService, cfg.MaxUploadMB)
+
+	// Document-expiry job: emails the office at 60/30/7 days and on expiry,
+	// fires on boot then hourly. Single-instance only.
+	docReminders := cleanerdocs.NewReminderRunner(cleanerDocRepo, docStore, notifService, time.Hour)
+	go docReminders.Run(ctx)
+
 	// LINE OA → auto-lead. Mounted outside the auth group: authenticity
 	// comes from the X-Line-Signature HMAC. With no channel secret
 	// configured the endpoint answers 503 and everything else is unchanged.
@@ -250,6 +277,7 @@ func run() error {
 			r.Mount("/leads", leads.Routes(leadHandler, authorizer))
 			r.Mount("/customers", customers.Routes(customerHandler, authorizer))
 			r.Mount("/cleaners", cleaners.Routes(cleanerHandler, authorizer))
+			r.Mount("/cleaner-documents", cleanerdocs.Routes(cleanerDocHandler, authorizer))
 			r.Mount("/bookings", bookings.Routes(bookingHandler, authorizer))
 			r.Mount("/service-records", servicerecords.Routes(serviceRecordHandler, authorizer))
 			r.Mount("/invoices", invoices.Routes(invoiceHandler, authorizer))

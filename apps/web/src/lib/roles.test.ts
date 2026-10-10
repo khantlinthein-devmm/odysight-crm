@@ -10,6 +10,14 @@ describe("roles permission matrix", () => {
     expect(hasPermission(undefined, "settings.manage")).toBe(false);
   });
 
+  it("keeps cleaner documents away from dispatch, accountants and cleaners", () => {
+    for (const role of ROLE_ORDER) {
+      const allowed = role === "SUPER_ADMIN" || role === "ADMIN" || role === "MANAGER";
+      expect(hasPermission(role, "cleaner_documents.read"), role).toBe(allowed);
+      expect(hasPermission(role, "cleaner_documents.manage"), role).toBe(allowed);
+    }
+  });
+
   it("rejects unknown permission keys", () => {
     expect(hasPermission("SUPER_ADMIN", "books.ban")).toBe(false);
   });

@@ -53,6 +53,8 @@ services:
       # Private proof-of-work photo storage (served only to authenticated staff).
       UPLOAD_DIR: ${UPLOAD_DIR:-/app/uploads}
       MAX_UPLOAD_MB: ${MAX_UPLOAD_MB:-8}
+      # Encrypts cleaner passport / work-permit scans (empty = feature off).
+      DOCUMENTS_ENC_KEY: ${DOCUMENTS_ENC_KEY:-}
       RATE_LIMIT_RPM: ${RATE_LIMIT_RPM:-300}
       LOGIN_RATE_LIMIT_RPM: ${LOGIN_RATE_LIMIT_RPM:-20}
       # Comma-separated proxy IPs allowed to set X-Forwarded-For.

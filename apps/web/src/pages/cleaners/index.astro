@@ -1,8 +1,10 @@
 ---
 import DashboardLayout from "../../layouts/DashboardLayout.astro";
 import CleanerTable from "../../components/vue/cleaners/CleanerTable.vue";
+import ExpiringDocuments from "../../components/vue/cleaners/ExpiringDocuments.vue";
 ---
 
 <DashboardLayout title="Cleaners">
+  <ExpiringDocuments client:load />
   <CleanerTable client:load />
 </DashboardLayout>
