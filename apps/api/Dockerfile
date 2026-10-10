@@ -12,6 +12,9 @@ RUN apk add --no-cache ca-certificates wget \
 WORKDIR /app
 COPY --from=build --chown=app:app /api /app/api
 COPY --chown=app:app migrations /app/migrations
+# Upload dir must exist and belong to app: a fresh named volume mounted here
+# copies this ownership, otherwise it is root-owned and every upload fails.
+RUN mkdir -p /app/uploads && chown app:app /app/uploads
 EXPOSE 8080
 USER app
 CMD ["/app/api"]
