@@ -55,6 +55,13 @@ export const PERMISSION_MATRIX: PermissionGroup[] = [
     ],
   },
   {
+    resource: "Cleaner documents",
+    permissions: [
+      { key: "cleaner_documents.read", label: "View passport / work permit", roles: ["SUPER_ADMIN", "ADMIN", "MANAGER"] },
+      { key: "cleaner_documents.manage", label: "Upload / edit / delete", roles: ["SUPER_ADMIN", "ADMIN", "MANAGER"] },
+    ],
+  },
+  {
     resource: "Attendance",
     permissions: [
       { key: "attendance.read", label: "View", roles: ["SUPER_ADMIN", "ADMIN", "MANAGER", "DISPATCH", "ACCOUNTANT"] },

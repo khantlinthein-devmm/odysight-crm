@@ -43,6 +43,9 @@ type Config struct {
 	// downloads require an authenticated staff session).
 	UploadDir  string
 	MaxUploadMB int
+	// AES-256 key (64 hex chars) sealing cleaner passport / work-permit scans
+	// and numbers. Empty disables cleaner document storage (API answers 503).
+	DocumentsEncKey string
 	// LINE OA integration (optional). When the channel secret is empty the
 	// webhook endpoint answers 503 and everything else runs unchanged.
 	LineChannelSecret      string
@@ -79,6 +82,7 @@ func Load() (*Config, error) {
 		SeedDispatchName:  getEnv("SEED_DISPATCH_NAME", "Dispatcher"),
 		UploadDir:         getEnv("UPLOAD_DIR", "uploads"),
 		MaxUploadMB:       getIntEnv("MAX_UPLOAD_MB", 8),
+		DocumentsEncKey:   os.Getenv("DOCUMENTS_ENC_KEY"),
 		LineChannelSecret:      os.Getenv("LINE_CHANNEL_SECRET"),
 		LineChannelAccessToken: os.Getenv("LINE_CHANNEL_ACCESS_TOKEN"),
 		LineAutoReply:          os.Getenv("LINE_AUTO_REPLY"),

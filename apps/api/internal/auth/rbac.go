@@ -18,6 +18,8 @@ const (
 	PermCleanersCreate       Permission = "cleaners.create"
 	PermCleanersUpdate       Permission = "cleaners.update"
 	PermCleanersDelete       Permission = "cleaners.delete"
+	PermCleanerDocsRead      Permission = "cleaner_documents.read"
+	PermCleanerDocsManage    Permission = "cleaner_documents.manage"
 	PermServiceRecordsRead   Permission = "service_records.read"
 	PermServiceRecordsCreate Permission = "service_records.create"
 	PermServiceRecordsUpdate Permission = "service_records.update"
@@ -80,6 +82,7 @@ var rolePermissions = map[Role]map[Permission]struct{}{
 		PermCustomersRead, PermCustomersCreate, PermCustomersUpdate, PermCustomersDelete,
 		PermBookingsRead, PermBookingsCreate, PermBookingsUpdate, PermBookingsDelete,
 		PermCleanersRead, PermCleanersCreate, PermCleanersUpdate, PermCleanersDelete,
+		PermCleanerDocsRead, PermCleanerDocsManage,
 		PermServiceRecordsRead, PermServiceRecordsCreate, PermServiceRecordsUpdate, PermServiceRecordsDelete,
 		PermPaymentsRead, PermPaymentsCreate, PermPaymentsUpdate,
 		PermInvoicesRead, PermInvoicesCreate, PermInvoicesUpdate,
@@ -102,6 +105,7 @@ var rolePermissions = map[Role]map[Permission]struct{}{
 		PermCustomersRead, PermCustomersCreate, PermCustomersUpdate, PermCustomersDelete,
 		PermBookingsRead, PermBookingsCreate, PermBookingsUpdate, PermBookingsDelete,
 		PermCleanersRead, PermCleanersCreate, PermCleanersUpdate, PermCleanersDelete,
+		PermCleanerDocsRead, PermCleanerDocsManage,
 		PermServiceRecordsRead, PermServiceRecordsCreate, PermServiceRecordsUpdate, PermServiceRecordsDelete,
 		PermPaymentsRead, PermPaymentsCreate, PermPaymentsUpdate,
 		PermInvoicesRead, PermInvoicesCreate, PermInvoicesUpdate,
@@ -123,6 +127,7 @@ var rolePermissions = map[Role]map[Permission]struct{}{
 		PermCustomersRead, PermCustomersCreate, PermCustomersUpdate,
 		PermBookingsRead, PermBookingsCreate, PermBookingsUpdate,
 		PermCleanersRead, PermCleanersCreate, PermCleanersUpdate,
+		PermCleanerDocsRead, PermCleanerDocsManage,
 		PermServiceRecordsRead, PermServiceRecordsCreate, PermServiceRecordsUpdate,
 		PermPaymentsRead,
 		PermInvoicesRead,

@@ -22,7 +22,7 @@ const (
 	EventInvoiceOverdue   = "invoice.overdue"
 	EventPaymentReceived  = "payment.received"
 	EventFeedbackRequest  = "feedback.request"
-	EventBookingCompleted = "booking.completed"
+	EventCleanerDocExpiring = "cleaner_document.expiring"
 )
 
 // LinePusher sends a LINE text message to a user (see line.Client.Push).
