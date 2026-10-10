@@ -22,6 +22,7 @@ const (
 	EventInvoiceOverdue   = "invoice.overdue"
 	EventPaymentReceived  = "payment.received"
 	EventFeedbackRequest  = "feedback.request"
+	EventBookingCompleted = "booking.completed"
 	EventCleanerDocExpiring = "cleaner_document.expiring"
 )
 
