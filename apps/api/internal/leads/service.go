@@ -146,3 +146,7 @@ func (s *Service) Convert(ctx context.Context, id int64, req ConvertLeadRequest)
 func mapRepoError(err error) error {
 	return dberror.Map(err, ErrNotFound, "lead not found")
 }
+
+func (s *Service) Numbers(ctx context.Context, ids []int64) (map[int64]int, error) {
+	return s.repo.Numbers(ctx, ids)
+}

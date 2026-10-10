@@ -11,6 +11,8 @@ export type PropertyType =
 
 export interface Customer {
   id: number;
+  /** Display number: 1…N in creation order, recounted after deletes. */
+  no?: number;
   firstName: string;
   lastName: string;
   email: string;
@@ -21,6 +23,14 @@ export interface Customer {
   status: CustomerStatus;
   leadId?: number | null;
   portalEnabled?: boolean;
+  /** 13-digit Thai tax ID for tax invoices (blank for individuals). */
+  taxId?: string;
+  /** Branch code; "00000" = head office. */
+  taxBranch?: string;
+  /** Withholding tax % this customer deducts (usually 3 for companies). */
+  withholdingRate?: number;
+  /** True when the customer came through LINE and gets LINE messages. */
+  lineLinked?: boolean;
   createdAt: string;
 }
 

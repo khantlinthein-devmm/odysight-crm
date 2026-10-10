@@ -2,13 +2,18 @@
 import { useId } from "vue";
 import { useModalA11y } from "./useModalA11y";
 
-const props = defineProps<{
-  open?: boolean;
-  title: string;
-  message?: string;
-  confirmLabel?: string;
-  busy?: boolean;
-}>();
+// `open` defaults to true so callers can mount the dialog with v-if alone;
+// callers that keep it mounted pass :open explicitly.
+const props = withDefaults(
+  defineProps<{
+    open?: boolean;
+    title: string;
+    message?: string;
+    confirmLabel?: string;
+    busy?: boolean;
+  }>(),
+  { open: true },
+);
 
 const emit = defineEmits<{
   confirm: [];

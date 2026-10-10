@@ -12,6 +12,8 @@ import (
 // DTOs use camelCase to match the frontend contract.
 
 type LeadDTO struct {
+	// No is the display number: 1…N in creation order, recounted after deletes.
+	No             int       `json:"no"`
 	ID             int64     `json:"id"`
 	FirstName      string    `json:"firstName"`
 	LastName       string    `json:"lastName"`

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -85,7 +86,7 @@ func (r *Repository) EnsureSeed(ctx context.Context, seeds []SeedUser) error {
 		}
 		if _, err := r.pool.Exec(ctx,
 			`INSERT INTO users (name, email, password_hash, role) VALUES ($1, $2, $3, $4)`,
-			s.Name, s.Email, hash, s.Role); err != nil {
+			s.Name, strings.ToLower(strings.TrimSpace(s.Email)), hash, s.Role); err != nil {
 			return fmt.Errorf("seed user %s: %w", s.Email, err)
 		}
 	}

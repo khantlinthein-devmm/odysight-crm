@@ -33,6 +33,8 @@ export interface Booking {
   serviceType: ServiceType;
   scheduledFor: string;
   durationMinutes: number;
+  /** Agreed price before VAT; null = use the service catalog price. */
+  price?: number | null;
   address: string;
   assignedCleaner: string;
   status: BookingStatus;
@@ -55,6 +57,7 @@ export type CreateBookingInput = Omit<
 export type UpdateBookingInput = Partial<CreateBookingInput> & {
   clearSiteId?: boolean;
   clearContractId?: boolean;
+  clearPrice?: boolean;
 };
 
 let mockId = 300;

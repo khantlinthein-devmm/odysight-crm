@@ -1,6 +1,8 @@
-import type { Role } from "./auth";
+import { getSessionUser, type Role } from "./auth";
 
-// Mirrors apps/api/internal/auth/rbac.go — keep in sync when permissions change.
+// Built-in defaults, mirroring apps/api/internal/auth/rbac.go — keep in sync.
+// An admin can change what a role may do (Settings → Roles & permissions);
+// the signed-in user's actual permissions come from the API and win.
 export const ROLE_ORDER: Role[] = [
   "SUPER_ADMIN",
   "ADMIN",
@@ -63,7 +65,7 @@ export const PERMISSION_MATRIX: PermissionGroup[] = [
     resource: "Attendance",
     permissions: [
       { key: "attendance.read", label: "View", roles: ["SUPER_ADMIN", "ADMIN", "MANAGER", "DISPATCH", "ACCOUNTANT"] },
-      { key: "attendance.manage", label: "Check in / out", roles: ["SUPER_ADMIN", "ADMIN", "MANAGER", "DISPATCH"] },
+      { key: "attendance.manage", label: "Check in / out for others", roles: ["SUPER_ADMIN", "ADMIN"] },
     ],
   },
   {
@@ -96,6 +98,27 @@ export const PERMISSION_MATRIX: PermissionGroup[] = [
     permissions: [
       { key: "expenses.read", label: "View", roles: ["SUPER_ADMIN", "ADMIN", "MANAGER", "ACCOUNTANT"] },
       { key: "expenses.manage", label: "Add / edit / delete", roles: ["SUPER_ADMIN", "ADMIN", "ACCOUNTANT"] },
+    ],
+  },
+  {
+    resource: "Payroll",
+    permissions: [
+      { key: "payroll.read", label: "View cleaner pay", roles: ["SUPER_ADMIN", "ADMIN", "ACCOUNTANT"] },
+      { key: "payroll.manage", label: "Set pay rates", roles: ["SUPER_ADMIN", "ADMIN", "ACCOUNTANT"] },
+    ],
+  },
+  {
+    resource: "Complaints",
+    permissions: [
+      { key: "complaints.read", label: "View", roles: ["SUPER_ADMIN", "ADMIN", "MANAGER", "DISPATCH", "ACCOUNTANT"] },
+      { key: "complaints.manage", label: "Log / resolve / book re-clean", roles: ["SUPER_ADMIN", "ADMIN", "MANAGER", "DISPATCH"] },
+    ],
+  },
+  {
+    resource: "Supplies",
+    permissions: [
+      { key: "supplies.read", label: "View", roles: ["SUPER_ADMIN", "ADMIN", "MANAGER", "DISPATCH", "ACCOUNTANT"] },
+      { key: "supplies.manage", label: "Catalog / record usage", roles: ["SUPER_ADMIN", "ADMIN", "MANAGER", "DISPATCH"] },
     ],
   },
   {
@@ -170,8 +193,8 @@ export const PERMISSION_MATRIX: PermissionGroup[] = [
   },
 ];
 
-// Grants a single permission key to any role mapped to it in PERMISSION_MATRIX.
-export function hasPermission(role: Role | undefined, key: string): boolean {
+/** Built-in default for a role, ignoring any admin changes. */
+export function defaultHasPermission(role: Role | undefined, key: string): boolean {
   if (!role) return false;
   return PERMISSION_MATRIX.some((group) =>
     group.permissions.some(
@@ -190,4 +213,16 @@ export function permissionsFor(role: Role | undefined): Record<string, boolean> 
     }
   }
   return out;
+}
+
+// Checks a permission. For the signed-in user's own role this uses the
+// permissions the API reported (including admin changes); otherwise the
+// built-in defaults.
+export function hasPermission(role: Role | undefined, key: string): boolean {
+  if (!role) return false;
+  const me = getSessionUser();
+  if (me && me.role === role && Array.isArray(me.permissions)) {
+    return me.permissions.includes(key);
+  }
+  return defaultHasPermission(role, key);
 }

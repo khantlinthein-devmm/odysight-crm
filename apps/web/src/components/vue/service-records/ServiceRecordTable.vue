@@ -121,8 +121,11 @@ async function handleDelete() {
       (r) => r.id !== pendingDelete.value!.id,
     );
     showToast("Service record deleted", "success");
-  } catch {
-    showToast("Failed to delete service record", "error");
+  } catch (err) {
+    showToast(
+      err instanceof Error ? `Failed to delete service record: ${err.message}` : "Failed to delete service record",
+      "error",
+    );
   } finally {
     deleting.value = false;
     pendingDelete.value = null;

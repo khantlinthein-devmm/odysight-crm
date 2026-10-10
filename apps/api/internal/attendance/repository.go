@@ -15,6 +15,7 @@ var (
 	ErrNotFound          = errors.New("attendance record not found")
 	ErrAlreadyCheckedIn  = errors.New("already checked in")
 	ErrAlreadyCheckedOut = errors.New("already checked out")
+	ErrNoCleanerProfile  = errors.New("no cleaner profile linked to this user")
 )
 
 type Repository struct {
@@ -29,11 +30,14 @@ const attendanceColumns = `a.id,
 	CASE WHEN a.cleaner_id IS NOT NULL THEN 'cleaner' ELSE 'staff' END,
 	COALESCE(a.cleaner_id, a.user_id),
 	COALESCE(trim(c.first_name || ' ' || c.last_name), u.name, ''),
-	a.work_date, a.check_in_at, a.check_out_at, COALESCE(a.note, ''), a.created_at`
+	a.work_date, a.check_in_at, a.check_out_at, COALESCE(a.note, ''), a.created_at,
+	a.check_in_lat, a.check_in_lng, a.check_out_lat, a.check_out_lng,
+	a.check_in_distance_m, COALESCE(s.name, '')`
 
 const attendanceFrom = `FROM attendance a
 	LEFT JOIN cleaners c ON c.id = a.cleaner_id
-	LEFT JOIN users u ON u.id = a.user_id`
+	LEFT JOIN users u ON u.id = a.user_id
+	LEFT JOIN sites s ON s.id = a.check_in_site_id`
 
 // personMatch selects the row for exactly one person. IS NOT DISTINCT FROM
 // makes the NULL side of the pair match, so one clause serves both types.
@@ -43,7 +47,9 @@ func scanRecord(row pgx.Row) (Record, error) {
 	var rec Record
 	var workDate time.Time
 	err := row.Scan(&rec.ID, &rec.PersonType, &rec.PersonID, &rec.PersonName, &workDate,
-		&rec.CheckInAt, &rec.CheckOutAt, &rec.Note, &rec.CreatedAt)
+		&rec.CheckInAt, &rec.CheckOutAt, &rec.Note, &rec.CreatedAt,
+		&rec.CheckInLat, &rec.CheckInLng, &rec.CheckOutLat, &rec.CheckOutLng,
+		&rec.CheckInDistanceM, &rec.CheckInSiteName)
 	if err != nil {
 		return Record{}, err
 	}
@@ -152,7 +158,7 @@ func conflictTarget(p Person) string {
 // CheckIn stamps check_in_at for one person on one YYYY-MM-DD date. A row that
 // already has check_in_at set yields ErrAlreadyCheckedIn; otherwise the row is
 // upserted so a checkout-first row is completed rather than rejected.
-func (r *Repository) CheckIn(ctx context.Context, p Person, date string) (Record, error) {
+func (r *Repository) CheckIn(ctx context.Context, p Person, date string, at stamp) (Record, error) {
 	var id int64
 	var checkInAt *time.Time
 	err := r.pool.QueryRow(ctx,
@@ -165,12 +171,16 @@ func (r *Repository) CheckIn(ctx context.Context, p Person, date string) (Record
 		return Record{}, ErrAlreadyCheckedIn
 	}
 	err = r.pool.QueryRow(ctx,
-		`INSERT INTO attendance (cleaner_id, user_id, work_date, check_in_at)
-		 VALUES ($1, $2, $3::date, now())
+		`INSERT INTO attendance (cleaner_id, user_id, work_date, check_in_at,
+		                         check_in_lat, check_in_lng, check_in_site_id, check_in_distance_m)
+		 VALUES ($1, $2, $3::date, now(), $4, $5, $6, $7)
 		 ON CONFLICT `+conflictTarget(p)+`
-		 DO UPDATE SET check_in_at = now(), updated_at = now()
+		 DO UPDATE SET check_in_at = now(), updated_at = now(),
+		               check_in_lat = EXCLUDED.check_in_lat, check_in_lng = EXCLUDED.check_in_lng,
+		               check_in_site_id = EXCLUDED.check_in_site_id,
+		               check_in_distance_m = EXCLUDED.check_in_distance_m
 		 RETURNING id`,
-		p.CleanerID(), p.UserID(), date).Scan(&id)
+		p.CleanerID(), p.UserID(), date, at.lat(), at.lng(), at.siteID, at.distance).Scan(&id)
 	if err != nil {
 		return Record{}, fmt.Errorf("check in %s %d on %s: %w", p.Type, p.ID, date, err)
 	}
@@ -180,7 +190,7 @@ func (r *Repository) CheckIn(ctx context.Context, p Person, date string) (Record
 // CheckOut stamps check_out_at for one person on one YYYY-MM-DD date. With no
 // row yet (checkin-first flow missing), it inserts a checkout-only row; a row
 // that already has check_out_at set yields ErrAlreadyCheckedOut.
-func (r *Repository) CheckOut(ctx context.Context, p Person, date string) (Record, error) {
+func (r *Repository) CheckOut(ctx context.Context, p Person, date string, at stamp) (Record, error) {
 	var id int64
 	var checkOutAt *time.Time
 	err := r.pool.QueryRow(ctx,
@@ -191,10 +201,10 @@ func (r *Repository) CheckOut(ctx context.Context, p Person, date string) (Recor
 	}
 	if errors.Is(err, pgx.ErrNoRows) {
 		err = r.pool.QueryRow(ctx,
-			`INSERT INTO attendance (cleaner_id, user_id, work_date, check_out_at)
-			 VALUES ($1, $2, $3::date, now())
+			`INSERT INTO attendance (cleaner_id, user_id, work_date, check_out_at, check_out_lat, check_out_lng)
+			 VALUES ($1, $2, $3::date, now(), $4, $5)
 			 RETURNING id`,
-			p.CleanerID(), p.UserID(), date).Scan(&id)
+			p.CleanerID(), p.UserID(), date, at.lat(), at.lng()).Scan(&id)
 		if err != nil {
 			return Record{}, fmt.Errorf("check out %s %d on %s: %w", p.Type, p.ID, date, err)
 		}
@@ -204,7 +214,8 @@ func (r *Repository) CheckOut(ctx context.Context, p Person, date string) (Recor
 		return Record{}, ErrAlreadyCheckedOut
 	}
 	if _, err := r.pool.Exec(ctx,
-		`UPDATE attendance SET check_out_at = now(), updated_at = now() WHERE id = $1`, id); err != nil {
+		`UPDATE attendance SET check_out_at = now(), updated_at = now(),
+		        check_out_lat = $2, check_out_lng = $3 WHERE id = $1`, id, at.lat(), at.lng()); err != nil {
 		return Record{}, fmt.Errorf("check out attendance %d: %w", id, err)
 	}
 	return r.getByID(ctx, id)
@@ -221,4 +232,25 @@ func joinWith(parts []string, sep string) string {
 		out += s
 	}
 	return out
+}
+
+// CleanerIDForUser returns the cleaner profile linked to a login: by user_id
+// first, then by an unlinked profile with the login's email (the same rule
+// the bookings module uses). ErrNoCleanerProfile when there is none.
+func (r *Repository) CleanerIDForUser(ctx context.Context, userID int64) (int64, error) {
+	var id int64
+	err := r.pool.QueryRow(ctx,
+		`SELECT id FROM (
+		   SELECT c.id, 0 AS rank FROM cleaners c WHERE c.user_id = $1
+		   UNION ALL
+		   SELECT c.id, 1 FROM cleaners c JOIN users u ON lower(c.email) = lower(u.email)
+		    WHERE u.id = $1 AND c.user_id IS NULL AND c.email <> ''
+		 ) m ORDER BY rank, id LIMIT 1`, userID).Scan(&id)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return 0, ErrNoCleanerProfile
+	}
+	if err != nil {
+		return 0, fmt.Errorf("find cleaner for user %d: %w", userID, err)
+	}
+	return id, nil
 }

@@ -1,22 +1,117 @@
 package attendance
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/odysight/crm/internal/auth"
 	"github.com/odysight/crm/pkg/pagination"
 	"github.com/odysight/crm/pkg/response"
 )
 
 type Handler struct {
 	service *Service
+	// cleanerForUser resolves the cleaner profile linked to a login. It is a
+	// field so tests can stub it without a database.
+	cleanerForUser func(ctx context.Context, userID int64) (int64, error)
 }
 
 func NewHandler(service *Service) *Handler {
-	return &Handler{service: service}
+	return &Handler{service: service, cleanerForUser: service.CleanerIDForUser}
+}
+
+type selfKey struct{}
+
+// scope admits callers holding p unchanged. A CLEANER without p is admitted
+// in self-service mode, pinned to their own cleaner profile; anyone else is
+// refused.
+func (h *Handler) scope(p auth.Permission) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			id, ok := auth.IdentityFromContext(r.Context())
+			if !ok {
+				response.Error(w, http.StatusUnauthorized, "authentication required")
+				return
+			}
+			if auth.HasPermission(id.Role, p) {
+				next.ServeHTTP(w, r)
+				return
+			}
+			if id.Role != auth.RoleCleaner {
+				response.Error(w, http.StatusForbidden, "permission denied: "+string(p))
+				return
+			}
+			cleanerID, err := h.cleanerForUser(r.Context(), id.UserID)
+			if errors.Is(err, ErrNoCleanerProfile) {
+				response.Error(w, http.StatusForbidden, "your login is not linked to a cleaner profile; ask an admin")
+				return
+			}
+			if err != nil {
+				response.HandleError(w, r, err)
+				return
+			}
+			next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), selfKey{}, cleanerID)))
+		})
+	}
+}
+
+// actor is who a self-service check-in/out may be recorded for: the caller
+// as office staff (their user id) and, when linked, their cleaner profile.
+type actor struct {
+	userID    int64
+	cleanerID int64 // 0 when the login has no cleaner profile
+	cleaner   bool  // CLEANER role: only ever on the cleaner profile
+}
+
+type actorKey struct{}
+
+// checkScope guards check-in/out. With attendance.manage the caller may act
+// for anyone ("check in / out for others"). Everyone else may only record
+// their own attendance: office staff as themselves, cleaners on their own
+// cleaner profile.
+func (h *Handler) checkScope(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		id, ok := auth.IdentityFromContext(r.Context())
+		if !ok {
+			response.Error(w, http.StatusUnauthorized, "authentication required")
+			return
+		}
+		if auth.HasPermission(id.Role, auth.PermAttendanceManage) {
+			next.ServeHTTP(w, r)
+			return
+		}
+		a := actor{userID: id.UserID, cleaner: id.Role == auth.RoleCleaner}
+		cleanerID, err := h.cleanerForUser(r.Context(), id.UserID)
+		switch {
+		case err == nil:
+			a.cleanerID = cleanerID
+		case errors.Is(err, ErrNoCleanerProfile):
+			if id.Role == auth.RoleCleaner {
+				response.Error(w, http.StatusForbidden, "your login is not linked to a cleaner profile; ask an admin")
+				return
+			}
+		default:
+			response.HandleError(w, r, err)
+			return
+		}
+		ctx := context.WithValue(r.Context(), actorKey{}, a)
+		if id.Role == auth.RoleCleaner {
+			ctx = context.WithValue(ctx, selfKey{}, cleanerID)
+		}
+		next.ServeHTTP(w, r.WithContext(ctx))
+	})
+}
+
+// selfCleaner returns the caller's own cleaner id when the request runs in
+// self-service mode.
+func selfCleaner(r *http.Request) (int64, bool) {
+	id, ok := r.Context().Value(selfKey{}).(int64)
+	return id, ok
 }
 
 // List handles GET /api/v1/attendance?type=&person=&from=&to=&limit=&offset=.
@@ -43,6 +138,10 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 		From:       from,
 		To:         to,
 	}
+	if self, ok := selfCleaner(r); ok {
+		filters.PersonType = PersonCleaner
+		filters.PersonID = self
+	}
 	items, total, err := h.service.List(r.Context(), filters, params)
 	if err != nil {
 		response.HandleError(w, r, err)
@@ -61,7 +160,11 @@ func (h *Handler) CheckIn(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	rec, err := h.service.CheckIn(r.Context(), req)
+	if !allowSelf(w, r, req) {
+		return
+	}
+	_, self := selfCleaner(r)
+	rec, err := h.service.CheckIn(r.Context(), req, self)
 	if err != nil {
 		response.HandleError(w, r, err)
 		return
@@ -75,12 +178,36 @@ func (h *Handler) CheckOut(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	if !allowSelf(w, r, req) {
+		return
+	}
 	rec, err := h.service.CheckOut(r.Context(), req)
 	if err != nil {
 		response.HandleError(w, r, err)
 		return
 	}
 	response.JSON(w, http.StatusOK, toDTO(rec))
+}
+
+// allowSelf rejects a self-service request that targets anyone other than
+// the caller (as staff, or on their own cleaner profile).
+func allowSelf(w http.ResponseWriter, r *http.Request, req CheckActionRequest) bool {
+	a, ok := r.Context().Value(actorKey{}).(actor)
+	if !ok {
+		return true // may act for others
+	}
+	pt := req.PersonType
+	if pt == "" {
+		pt = PersonCleaner
+	}
+	switch {
+	case pt == PersonStaff && !a.cleaner && req.PersonID == a.userID:
+		return true
+	case pt == PersonCleaner && a.cleanerID != 0 && req.PersonID == a.cleanerID:
+		return true
+	}
+	response.Error(w, http.StatusForbidden, "you can only check yourself in or out")
+	return false
 }
 
 // parsePersonType reads ?type=cleaner|staff. An empty value means both.

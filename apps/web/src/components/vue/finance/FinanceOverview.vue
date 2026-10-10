@@ -284,8 +284,11 @@ async function handleDelete(e: Expense) {
     await deleteExpense(e.id);
     expenses.value = expenses.value.filter((x) => x.id !== e.id);
     showToast("Expense deleted");
-  } catch {
-    showToast("Failed to delete expense", "error");
+  } catch (err) {
+    showToast(
+      err instanceof Error ? `Failed to delete expense: ${err.message}` : "Failed to delete expense",
+      "error",
+    );
   } finally {
     deleting.value = false;
     pendingDelete.value = null;
@@ -661,9 +664,5 @@ const presetTabs: { key: Preset; label: string }[] = [
     >
       <p class="text-sm text-gray-500">This permanently removes this expense record.</p>
     </ConfirmDialog>
-
-    <p class="mt-4 text-xs text-gray-400">
-      Live data from the Go API · GET /api/v1/expenses · GET /api/v1/payments?status=paid
-    </p>
   </div>
 </template>

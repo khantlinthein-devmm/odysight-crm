@@ -14,6 +14,7 @@ func Routes(h *Handler, az *auth.Authorizer) chi.Router {
 		r.Use(az.Require(auth.PermQuotesRead))
 		r.Get("/", h.Get)
 		r.With(az.Require(auth.PermQuotesUpdate)).Patch("/", h.Update)
+		r.Get("/pdf", h.PDF)
 		r.With(az.Require(auth.PermQuotesApprove)).Post("/approve", h.Approve)
 	})
 	return r

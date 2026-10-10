@@ -42,6 +42,7 @@ func (m Method) Valid() bool {
 
 type Payment struct {
 	ID            int64
+	InvoiceID     *int64
 	InvoiceNumber string
 	CustomerName  string
 	BookingNumber string
@@ -49,5 +50,6 @@ type Payment struct {
 	Currency      string
 	Method        Method
 	Status        Status
+	Reference     string
 	CreatedAt     time.Time
 }

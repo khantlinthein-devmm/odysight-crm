@@ -40,7 +40,7 @@ func NewRepository(pool *pgxpool.Pool) *Repository {
 	return &Repository{pool: pool}
 }
 
-const bookingColumns = `id, booking_number, customer_name, customer_email, customer_id, site_id, contract_id, service_type, scheduled_for, duration_minutes, address, area, COALESCE(assigned_cleaner, '') AS assigned_cleaner, status, notes, is_recurring, recurrence, series_id, created_at`
+const bookingColumns = `id, booking_number, customer_name, customer_email, customer_id, site_id, contract_id, service_type, scheduled_for, duration_minutes, price::float8, address, area, COALESCE(assigned_cleaner, '') AS assigned_cleaner, status, notes, is_recurring, recurrence, series_id, created_at`
 
 const bookingNumberExpr = `'BK-' || to_char(created_at, 'YYYY') || '-' || lpad(id::text, 4, '0')`
 
@@ -48,7 +48,7 @@ func scanBooking(row pgx.Row) (Booking, error) {
 	var b Booking
 	var recurrence *string
 	err := row.Scan(&b.ID, &b.BookingNumber, &b.CustomerName, &b.CustomerEmail, &b.CustomerID, &b.SiteID, &b.ContractID, &b.ServiceType,
-		&b.ScheduledFor, &b.DurationMinutes, &b.Address, &b.Area, &b.AssignedCleaner,
+		&b.ScheduledFor, &b.DurationMinutes, &b.Price, &b.Address, &b.Area, &b.AssignedCleaner,
 		&b.Status, &b.Notes, &b.IsRecurring, &recurrence, &b.SeriesID, &b.CreatedAt)
 	if recurrence != nil {
 		b.Recurrence = *recurrence
@@ -332,18 +332,6 @@ func (r *Repository) GetByID(ctx context.Context, id int64) (Booking, error) {
 
 // CustomerPhone returns the phone number for a linked customer, or "" when the
 // booking has no customer link or the customer has no phone stored.
-func (r *Repository) CustomerPhone(ctx context.Context, id int64) (string, error) {
-	var phone string
-	err := r.pool.QueryRow(ctx, `SELECT COALESCE(phone, '') FROM customers WHERE id = $1`, id).Scan(&phone)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return "", nil
-	}
-	if err != nil {
-		return "", fmt.Errorf("get customer %d phone: %w", id, err)
-	}
-	return phone, nil
-}
-
 // ValidateSiteContract ensures an optional site belongs to the booking's
 // customer and an optional contract belongs to the same customer. Either link
 // may be nil (one-time bookings need neither). A booking for Customer A can
@@ -409,11 +397,11 @@ func (r *Repository) insertBooking(ctx context.Context, tx pgx.Tx, b Booking) (B
 	temp := "TMP-" + fmt.Sprintf("%d", time.Now().UnixNano())
 	var id int64
 	if err := tx.QueryRow(ctx,
-		`INSERT INTO bookings (booking_number, customer_name, customer_email, customer_id, site_id, contract_id, service_type, scheduled_for, duration_minutes, address, area, assigned_cleaner, status, notes, is_recurring, recurrence, series_id)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
+		`INSERT INTO bookings (booking_number, customer_name, customer_email, customer_id, site_id, contract_id, service_type, scheduled_for, duration_minutes, address, area, assigned_cleaner, status, notes, is_recurring, recurrence, series_id, price)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
 		 RETURNING id`,
 		temp, b.CustomerName, b.CustomerEmail, b.CustomerID, b.SiteID, b.ContractID, b.ServiceType, b.ScheduledFor, b.DurationMinutes,
-		b.Address, b.Area, b.AssignedCleaner, b.Status, b.Notes, b.IsRecurring, recurrenceValue(b), b.SeriesID).Scan(&id); err != nil {
+		b.Address, b.Area, b.AssignedCleaner, b.Status, b.Notes, b.IsRecurring, recurrenceValue(b), b.SeriesID, b.Price).Scan(&id); err != nil {
 		return Booking{}, fmt.Errorf("create booking: %w", err)
 	}
 
@@ -480,6 +468,8 @@ type Patch struct {
 	ServiceType     *ServiceType
 	ScheduledFor    *time.Time
 	DurationMinutes *int
+	Price           *float64
+	ClearPrice      bool
 	Address         *string
 	Area            *string
 	AssignedCleaner *string
@@ -523,12 +513,13 @@ func (r *Repository) Update(ctx context.Context, id int64, p Patch) (Booking, er
 			status           = COALESCE($15, status),
 			notes            = COALESCE($16, notes),
 			is_recurring     = COALESCE($17, is_recurring),
-			recurrence       = CASE WHEN $18::text = '' THEN NULL ELSE COALESCE($18, recurrence) END
+			recurrence       = CASE WHEN $18::text = '' THEN NULL ELSE COALESCE($18, recurrence) END,
+			price            = CASE WHEN $19 THEN NULL ELSE COALESCE($20::numeric, price) END
 		 WHERE id = $1
 		 RETURNING `+bookingColumns,
 		id, p.CustomerName, p.CustomerEmail, p.CustomerID, p.ClearSiteID, p.SiteID, p.ClearContractID, p.ContractID,
 		serviceType, p.ScheduledFor, p.DurationMinutes,
-		p.Address, p.Area, p.AssignedCleaner, status, p.Notes, p.IsRecurring, p.Recurrence))
+		p.Address, p.Area, p.AssignedCleaner, status, p.Notes, p.IsRecurring, p.Recurrence, p.ClearPrice, p.Price))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Booking{}, ErrNotFound
 	}

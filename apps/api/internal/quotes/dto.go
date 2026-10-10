@@ -3,6 +3,7 @@ package quotes
 import (
 	"math"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/odysight/crm/pkg/response"
 )
@@ -27,6 +28,7 @@ type QuoteDTO struct {
 	Subtotal            float64        `json:"subtotal"`
 	TaxRate             float64        `json:"taxRate"`
 	Total               float64        `json:"total"`
+	PricesIncludeVAT    bool           `json:"pricesIncludeVat"`
 	Currency            string         `json:"currency"`
 	Notes               string         `json:"notes"`
 	Version             int            `json:"version"`
@@ -65,10 +67,10 @@ func toDTO(q Quote) QuoteDTO {
 	return QuoteDTO{
 		ID: q.ID, QuoteNumber: q.QuoteNumber, CustomerID: q.CustomerID, SiteID: q.SiteID,
 		Status: string(q.Status), ValidUntil: validUntil, Subtotal: q.Subtotal,
-		TaxRate: q.TaxRate, Total: q.Total, Currency: q.Currency, Notes: q.Notes,
+		TaxRate: q.TaxRate, Total: q.Total, PricesIncludeVAT: q.PricesIncludeVAT, Currency: q.Currency, Notes: q.Notes,
 		Version: q.Version, AcceptedAt: accepted, RejectedAt: rejected,
 		ConvertedBookingID: q.ConvertedBookingID, ConvertedContractID: q.ConvertedContractID,
-		Items: items,
+		Items:     items,
 		CreatedAt: q.CreatedAt.Format("2006-01-02T15:04:05Z07:00"),
 		UpdatedAt: q.UpdatedAt.Format("2006-01-02T15:04:05Z07:00"),
 	}
@@ -82,14 +84,16 @@ type QuoteItemInput struct {
 }
 
 type CreateQuoteRequest struct {
-	CustomerID int64            `json:"customerId"`
-	SiteID     *int64           `json:"siteId"`
-	Status     string           `json:"status"`
-	ValidUntil *string          `json:"validUntil"`
-	TaxRate    *float64         `json:"taxRate"`
-	Currency   string           `json:"currency"`
-	Notes      string           `json:"notes"`
-	Items      []QuoteItemInput `json:"items"`
+	CustomerID int64    `json:"customerId"`
+	SiteID     *int64   `json:"siteId"`
+	Status     string   `json:"status"`
+	ValidUntil *string  `json:"validUntil"`
+	TaxRate    *float64 `json:"taxRate"`
+	// PricesIncludeVAT: the line prices include VAT (ราคารวม VAT).
+	PricesIncludeVAT bool             `json:"pricesIncludeVat"`
+	Currency         string           `json:"currency"`
+	Notes            string           `json:"notes"`
+	Items            []QuoteItemInput `json:"items"`
 }
 
 func (r *CreateQuoteRequest) Validate() error {
@@ -122,6 +126,9 @@ func (r *CreateQuoteRequest) Validate() error {
 	if len(r.Items) == 0 {
 		return response.NewAPIError(400, "at least one item is required")
 	}
+	if err := checkSizes(r.Items, r.Notes); err != nil {
+		return err
+	}
 	for i := range r.Items {
 		r.Items[i].ServiceName = strings.TrimSpace(r.Items[i].ServiceName)
 		r.Items[i].Description = strings.TrimSpace(r.Items[i].Description)
@@ -139,17 +146,18 @@ func (r *CreateQuoteRequest) Validate() error {
 }
 
 type UpdateQuoteRequest struct {
-	SiteID           *int64           `json:"siteId"`
-	ClearSiteID      *bool            `json:"clearSiteId"`
-	Status           *string          `json:"status"`
-	ValidUntil       *string          `json:"validUntil"`
-	ClearValidUntil  *bool            `json:"clearValidUntil"`
-	TaxRate          *float64         `json:"taxRate"`
-	Currency         *string          `json:"currency"`
-	Notes            *string          `json:"notes"`
-	Items            []QuoteItemInput `json:"items"`
-	ConvertedBookingID  *int64        `json:"convertedBookingId"`
-	ConvertedContractID *int64        `json:"convertedContractId"`
+	SiteID              *int64           `json:"siteId"`
+	ClearSiteID         *bool            `json:"clearSiteId"`
+	Status              *string          `json:"status"`
+	ValidUntil          *string          `json:"validUntil"`
+	ClearValidUntil     *bool            `json:"clearValidUntil"`
+	TaxRate             *float64         `json:"taxRate"`
+	PricesIncludeVAT    *bool            `json:"pricesIncludeVat"`
+	Currency            *string          `json:"currency"`
+	Notes               *string          `json:"notes"`
+	Items               []QuoteItemInput `json:"items"`
+	ConvertedBookingID  *int64           `json:"convertedBookingId"`
+	ConvertedContractID *int64           `json:"convertedContractId"`
 }
 
 func (r *UpdateQuoteRequest) Validate() error {
@@ -171,6 +179,9 @@ func (r *UpdateQuoteRequest) Validate() error {
 		if len(r.Items) == 0 {
 			return response.NewAPIError(400, "items cannot be empty when provided")
 		}
+		if err := checkSizes(r.Items, ""); err != nil {
+			return err
+		}
 		for i := range r.Items {
 			if strings.TrimSpace(r.Items[i].ServiceName) == "" {
 				return response.NewAPIError(400, "items[].serviceName is required")
@@ -188,9 +199,29 @@ func (r *UpdateQuoteRequest) Validate() error {
 
 func (r *UpdateQuoteRequest) IsEmpty() bool {
 	return r.SiteID == nil && r.ClearSiteID == nil && r.Status == nil &&
-		r.ValidUntil == nil && r.ClearValidUntil == nil && r.TaxRate == nil &&
+		r.ValidUntil == nil && r.ClearValidUntil == nil && r.TaxRate == nil && r.PricesIncludeVAT == nil &&
 		r.Currency == nil && r.Notes == nil && r.Items == nil &&
 		r.ConvertedBookingID == nil && r.ConvertedContractID == nil
 }
 
 func round2(v float64) float64 { return math.Round(v*100) / 100 }
+
+// checkSizes keeps a quote printable: a sensible number of lines and text
+// that fits the PDF.
+func checkSizes(items []QuoteItemInput, notes string) error {
+	if len(items) > 50 {
+		return response.NewAPIError(400, "a quote can have at most 50 lines")
+	}
+	for _, it := range items {
+		if utf8.RuneCountInString(it.ServiceName) > 200 {
+			return response.NewAPIError(400, "items[].serviceName is too long (max 200 characters)")
+		}
+		if utf8.RuneCountInString(it.Description) > 1000 {
+			return response.NewAPIError(400, "items[].description is too long (max 1000 characters)")
+		}
+	}
+	if utf8.RuneCountInString(notes) > 2000 {
+		return response.NewAPIError(400, "notes are too long (max 2000 characters)")
+	}
+	return nil
+}

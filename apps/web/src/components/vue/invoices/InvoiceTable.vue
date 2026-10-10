@@ -7,7 +7,13 @@ import {
   type Invoice,
   type InvoiceStatus,
   type CreateInvoiceInput,
+  type PaymentResult,
+  invoiceStatusLabel,
+  isBillableBooking,
 } from "../../../lib/invoices";
+import RecordPaymentDialog from "./RecordPaymentDialog.vue";
+import VatBreakdown from "./VatBreakdown.vue";
+import { showToast } from "../../../lib/toast";
 import { getBookings, type Booking } from "../../../lib/bookings";
 import { getSessionUser } from "../../../lib/auth";
 import { hasPermission } from "../../../lib/roles";
@@ -16,6 +22,17 @@ import ConfirmDialog from "../ui/ConfirmDialog.vue";
 
 const canCreate = hasPermission(getSessionUser()?.role ?? "viewer", "invoices.create");
 const canUpdate = hasPermission(getSessionUser()?.role ?? "viewer", "invoices.update");
+const canPay = hasPermission(getSessionUser()?.role ?? "viewer", "payments.create");
+const paying = ref<Invoice | null>(null);
+
+const OPEN: InvoiceStatus[] = ["draft", "issued", "partially_paid"];
+
+function onPaid(result: PaymentResult) {
+  paying.value = null;
+  const idx = invoices.value.findIndex((i) => i.id === result.invoice.id);
+  if (idx !== -1) invoices.value[idx] = result.invoice;
+  showToast(`Receipt ${result.receipt.receiptNumber} issued`, "success");
+}
 
 const invoices = ref<Invoice[]>([]);
 const loading = ref(true);
@@ -29,10 +46,17 @@ const createError = ref("");
 const selectedBooking = ref<Booking | null>(null);
 const completedBookings = ref<Booking[]>([]);
 const subtotal = ref<string>("");
+// The price the invoice will be drawn from: the typed one, else the booking's.
+const draftPrice = computed(() => {
+  const typed = parseFloat(String(subtotal.value));
+  if (!isNaN(typed) && typed > 0) return typed;
+  return selectedBooking.value?.price ?? null;
+});
 
 const statusMeta: Record<InvoiceStatus, { label: string; cls: string }> = {
   draft: { label: "Draft", cls: "bg-gray-100 text-gray-700" },
-  issued: { label: "Issued", cls: "bg-blue-100 text-blue-700" },
+  issued: { label: "Unpaid", cls: "bg-blue-100 text-blue-700" },
+  partially_paid: { label: "Deposit paid", cls: "bg-amber-100 text-amber-800" },
   paid: { label: "Paid", cls: "bg-green-100 text-green-700" },
   void: { label: "Void", cls: "bg-red-100 text-red-700" },
 };
@@ -70,16 +94,16 @@ function openCreate() {
 async function loadCompleted() {
   try {
     const all = await getBookings({ limit: 200 });
-    completedBookings.value = all.filter((b) => b.status === "completed");
+    completedBookings.value = all.filter((b) => isBillableBooking(b.status));
   } catch (e) {
     createError.value =
-      e instanceof ApiError ? e.message : "Failed to load completed bookings";
+      e instanceof ApiError ? e.message : "Failed to load bookings";
   }
 }
 
 async function submitCreate() {
   if (!selectedBooking.value) {
-    createError.value = "Select a completed booking";
+    createError.value = "Select a booking";
     return;
   }
   createBusy.value = true;
@@ -136,7 +160,8 @@ onMounted(() => {
         >
           <option value="">All statuses</option>
           <option value="draft">Draft</option>
-          <option value="issued">Issued</option>
+          <option value="issued">Unpaid</option>
+          <option value="partially_paid">Deposit paid</option>
           <option value="paid">Paid</option>
           <option value="void">Void</option>
         </select>
@@ -198,14 +223,18 @@ onMounted(() => {
             <td class="px-4 py-3 text-gray-500">{{ fmtDate(inv.issuedAt) }}</td>
             <td class="px-4 py-3 text-right font-medium">
               {{ money(inv.total, inv.currency) }}
+              <p
+                v-if="inv.status === 'partially_paid'"
+                class="text-xs font-normal text-amber-700"
+              >Balance {{ money(inv.balanceDue ?? 0, inv.currency) }}</p>
             </td>
             <td class="px-4 py-3">
               <span
                 :class="[
-                  'inline-flex rounded-full px-2 py-1 text-xs font-medium',
+                  'inline-flex whitespace-nowrap rounded-full px-2 py-1 text-xs font-medium',
                   statusMeta[inv.status].cls,
                 ]"
-              >{{ statusMeta[inv.status].label }}</span>
+              >{{ invoiceStatusLabel(inv) }}</span>
             </td>
             <td class="px-4 py-3 text-right">
               <div class="flex justify-end gap-2">
@@ -214,12 +243,12 @@ onMounted(() => {
                   class="text-navy-700 hover:underline"
                 >View</a>
                 <button
-                  v-if="canUpdate && inv.status === 'issued'"
+                  v-if="canPay && OPEN.includes(inv.status)"
                   class="text-green-700 hover:underline"
-                  @click="setStatus(inv, 'paid')"
-                >Mark Paid</button>
+                  @click="paying = inv"
+                >Record payment</button>
                 <button
-                  v-if="canUpdate && ['issued', 'draft', 'paid'].includes(inv.status)"
+                  v-if="canUpdate && OPEN.includes(inv.status) && !(inv.amountPaid ?? 0)"
                   class="text-red-700 hover:underline"
                   @click="setStatus(inv, 'void')"
                 >Void</button>
@@ -233,7 +262,7 @@ onMounted(() => {
     <ConfirmDialog
       v-if="showCreate"
       :title="'Create Invoice'"
-      :message="'Generate an invoice from a completed booking.'"
+      :message="'Bill a booking — before the job (the customer pays a deposit against it) or after it.'"
       :confirm-label="'Create'"
       :busy="createBusy"
       @confirm="submitCreate"
@@ -247,23 +276,23 @@ onMounted(() => {
           v-else-if="completedBookings.length === 0"
           class="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-700"
         >
-          No completed bookings yet. Mark a booking as completed from the
-          Bookings page, then return here to create its invoice.
+          No bookings to invoice yet. Create the booking first on the
+          Bookings page.
         </p>
         <select
           v-model="selectedBooking"
           class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
         >
-          <option :value="null" disabled>Select a completed booking</option>
+          <option :value="null" disabled>Select a booking</option>
           <option
             v-for="b in completedBookings"
             :key="b.id"
             :value="b"
-          >{{ b.bookingNumber }} — {{ b.customerName }}</option>
+          >{{ b.bookingNumber }} — {{ b.customerName }} ({{ b.status.replace("_", " ") }})</option>
         </select>
         <label
           class="block text-xs text-gray-500"
-        >Subtotal (empty = catalog price)</label>
+        >Price (empty = booking price, else catalog price)</label>
         <input
           v-model="subtotal"
           type="number"
@@ -274,8 +303,22 @@ onMounted(() => {
         />
         <p v-if="selectedBooking" class="text-xs text-gray-500">
           {{ selectedBooking.serviceType }} at {{ fmtDate(selectedBooking.scheduledFor) }}
+          <span v-if="selectedBooking.price != null"> · booking price {{ selectedBooking.price.toFixed(2) }}</span>
         </p>
+        <VatBreakdown :price="draftPrice" currency="THB" />
       </div>
     </ConfirmDialog>
+
+    <RecordPaymentDialog
+      v-if="paying"
+      :title="`Record payment — ${paying.invoiceNumber}`"
+      :subtitle="paying.customerName"
+      :invoice-id="paying.id"
+      :balance="paying.balanceDue ?? paying.netPayable ?? paying.total"
+      :payable="paying.netPayable ?? paying.total"
+      :currency="paying.currency"
+      @done="onPaid"
+      @cancel="paying = null"
+    />
   </div>
 </template>

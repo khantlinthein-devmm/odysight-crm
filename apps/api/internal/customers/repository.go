@@ -7,7 +7,9 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+
 	"github.com/odysight/crm/pkg/pagination"
+	"github.com/odysight/crm/pkg/rowno"
 )
 
 var ErrNotFound = errors.New("customer not found")
@@ -20,12 +22,13 @@ func NewRepository(pool *pgxpool.Pool) *Repository {
 	return &Repository{pool: pool}
 }
 
-const customerColumns = `id, first_name, last_name, email, phone, address, property_type, area, status, lead_id, portal_enabled, created_at`
+const customerColumns = `id, first_name, last_name, email, phone, address, property_type, area, status, lead_id, portal_enabled, tax_id, tax_branch, withholding_rate::float8, line_user_id <> '', created_at`
 
 func scanCustomer(row pgx.Row) (Customer, error) {
 	var c Customer
 	err := row.Scan(&c.ID, &c.FirstName, &c.LastName, &c.Email, &c.Phone,
-		&c.Address, &c.PropertyType, &c.Area, &c.Status, &c.LeadID, &c.PortalEnabled, &c.CreatedAt)
+		&c.Address, &c.PropertyType, &c.Area, &c.Status, &c.LeadID, &c.PortalEnabled,
+		&c.TaxID, &c.TaxBranch, &c.WithholdingRate, &c.LineLinked, &c.CreatedAt)
 	return c, err
 }
 
@@ -104,12 +107,26 @@ func (r *Repository) GetByID(ctx context.Context, id int64) (Customer, error) {
 	return c, nil
 }
 
+// Create inserts the customer together with its Default Site in one
+// statement, matching the backfill in migration 000025, so every customer
+// has a site to book against.
 func (r *Repository) Create(ctx context.Context, c Customer) (Customer, error) {
 	created, err := scanCustomer(r.pool.QueryRow(ctx,
-		`INSERT INTO customers (first_name, last_name, email, phone, address, property_type, area, status, lead_id)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-		 RETURNING `+customerColumns,
-		c.FirstName, c.LastName, c.Email, c.Phone, c.Address, c.PropertyType, c.Area, c.Status, c.LeadID))
+		`WITH c AS (
+		   INSERT INTO customers (first_name, last_name, email, phone, address, property_type, area, status, lead_id,
+		                          tax_id, tax_branch, withholding_rate, line_user_id)
+		   VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12,
+		           COALESCE((SELECT line_user_id FROM leads WHERE id = $9), ''))
+		   RETURNING *
+		 ), site AS (
+		   INSERT INTO sites (customer_id, name, address, contact_name, phone, email, status, is_default)
+		   SELECT id, 'Default Site', COALESCE(NULLIF(address, ''), 'Address on file'),
+		          TRIM(first_name || ' ' || last_name), COALESCE(phone, ''), COALESCE(email, ''), 'active', TRUE
+		     FROM c
+		 )
+		 SELECT `+customerColumns+` FROM c`,
+		c.FirstName, c.LastName, c.Email, c.Phone, c.Address, c.PropertyType, c.Area, c.Status, c.LeadID,
+		c.TaxID, c.TaxBranch, c.WithholdingRate))
 	if err != nil {
 		return Customer{}, fmt.Errorf("create customer: %w", err)
 	}
@@ -117,14 +134,17 @@ func (r *Repository) Create(ctx context.Context, c Customer) (Customer, error) {
 }
 
 type Patch struct {
-	FirstName    *string
-	LastName     *string
-	Email        *string
-	Phone        *string
-	Address      *string
-	PropertyType *PropertyType
-	Area         *string
-	Status       *Status
+	FirstName       *string
+	LastName        *string
+	Email           *string
+	Phone           *string
+	Address         *string
+	PropertyType    *PropertyType
+	Area            *string
+	Status          *Status
+	TaxID           *string
+	TaxBranch       *string
+	WithholdingRate *float64
 }
 
 func (r *Repository) Update(ctx context.Context, id int64, p Patch) (Customer, error) {
@@ -137,7 +157,13 @@ func (r *Repository) Update(ctx context.Context, id int64, p Patch) (Customer, e
 		status = *p.Status
 	}
 
-	updated, err := scanCustomer(r.pool.QueryRow(ctx,
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return Customer{}, fmt.Errorf("begin tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	updated, err := scanCustomer(tx.QueryRow(ctx,
 		`UPDATE customers SET
 			first_name    = COALESCE($2, first_name),
 			last_name     = COALESCE($3, last_name),
@@ -146,17 +172,59 @@ func (r *Repository) Update(ctx context.Context, id int64, p Patch) (Customer, e
 			address       = COALESCE($6, address),
 			property_type = COALESCE($7, property_type),
 			area          = COALESCE($8, area),
-			status        = COALESCE($9, status)
+			status        = COALESCE($9, status),
+			tax_id        = COALESCE($10, tax_id),
+			tax_branch    = COALESCE($11, tax_branch),
+			withholding_rate = COALESCE($12, withholding_rate)
 		 WHERE id = $1
 		 RETURNING `+customerColumns,
-		id, p.FirstName, p.LastName, p.Email, p.Phone, p.Address, propType, p.Area, status))
+		id, p.FirstName, p.LastName, p.Email, p.Phone, p.Address, propType, p.Area, status,
+		p.TaxID, p.TaxBranch, p.WithholdingRate))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Customer{}, ErrNotFound
 	}
 	if err != nil {
 		return Customer{}, fmt.Errorf("update customer %d: %w", id, err)
 	}
+	if p.FirstName != nil || p.LastName != nil || p.Email != nil {
+		if err := syncCustomerIdentity(ctx, tx, id); err != nil {
+			return Customer{}, err
+		}
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return Customer{}, fmt.Errorf("commit customer %d: %w", id, err)
+	}
 	return updated, nil
+}
+
+// syncCustomerIdentity copies the customer's current name and email onto
+// the records that keep their own copy: bookings, the invoices of those
+// bookings (receipts show the invoice's name) and payments. Runs inside the
+// customer update so everything changes together.
+func syncCustomerIdentity(ctx context.Context, tx pgx.Tx, id int64) error {
+	const who = `(SELECT TRIM(first_name || ' ' || last_name) AS name, COALESCE(email, '') AS email
+	                FROM customers WHERE id = $1)`
+	stmts := []struct{ what, sql string }{
+		{"bookings", `UPDATE bookings b SET customer_name = c.name, customer_email = c.email
+		                FROM ` + who + ` c
+		               WHERE b.customer_id = $1
+		                 AND (b.customer_name IS DISTINCT FROM c.name OR b.customer_email IS DISTINCT FROM c.email)`},
+		{"invoices", `UPDATE invoices i SET customer_name = c.name, customer_email = c.email
+		                FROM ` + who + ` c
+		               WHERE i.booking_id IN (SELECT id FROM bookings WHERE customer_id = $1)
+		                 AND (i.customer_name IS DISTINCT FROM c.name OR i.customer_email IS DISTINCT FROM c.email)`},
+		{"payments", `UPDATE payments p SET customer_name = c.name
+		                FROM ` + who + ` c
+		               WHERE (p.invoice_id IN (SELECT i.id FROM invoices i JOIN bookings b ON b.id = i.booking_id WHERE b.customer_id = $1)
+		                      OR p.booking_number IN (SELECT booking_number FROM bookings WHERE customer_id = $1))
+		                 AND p.customer_name IS DISTINCT FROM c.name`},
+	}
+	for _, st := range stmts {
+		if _, err := tx.Exec(ctx, st.sql, id); err != nil {
+			return fmt.Errorf("sync customer %d name to %s: %w", id, st.what, err)
+		}
+	}
+	return nil
 }
 
 func (r *Repository) Delete(ctx context.Context, id int64) error {
@@ -187,4 +255,9 @@ func (r *Repository) UpdatePortalAuth(ctx context.Context, id int64, passwordHas
 		return Customer{}, fmt.Errorf("update portal auth for customer %d: %w", id, err)
 	}
 	return updated, nil
+}
+
+// Numbers returns the gap-free display number (1…N, oldest first) of each id.
+func (r *Repository) Numbers(ctx context.Context, ids []int64) (map[int64]int, error) {
+	return rowno.Numbers(ctx, r.pool, "customers", ids)
 }

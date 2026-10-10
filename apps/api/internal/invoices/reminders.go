@@ -90,6 +90,10 @@ func (r *ReminderRunner) sendReminders(ctx context.Context) error {
 	if v, ok := all[settings.KeyCompany]; ok {
 		_ = json.Unmarshal(v, &company)
 	}
+	var pay settings.PaymentSettings
+	if v, ok := all[settings.KeyPayments]; ok {
+		_ = json.Unmarshal(v, &pay)
+	}
 
 	sent, noEmail := 0, 0
 	for _, inv := range overdue {
@@ -98,7 +102,8 @@ func (r *ReminderRunner) sendReminders(ctx context.Context) error {
 			noEmail++
 			continue
 		}
-		pdf, err := renderInvoicePDF(inv, company)
+		r.repo.PrintDetailsForBooking(ctx, inv.BookingID).apply(&inv)
+		pdf, err := renderInvoicePDF(inv, company, pay, grace, 0)
 		if err != nil {
 			slog.Warn("overdue reminder pdf render failed", "invoice", inv.InvoiceNumber, "error", err)
 			r.record(ctx, inv, "failed", "pdf render failed")
@@ -134,10 +139,10 @@ func (r *ReminderRunner) record(ctx context.Context, inv Invoice, status, errMsg
 func reminderEmailBody(inv Invoice) string {
 	return `<div style="font-family:Arial,sans-serif;color:#1e293b;max-width:480px;margin:0 auto;">` +
 		`<h2 style="margin-bottom:4px;">Invoice ` + htmlEscape(inv.InvoiceNumber) + ` is overdue</h2>` +
-		`<p style="color:#64748b;margin-top:0;">Booking ` + htmlEscape(inv.BookingNumber) + ` · Total due ` + moneyHTML(inv.Currency, inv.Total) + `</p>` +
+		`<p style="color:#64748b;margin-top:0;">Booking ` + htmlEscape(inv.BookingNumber) + ` · Balance due ` + moneyHTML(inv.Currency, inv.BalanceDue()) + `</p>` +
 		`<table style="width:100%;border:1px solid #e2e8f0;border-radius:8px;font-size:14px;">` +
 		`<tr><td style="padding:8px 12px;">Invoice date</td><td style="padding:8px 12px;font-weight:600;">` + inv.IssuedAt.Format("02/01/2006") + `</td></tr>` +
-		`<tr style="background:#f8fafc;"><td style="padding:8px 12px;">Total due</td><td style="padding:8px 12px;font-weight:700;">` + moneyHTML(inv.Currency, inv.Total) + `</td></tr>` +
+		`<tr style="background:#f8fafc;"><td style="padding:8px 12px;">Balance due</td><td style="padding:8px 12px;font-weight:700;">` + moneyHTML(inv.Currency, inv.BalanceDue()) + `</td></tr>` +
 		`<tr><td style="padding:8px 12px;">Status</td><td style="padding:8px 12px;">Unpaid</td></tr>` +
 		`</table>` +
 		`<p style="color:#475569;font-size:13px;margin-top:16px;">Please arrange payment at your earliest convenience. If you have already paid, please ignore this reminder.</p>` +

@@ -13,7 +13,6 @@ import { getLeads, type Lead } from "../../../lib/leads";
 import { getBookings, type Booking } from "../../../lib/bookings";
 import { showToast } from "../../../lib/toast";
 
-const API_URL = import.meta.env.PUBLIC_API_URL as string | undefined;
 
 const summary = ref<ReportSummary | null>(null);
 const recentLeads = ref<Lead[]>([]);
@@ -307,11 +306,8 @@ onMounted(load);
       v-if="!isAuthError"
       class="mt-2 text-xs text-red-600"
     >
-      API base URL:
-      <code class="rounded bg-red-100 px-1">{{ API_URL ?? "(not set)" }}</code>
-      · Check that the Go API is running (<code>docker compose ps</code>,
-      <code>curl http://localhost:8080/ready</code>) and CORS allows this
-      origin.
+      Could not reach the server. Check your connection and try again; if it
+      keeps failing, contact your administrator.
     </p>
     <div class="mt-4 flex flex-wrap gap-3">
       <button
@@ -599,7 +595,7 @@ onMounted(load);
     </div>
 
     <p class="mt-4 text-xs text-gray-400">
-      Live data from {{ API_URL ?? "the API" }} · updated just now.
+      Updated just now.
     </p>
   </template>
 </template>

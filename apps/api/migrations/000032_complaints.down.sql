@@ -1,0 +1,2 @@
+DROP TABLE IF EXISTS complaints;
+DROP SEQUENCE IF EXISTS complaint_seq;

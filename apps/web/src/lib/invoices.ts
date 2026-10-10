@@ -10,7 +10,7 @@ import {
 } from "./api";
 import { DEFAULT_SETTINGS } from "./settings";
 
-export type InvoiceStatus = "draft" | "issued" | "paid" | "void";
+export type InvoiceStatus = "draft" | "issued" | "partially_paid" | "paid" | "void";
 
 export interface Invoice {
   id: number;
@@ -28,6 +28,16 @@ export interface Invoice {
   total: number;
   currency: string;
   status: InvoiceStatus;
+  /** Tax-invoice snapshot taken when the invoice was issued. */
+  customerTaxId?: string;
+  customerTaxBranch?: string;
+  withholdingRate?: number;
+  withholdingAmount?: number;
+  /** Total minus withholding tax — what the customer actually transfers. */
+  netPayable?: number;
+  /** Cash received so far and what is still owed (partial payments). */
+  amountPaid?: number;
+  balanceDue?: number;
   contractId?: number | null;
   idempotencyKey?: string | null;
   billingPeriodStart?: string | null;
@@ -35,6 +45,36 @@ export interface Invoice {
   issuedAt: string;
   paidAt: string | null;
   createdAt: string;
+}
+
+/** Bookings that can be invoiced: any live booking (deposit before the job
+ * or full bill after it), not cancelled or no-show ones. */
+export function isBillableBooking(status: string): boolean {
+  return status !== "cancelled" && status !== "no_show";
+}
+
+/** Share of the amount due already paid, 0–100. */
+export function paidPercent(inv: Pick<Invoice, "amountPaid" | "netPayable" | "total">): number {
+  const due = inv.netPayable ?? inv.total;
+  if (!due || !inv.amountPaid) return 0;
+  return Math.min(100, Math.round((inv.amountPaid / due) * 100));
+}
+
+/** Staff-facing status: issued = not paid yet, partially_paid = a deposit
+ * (or part) received, with the share paid. */
+export function invoiceStatusLabel(inv: Pick<Invoice, "status" | "amountPaid" | "netPayable" | "total">): string {
+  switch (inv.status) {
+    case "draft":
+      return "Draft";
+    case "issued":
+      return "Unpaid";
+    case "partially_paid":
+      return `Deposit paid · ${paidPercent(inv)}%`;
+    case "paid":
+      return "Paid";
+    case "void":
+      return "Void";
+  }
 }
 
 export type CreateInvoiceInput = {
@@ -130,6 +170,18 @@ export async function getInvoice(id: number): Promise<Invoice> {
   return apiFetch<Invoice>(`/api/v1/invoices/${id}`);
 }
 
+/** Reopens an invoice that was marked paid without any receipt. */
+export async function markInvoiceUnpaid(id: number): Promise<Invoice> {
+  if (USE_MOCKS) {
+    await delay(200);
+    const inv = mockInvoices.find((i) => i.id === id);
+    if (!inv) throw new ApiError(404, `Invoice ${id} not found`);
+    Object.assign(inv, { status: "issued", amountPaid: 0, paidAt: null });
+    return { ...inv };
+  }
+  return apiFetch<Invoice>(`/api/v1/invoices/${id}/mark-unpaid`, { method: "POST" });
+}
+
 export async function createInvoice(input: CreateInvoiceInput): Promise<Invoice> {
   if (USE_MOCKS) {
     await delay(400);
@@ -188,28 +240,52 @@ export async function updateInvoice(
   });
 }
 
-export async function downloadInvoicePdf(id: number, fileName?: string): Promise<void> {
+/**
+ * Object URL of the invoice's PromptPay QR (PNG), or null when PromptPay is
+ * not configured. Callers should URL.revokeObjectURL it when done.
+ */
+export async function getPromptPayQrUrl(id: number): Promise<string | null> {
+  if (USE_MOCKS) return null;
+  const api = getApiBaseUrl();
+  if (!api) return null;
+  const response = await fetch(`${api}/api/v1/invoices/${id}/promptpay.png`, {
+    credentials: "include",
+  });
+  if (!response.ok) return null;
+  return URL.createObjectURL(await response.blob());
+}
+
+/** Deposit share requested before the job (matches the quotation terms). */
+export const DEPOSIT_PERCENT = 50;
+
+/** depositPercent > 0 downloads a deposit request for an unpaid invoice: the
+ * QR and amount due are the deposit, not the full balance. */
+export async function downloadInvoicePdf(id: number, fileName?: string, depositPercent = 0): Promise<void> {
   if (USE_MOCKS) {
     await delay(300);
     return;
   }
   const api = getApiBaseUrl();
   if (!api) throw new ApiError(0, "PUBLIC_API_URL is not configured");
-  const response = await fetch(`${api}/api/v1/invoices/${id}/pdf`, {
-    credentials: "include",
-  });
+  const q = depositPercent > 0 ? `?deposit=${depositPercent}` : "";
+  await downloadPdf(`${api}/api/v1/invoices/${id}/pdf${q}`, fileName || `invoice-${id}.pdf`);
+}
+
+
+export async function downloadPdf(url: string, fileName: string): Promise<void> {
+  const response = await fetch(url, { credentials: "include" });
   if (!response.ok) {
-    throw new ApiError(response.status, "Failed to download invoice PDF");
+    throw new ApiError(response.status, "Failed to download PDF");
   }
   const blob = await response.blob();
-  const url = URL.createObjectURL(blob);
+  const objectUrl = URL.createObjectURL(blob);
   const anchor = document.createElement("a");
-  anchor.href = url;
-  anchor.download = fileName || `invoice-${id}.pdf`;
+  anchor.href = objectUrl;
+  anchor.download = fileName;
   document.body.appendChild(anchor);
   anchor.click();
   anchor.remove();
-  URL.revokeObjectURL(url);
+  URL.revokeObjectURL(objectUrl);
 }
 
 export async function sendInvoiceEmail(id: number): Promise<void> {
@@ -220,4 +296,125 @@ export async function sendInvoiceEmail(id: number): Promise<void> {
   await apiFetch<{ status: string }>(`/api/v1/invoices/${id}/email`, {
     method: "POST",
   });
+}
+export type ReceiptStatus = "valid" | "cancelled";
+
+/** A receipt acknowledges one payment against an invoice. */
+export interface Receipt {
+  id: number;
+  receiptNumber: string;
+  invoiceId: number;
+  invoiceNumber: string;
+  paymentId: number;
+  bookingNumber: string;
+  customerName: string;
+  serviceName: string;
+  /** Cash received. subtotal + vat - wht === amount. */
+  amount: number;
+  subtotal: number;
+  vat: number;
+  wht: number;
+  taxRate: number;
+  withholdingRate: number;
+  currency: string;
+  method: string;
+  reference: string;
+  /** True when issued as a combined receipt / tax invoice. */
+  vatRegistered: boolean;
+  status: ReceiptStatus;
+  paidAt: string;
+  cancelledAt: string | null;
+  createdAt: string;
+}
+
+export type RecordPaymentInput = {
+  /** Defaults to the full balance due. */
+  amount?: number;
+  method: string;
+  reference?: string;
+  /** YYYY-MM-DD; defaults to today. */
+  paidAt?: string;
+};
+
+export type CollectPaymentInput = RecordPaymentInput & {
+  bookingId: number;
+  subtotal?: number;
+};
+
+export type PaymentResult = { invoice: Invoice; receipt: Receipt };
+
+export async function recordInvoicePayment(
+  id: number,
+  input: RecordPaymentInput,
+): Promise<PaymentResult> {
+  return apiFetch<PaymentResult>(`/api/v1/invoices/${id}/payments`, {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+/** Bill a completed booking and record its payment in one step. */
+export async function collectPayment(input: CollectPaymentInput): Promise<PaymentResult> {
+  return apiFetch<PaymentResult>("/api/v1/invoices/collect", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+export type ReceiptListParams = {
+  search?: string;
+  status?: ReceiptStatus;
+  limit?: number;
+  offset?: number;
+};
+
+export async function getReceipts(params: ReceiptListParams = {}): Promise<Receipt[]> {
+  if (USE_MOCKS) {
+    await delay(200);
+    return [];
+  }
+  const json = await apiFetch<Receipt[] | Page<Receipt>>(
+    "/api/v1/receipts" + toQuery(params as Record<string, string | number | undefined>),
+  );
+  return unwrapPage(json);
+}
+
+export async function getInvoiceReceipts(invoiceId: number): Promise<Receipt[]> {
+  if (USE_MOCKS) {
+    await delay(200);
+    return [];
+  }
+  const json = await apiFetch<Receipt[] | Page<Receipt>>(
+    `/api/v1/invoices/${invoiceId}/receipts?limit=100`,
+  );
+  return unwrapPage(json);
+}
+
+export async function downloadReceiptPdf(receipt: Pick<Receipt, "id" | "receiptNumber">): Promise<void> {
+  if (USE_MOCKS) {
+    await delay(300);
+    return;
+  }
+  const api = getApiBaseUrl();
+  if (!api) throw new ApiError(0, "PUBLIC_API_URL is not configured");
+  await downloadPdf(`${api}/api/v1/receipts/${receipt.id}/pdf`, `${receipt.receiptNumber}.pdf`);
+}
+
+/** One receipt for the whole invoice once it is paid in full (not a tax invoice). */
+export async function downloadSummaryReceiptPdf(invoice: Pick<Invoice, "id" | "invoiceNumber">): Promise<void> {
+  if (USE_MOCKS) {
+    await delay(300);
+    return;
+  }
+  const api = getApiBaseUrl();
+  if (!api) throw new ApiError(0, "PUBLIC_API_URL is not configured");
+  await downloadPdf(`${api}/api/v1/invoices/${invoice.id}/receipt-summary/pdf`, `${invoice.invoiceNumber}-receipt.pdf`);
+}
+
+export async function sendReceiptEmail(id: number): Promise<void> {
+  if (USE_MOCKS) {
+    await delay(300);
+    return;
+  }
+  await apiFetch<{ status: string }>(`/api/v1/receipts/${id}/email`, { method: "POST" });
 }

@@ -8,6 +8,8 @@ export type CleanerStatus =
 
 export interface Cleaner {
   id: number;
+  /** Display number: 1…N in creation order, recounted after deletes. */
+  no?: number;
   firstName: string;
   lastName: string;
   phone: string;
@@ -124,6 +126,20 @@ export async function getCleaner(id: number): Promise<Cleaner> {
     return clone(cleaner);
   }
   return apiFetch<Cleaner>(`/api/v1/cleaners/${id}`);
+}
+
+/** The cleaner profile linked to the signed-in login (null when none). */
+export async function getMyCleanerProfile(): Promise<Cleaner | null> {
+  if (USE_MOCKS) {
+    await delay(200);
+    return null;
+  }
+  try {
+    return await apiFetch<Cleaner>("/api/v1/cleaners/me");
+  } catch (err) {
+    if (err instanceof ApiError && err.status === 404) return null;
+    throw err;
+  }
 }
 
 export async function createCleaner(

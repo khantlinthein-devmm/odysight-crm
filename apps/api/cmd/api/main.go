@@ -24,9 +24,11 @@ import (
 	"github.com/odysight/crm/internal/audit"
 	"github.com/odysight/crm/internal/auth"
 	"github.com/odysight/crm/internal/bookings"
+	"github.com/odysight/crm/internal/chat"
 	"github.com/odysight/crm/internal/checklists"
 	"github.com/odysight/crm/internal/cleanerdocs"
 	"github.com/odysight/crm/internal/cleaners"
+	"github.com/odysight/crm/internal/complaints"
 	"github.com/odysight/crm/internal/contracts"
 	"github.com/odysight/crm/internal/customers"
 	"github.com/odysight/crm/internal/expenses"
@@ -36,12 +38,14 @@ import (
 	"github.com/odysight/crm/internal/line"
 	"github.com/odysight/crm/internal/notifications"
 	"github.com/odysight/crm/internal/payments"
+	"github.com/odysight/crm/internal/payroll"
 	"github.com/odysight/crm/internal/portal"
 	"github.com/odysight/crm/internal/quotes"
 	"github.com/odysight/crm/internal/reports"
 	"github.com/odysight/crm/internal/servicerecords"
 	"github.com/odysight/crm/internal/settings"
 	"github.com/odysight/crm/internal/sites"
+	"github.com/odysight/crm/internal/supplies"
 	"github.com/odysight/crm/internal/users"
 	"github.com/odysight/crm/pkg/database"
 	"github.com/odysight/crm/pkg/mailer"
@@ -96,6 +100,11 @@ func run() error {
 	authService := auth.NewServiceWithTTL(authRepo, cfg.JWTSecret, cfg.TokenTTL)
 	authHandler := auth.NewHandler(authService, !cfg.IsDev(), cfg.TokenTTL)
 	authorizer := auth.NewAuthorizer(cfg.JWTSecret)
+	rolePerms := auth.NewPermissionStore(pool)
+	if err := rolePerms.Load(ctx); err != nil {
+		slog.Warn("role permissions: using built-in defaults", "error", err)
+	}
+	go rolePerms.Run(ctx)
 
 	customerRepo := customers.NewRepository(pool)
 	customerService := customers.NewService(customerRepo)
@@ -169,6 +178,8 @@ func run() error {
 	notifHandler := notifications.NewHandler(notifService)
 
 	bookingService := bookings.NewService(bookingRepo, notifService)
+	bookingReminders := bookings.NewReminderRunner(bookingService, 30*time.Minute)
+	go bookingReminders.Run(ctx)
 	bookingHandler := bookings.NewHandler(bookingService)
 
 	portalRepo := portal.NewRepository(pool)
@@ -190,7 +201,7 @@ func run() error {
 	paymentHandler := payments.NewHandler(paymentService)
 
 	attendanceRepo := attendance.NewRepository(pool)
-	attendanceService := attendance.NewService(attendanceRepo)
+	attendanceService := attendance.NewService(attendanceRepo).WithGeofence(settingsService.CheckInRadius)
 	attendanceHandler := attendance.NewHandler(attendanceService)
 
 	expenseRepo := expenses.NewRepository(pool)
@@ -206,11 +217,25 @@ func run() error {
 	contractHandler := contracts.NewHandler(contractService)
 
 	quoteRepo := quotes.NewRepository(pool)
-	quoteService := quotes.NewService(quoteRepo)
+	quoteService := quotes.NewService(quoteRepo).WithDocuments(invoiceService)
 	quoteHandler := quotes.NewHandler(quoteService)
 
 	checklistRepo := checklists.NewRepository(pool)
 	checklistService := checklists.NewService(checklistRepo)
+	// Push services want a contact for the sender; the app's own origin is it.
+	pushSubject := "mailto:admin@localhost"
+	for _, o := range cfg.CORSOrigins {
+		if strings.HasPrefix(o, "https://") {
+			pushSubject = o
+			break
+		}
+	}
+	chatRepo := chat.NewRepository(pool)
+	chatFiles := chat.NewFileStore(cfg.UploadDir)
+	chatEvents := chat.NewBroker(pool)
+	go chatEvents.Run(ctx)
+	chatService := chat.NewService(chatRepo, chatFiles, pushSubject, chatEvents)
+	go chat.NewCleaner(chatRepo, chatFiles).Run(ctx)
 	checklistHandler := checklists.NewHandler(checklistService, checklists.NewPhotoStore(cfg.UploadDir, cfg.MaxUploadMB))
 
 	// Cleaner passport / work-permit documents. Scans and numbers are sealed
@@ -240,6 +265,11 @@ func run() error {
 	// comes from the X-Line-Signature HMAC. With no channel secret
 	// configured the endpoint answers 503 and everything else is unchanged.
 	lineClient := line.NewClient(cfg.LineChannelAccessToken)
+	if cfg.LineChannelAccessToken != "" {
+		// Push booking confirmations, reminders, job-done notices and
+		// invoices to customers who reached us through LINE.
+		notifService.WithLINE(lineClient)
+	}
 	lineService := line.NewService(leadRepo, lineClient, lineClient, cfg.LineAutoReply)
 	lineHandler := line.NewHandler(lineService, cfg.LineChannelSecret)
 
@@ -248,7 +278,7 @@ func run() error {
 	r.Use(middleware.RealIP)
 	r.Use(middleware.Logger)
 	r.Use(middleware.Recoverer)
-	r.Use(middleware.Timeout(cfg.RequestTimeout))
+	r.Use(apmw.TimeoutExcept(cfg.RequestTimeout, chatEventsPath))
 	r.Use(apmw.SecurityHeaders)
 	r.Use(apmw.CORS(cfg.CORSOrigins))
 	r.Use(apmw.RateLimit(cfg.RateLimitRPM, cfg.TrustedProxyIPs))
@@ -281,6 +311,7 @@ func run() error {
 			r.Mount("/bookings", bookings.Routes(bookingHandler, authorizer))
 			r.Mount("/service-records", servicerecords.Routes(serviceRecordHandler, authorizer))
 			r.Mount("/invoices", invoices.Routes(invoiceHandler, authorizer))
+			r.Mount("/receipts", invoices.ReceiptRoutes(invoiceHandler, authorizer))
 			r.Mount("/payments", payments.Routes(paymentHandler, authorizer))
 			r.Mount("/reports", reports.Routes(reportHandler, authorizer))
 			r.Mount("/users", users.Routes(userHandler, authorizer))
@@ -289,11 +320,16 @@ func run() error {
 			r.Mount("/feedback", feedback.Routes(feedbackHandler, authorizer))
 			r.Mount("/notifications", notifications.Routes(notifHandler, authorizer))
 			r.Mount("/attendance", attendance.Routes(attendanceHandler, authorizer))
+			r.Mount("/payroll", payroll.Routes(payroll.NewHandler(payroll.NewService(payroll.NewRepository(pool))), authorizer))
+			r.Mount("/complaints", complaints.Routes(complaints.NewHandler(complaints.NewService(complaints.NewRepository(pool), bookingService)), authorizer))
+			r.Mount("/supplies", supplies.Routes(supplies.NewHandler(supplies.NewService(supplies.NewRepository(pool))), authorizer))
 			r.Mount("/expenses", expenses.Routes(expenseHandler, authorizer))
 			r.Mount("/sites", sites.Routes(siteHandler, authorizer))
 			r.Mount("/contracts", contracts.Routes(contractHandler, authorizer))
 			r.Mount("/quotes", quotes.Routes(quoteHandler, authorizer))
 			r.Mount("/checklists", checklists.Routes(checklistHandler, authorizer))
+			r.Mount("/chat", chat.Routes(chat.NewHandler(chatService), authorizer))
+			r.Mount("/roles", auth.RoleRoutes(rolePerms, authorizer))
 		})
 	})
 
@@ -338,6 +374,11 @@ func auditLog(pool *pgxpool.Pool, timeout time.Duration) func(http.Handler) http
 			if r.URL.Path == "/api/v1/cleaners/me/location" {
 				return
 			}
+			// Chat traffic (messages, read receipts, typing) is private and
+			// frequent; only changes to chat groups are audited.
+			if strings.HasPrefix(r.URL.Path, "/api/v1/chat/") && !strings.HasPrefix(r.URL.Path, "/api/v1/chat/groups") {
+				return
+			}
 			id, _ := auth.IdentityFromContext(r.Context())
 			ctx, cancel := context.WithTimeout(context.Background(), timeout)
 			defer cancel()
@@ -361,3 +402,6 @@ func resourceIDFromPath(path string) *int64 {
 	}
 	return &id
 }
+
+// chatEventsPath is the long-lived SSE stream, exempt from the request timeout.
+const chatEventsPath = "/api/v1/chat/events"

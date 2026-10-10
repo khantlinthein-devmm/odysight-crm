@@ -15,6 +15,29 @@ import {
   paymentMethodLabel,
 } from "../../../lib/settings";
 import PaymentForm from "./PaymentForm.vue";
+import ConfirmDialog from "../ui/ConfirmDialog.vue";
+import { getSessionUser } from "../../../lib/auth";
+import { hasPermission } from "../../../lib/roles";
+
+const canUpdate = hasPermission(getSessionUser()?.role ?? "viewer", "payments.update");
+const refunding = ref<Payment | null>(null);
+const refundBusy = ref(false);
+
+async function confirmRefund() {
+  const payment = refunding.value;
+  if (!payment) return;
+  refundBusy.value = true;
+  try {
+    const updated = await updatePayment(payment.id, { status: "refunded" });
+    payments.value = payments.value.map((p) => (p.id === updated.id ? updated : p));
+    showToast("Payment refunded — its receipt is cancelled", "success");
+  } catch (err) {
+    showToast(err instanceof Error && err.message ? err.message : "Failed to refund payment", "error");
+  } finally {
+    refundBusy.value = false;
+    refunding.value = null;
+  }
+}
 
 const statusLabels: Record<PaymentStatus, string> = {
   pending: "Pending",
@@ -107,8 +130,8 @@ async function handleSave(input: CreatePaymentInput) {
     payments.value = [created, ...payments.value];
     showToast("Payment created", "success");
     closeForm();
-  } catch {
-    showToast("Failed to create payment", "error");
+  } catch (err) {
+    showToast(err instanceof Error && err.message ? err.message : "Failed to create payment", "error");
   } finally {
     saving.value = false;
   }
@@ -120,9 +143,9 @@ async function markAsPaid(payment: Payment) {
     payments.value = payments.value.map((p) =>
       p.id === updated.id ? updated : p,
     );
-    showToast(`Invoice ${updated.invoiceNumber} marked as paid`, "success");
-  } catch {
-    showToast("Failed to update payment", "error");
+    showToast(`Payment for ${updated.invoiceNumber} marked as paid`, "success");
+  } catch (err) {
+    showToast(err instanceof Error && err.message ? err.message : "Failed to update payment", "error");
   }
 }
 
@@ -276,6 +299,14 @@ onMounted(fetchPayments);
               >
                 Mark as paid
               </button>
+              <button
+                v-else-if="payment.status === 'paid' && canUpdate"
+                type="button"
+                class="rounded-lg px-2 py-1 text-sm font-medium text-red-600 hover:bg-red-50"
+                @click="refunding = payment"
+              >
+                Refund
+              </button>
               <span v-else class="px-2 py-1 text-sm text-gray-400">—</span>
             </td>
           </tr>
@@ -310,4 +341,14 @@ onMounted(fetchPayments);
   </div>
 
   <PaymentForm v-if="showForm" @save="handleSave" @cancel="closeForm" />
+
+  <ConfirmDialog
+    v-if="refunding"
+    title="Refund payment"
+    :message="`Refund ${refunding.customerName}'s payment of ${formatMoney(refunding.amount, refunding.currency)} (${refunding.invoiceNumber})? Its receipt is cancelled and the amount goes back onto the invoice balance.`"
+    confirm-label="Refund"
+    :busy="refundBusy"
+    @confirm="confirmRefund"
+    @cancel="refunding = null"
+  />
 </template>

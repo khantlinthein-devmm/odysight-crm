@@ -21,6 +21,7 @@ const form = ref<BookingSettings>({
   workStart: "08:00",
   workEnd: "18:00",
   holidays: [],
+  checkInRadiusMeters: 0,
 });
 const holidaysText = ref("");
 const loading = ref(true);
@@ -30,7 +31,7 @@ const error = ref<string | null>(null);
 onMounted(async () => {
   try {
     const b = (await getWorkspaceSettings()).booking;
-    form.value = { ...b, holidays: [...(b.holidays ?? [])] };
+    form.value = { ...b, holidays: [...(b.holidays ?? [])], checkInRadiusMeters: b.checkInRadiusMeters ?? 0 };
     holidaysText.value = form.value.holidays.join("\n");
   } catch (e) {
     error.value = e instanceof Error ? e.message : "Failed to load";
@@ -84,6 +85,14 @@ const input =
       <label class="block">
         <span class="mb-1 block text-xs font-medium text-gray-600">Working hours end</span>
         <input v-model="form.workEnd" type="time" :class="input" :disabled="!editable" />
+      </label>
+      <label class="block sm:col-span-2">
+        <span class="mb-1 block text-xs font-medium text-gray-600">Cleaner check-in radius (metres, 0 = off)</span>
+        <input v-model.number="form.checkInRadiusMeters" type="number" min="0" max="5000" step="50" :class="input" :disabled="!editable" />
+        <span class="mt-1 block text-xs text-gray-400">
+          When set, a cleaner's phone must be within this distance of one of the day's job sites to check in.
+          Only sites with GPS coordinates are checked — add them under Sites. 200–300 m suits most buildings.
+        </span>
       </label>
       <label class="block sm:col-span-2">
         <span class="mb-1 block text-xs font-medium text-gray-600">Holidays (one YYYY-MM-DD per line)</span>

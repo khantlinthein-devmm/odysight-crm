@@ -79,6 +79,13 @@ func (a *Authorizer) Authenticate(next http.Handler) http.Handler {
 			return
 		}
 
+		// An office user who has not set up 2FA yet may only use the
+		// sign-in/2FA endpoints until they do.
+		if setup, _ := claims[claimMFASetup].(bool); setup && !strings.HasPrefix(r.URL.Path, "/api/v1/auth/") {
+			response.Error(w, http.StatusForbidden, "two-factor setup required")
+			return
+		}
+
 		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), identityKey, Identity{
 			UserID: userID,
 			Role:   role,
@@ -117,6 +124,11 @@ func (a *Authorizer) Require(p Permission) func(http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 		})
 	}
+}
+
+// WithIdentity returns ctx carrying identity, as Authenticate would set it.
+func WithIdentity(ctx context.Context, identity Identity) context.Context {
+	return context.WithValue(ctx, identityKey, identity)
 }
 
 // IdentityFromContext extracts the authenticated Identity, if present.

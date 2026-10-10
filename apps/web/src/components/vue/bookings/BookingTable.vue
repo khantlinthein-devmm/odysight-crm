@@ -11,19 +11,32 @@ import {
 } from "../../../lib/bookings";
 import { showToast } from "../../../lib/toast";
 import { isOfflineQueued } from "../../../lib/offline";
-import { getWorkspaceSettings, serviceLabel } from "../../../lib/settings";
+import { currencyCode, getWorkspaceSettings, serviceLabel } from "../../../lib/settings";
 import { getSessionUser } from "../../../lib/auth";
 import { hasPermission } from "../../../lib/roles";
-import { createInvoice } from "../../../lib/invoices";
+import { createInvoice, getInvoices, isBillableBooking, type PaymentResult } from "../../../lib/invoices";
+import { ApiError } from "../../../lib/api";
+import RecordPaymentDialog from "../invoices/RecordPaymentDialog.vue";
 import BookingForm from "./BookingForm.vue";
+import { getQuote, updateQuote, type Quote } from "../../../lib/quotes";
+import { getCustomer } from "../../../lib/customers";
 import ConfirmDialog from "../ui/ConfirmDialog.vue";
 import MyJobs from "./MyJobs.vue";
 
 const role = getSessionUser()?.role;
 const canCreate = computed(() => hasPermission(role, "bookings.create"));
-const canEdit = computed(() => hasPermission(role, "bookings.update"));
+// Cleaners hold bookings.update only to progress their own jobs (My Jobs);
+// the full edit form is office-only and the API rejects it for them.
+const canEdit = computed(() => role !== "CLEANER" && hasPermission(role, "bookings.update"));
 const canDelete = computed(() => hasPermission(role, "bookings.delete"));
 const canInvoice = computed(() => hasPermission(role, "invoices.create"));
+const canCollect = computed(() => canInvoice.value && hasPermission(role, "payments.create"));
+const collecting = ref<Booking | null>(null);
+
+function onCollected(result: PaymentResult) {
+  collecting.value = null;
+  showToast(`Paid — receipt ${result.receipt.receiptNumber} issued`, "success");
+}
 
 const statusLabels: Record<BookingStatus, string> = {
   pending: "Pending",
@@ -141,6 +154,42 @@ function openEdit(booking: Booking) {
 function closeForm() {
   showForm.value = false;
   editingBooking.value = undefined;
+  prefill.value = undefined;
+  fromQuote.value = null;
+}
+
+// "Create booking" on an accepted quote lands here with ?fromQuote=<id>:
+// open a new booking filled in from the quote, then link the two.
+const prefill = ref<Partial<CreateBookingInput> | undefined>(undefined);
+const fromQuote = ref<Quote | null>(null);
+
+async function openFromQuote() {
+  const id = Number(new URLSearchParams(window.location.search).get("fromQuote"));
+  if (!id) return;
+  history.replaceState(null, "", window.location.pathname);
+  try {
+    const q = await getQuote(id);
+    const c = await getCustomer(q.customerId).catch(() => null);
+    const inclusive = await getWorkspaceSettings()
+      .then((st) => !!st.company.pricesIncludeVat)
+      .catch(() => false);
+    const lines = q.items.map((i) => `${i.serviceName} × ${i.quantity}`).join(", ");
+    prefill.value = {
+      customerId: q.customerId,
+      customerName: c ? `${c.firstName} ${c.lastName}`.trim() : "",
+      customerEmail: c?.email ?? "",
+      siteId: q.siteId ?? null,
+      // The booking price is read the way Settings says prices are entered:
+      // with VAT inside (ราคารวม VAT) it is what the customer pays.
+      price: inclusive ? q.total : q.subtotal,
+      notes: `Quote ${q.quoteNumber}: ${lines}`.slice(0, 500),
+    };
+    fromQuote.value = q;
+    editingBooking.value = undefined;
+    showForm.value = true;
+  } catch (err) {
+    showToast(err instanceof Error ? err.message : "Could not load the quote", "error");
+  }
 }
 
 async function handleSave(input: CreateBookingInput) {
@@ -169,7 +218,13 @@ async function handleSave(input: CreateBookingInput) {
     } else {
       const created = await createBooking(input);
       bookings.value = [created, ...bookings.value];
-      showToast("Booking created", "success");
+      const q = fromQuote.value;
+      if (q) {
+        await updateQuote(q.id, { convertedBookingId: created.id }).catch(() => {
+          showToast(`Booking created, but it could not be linked to quote ${q.quoteNumber}`, "info");
+        });
+      }
+      showToast(q ? `Booking created from quote ${q.quoteNumber}` : "Booking created", "success");
     }
     closeForm();
   } catch (err) {
@@ -192,8 +247,11 @@ async function handleDelete() {
       (b) => b.id !== pendingDelete.value!.id,
     );
     showToast("Booking deleted", "success");
-  } catch {
-    showToast("Failed to delete booking", "error");
+  } catch (err) {
+    showToast(
+      err instanceof Error ? `Failed to delete booking: ${err.message}` : "Failed to delete booking",
+      "error",
+    );
   } finally {
     deleting.value = false;
     pendingDelete.value = null;
@@ -207,6 +265,15 @@ async function handleInvoice(booking: Booking) {
     showToast("Invoice created", "success");
     window.location.href = `/invoices/${created.id}`;
   } catch (err) {
+    // One active invoice per booking: open the existing one instead.
+    if (err instanceof ApiError && err.status === 409) {
+      const found = (await getInvoices({ search: booking.bookingNumber }).catch(() => []))
+        .find((i) => i.bookingNumber === booking.bookingNumber && i.status !== "void");
+      if (found) {
+        window.location.href = `/invoices/${found.id}`;
+        return;
+      }
+    }
     const message =
       err instanceof Error && err.message
         ? err.message
@@ -232,7 +299,10 @@ function formatDate(iso: string): string {
   return new Date(iso).toLocaleString();
 }
 
-onMounted(fetchBookings);
+onMounted(() => {
+  void fetchBookings();
+  void openFromQuote();
+});
 </script>
 
 <template>
@@ -377,8 +447,18 @@ onMounted(fetchBookings);
             Edit
           </button>
           <button
-            v-if="canInvoice && booking.status === 'completed'"
+            v-if="canCollect && booking.status === 'completed'"
             type="button"
+            title="Customer pays now: bill the job and issue the receipt"
+            class="rounded-lg bg-green-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-green-700"
+            @click="collecting = booking"
+          >
+            Collect payment
+          </button>
+          <button
+            v-if="canInvoice && isBillableBooking(booking.status)"
+            type="button"
+            :title="booking.status === 'completed' ? 'Customer pays later: send an invoice' : 'Invoice before the job, e.g. for a 50% deposit'"
             :disabled="invoicingId === booking.id"
             class="rounded-lg bg-navy-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-navy-700 disabled:opacity-50"
             @click="handleInvoice(booking)"
@@ -435,8 +515,20 @@ onMounted(fetchBookings);
     v-if="showForm"
     :key="editingBooking?.id ?? 'new'"
     :booking="editingBooking"
+    :prefill="prefill"
     @save="handleSave"
     @cancel="closeForm"
+  />
+
+  <RecordPaymentDialog
+    v-if="collecting"
+    :title="`Collect payment — ${collecting.bookingNumber}`"
+    :subtitle="`${collecting.customerName}${collecting.price != null ? ` · price ${collecting.price.toFixed(2)} before VAT` : ''}`"
+    :booking-id="collecting.id"
+    :price="collecting.price ?? null"
+    :currency="currencyCode()"
+    @done="onCollected"
+    @cancel="collecting = null"
   />
 
   <ConfirmDialog

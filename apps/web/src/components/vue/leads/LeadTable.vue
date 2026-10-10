@@ -137,8 +137,11 @@ async function handleDelete() {
     await deleteLead(pendingDelete.value.id);
     leads.value = leads.value.filter((l) => l.id !== pendingDelete.value!.id);
     showToast("Lead deleted", "success");
-  } catch {
-    showToast("Failed to delete lead", "error");
+  } catch (err) {
+    showToast(
+      err instanceof Error ? `Failed to delete lead: ${err.message}` : "Failed to delete lead",
+      "error",
+    );
   } finally {
     deleting.value = false;
     pendingDelete.value = null;
@@ -221,7 +224,7 @@ onMounted(fetchLeads);
         <div class="flex flex-1 flex-col p-5">
           <div class="flex items-center justify-between gap-2">
             <span class="rounded bg-gray-900 px-2 py-0.5 font-mono text-[11px] font-semibold tracking-wide text-white">
-              #{{ lead.id }}
+              #{{ lead.no || lead.id }}
             </span>
             <span
               :class="[
@@ -336,8 +339,8 @@ onMounted(fetchLeads);
 
   <ConfirmDialog
     v-if="pendingDelete"
-    title="Delete lead"
-    :message="`Are you sure you want to delete ${pendingDelete.firstName} ${pendingDelete.lastName}? This action cannot be undone.`"
+    :title="`${pendingDelete.firstName} ${pendingDelete.lastName}`.trim()"
+    message="Are you sure you want to delete this lead? This action cannot be undone."
     confirm-label="Delete lead"
     :busy="deleting"
     @confirm="handleDelete"

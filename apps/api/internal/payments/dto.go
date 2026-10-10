@@ -9,6 +9,7 @@ import (
 
 type PaymentDTO struct {
 	ID            int64     `json:"id"`
+	InvoiceID     *int64    `json:"invoiceId"`
 	InvoiceNumber string    `json:"invoiceNumber"`
 	CustomerName  string    `json:"customerName"`
 	BookingNumber string    `json:"bookingNumber"`
@@ -16,12 +17,14 @@ type PaymentDTO struct {
 	Currency      string    `json:"currency"`
 	Method        string    `json:"method"`
 	Status        string    `json:"status"`
+	Reference     string    `json:"reference"`
 	CreatedAt     time.Time `json:"createdAt"`
 }
 
 func toDTO(p Payment) PaymentDTO {
 	return PaymentDTO{
 		ID:            p.ID,
+		InvoiceID:     p.InvoiceID,
 		InvoiceNumber: p.InvoiceNumber,
 		CustomerName:  p.CustomerName,
 		BookingNumber: p.BookingNumber,
@@ -29,6 +32,7 @@ func toDTO(p Payment) PaymentDTO {
 		Currency:      p.Currency,
 		Method:        string(p.Method),
 		Status:        string(p.Status),
+		Reference:     p.Reference,
 		CreatedAt:     p.CreatedAt,
 	}
 }
@@ -40,6 +44,7 @@ type CreatePaymentRequest struct {
 	Currency      string  `json:"currency"`
 	Method        string  `json:"method"`
 	Status        string  `json:"status"`
+	Reference     string  `json:"reference"`
 }
 
 func (r *CreatePaymentRequest) Validate() error {
@@ -50,6 +55,7 @@ func (r *CreatePaymentRequest) Validate() error {
 	}
 	r.Currency = strings.ToUpper(strings.TrimSpace(r.Currency))
 	r.Method = strings.TrimSpace(r.Method)
+	r.Reference = strings.TrimSpace(r.Reference)
 
 	if r.CustomerName == "" {
 		return response.NewAPIError(400, "customerName is required")

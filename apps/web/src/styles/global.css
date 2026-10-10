@@ -25,7 +25,7 @@
   --color-green-900: #14532d;
   --color-green-950: #052e16;
 
-  --font-sans: "Poppins", "Prompt", "Inter", "Segoe UI", "Helvetica Neue", Arial, system-ui,
+  --font-sans: "Poppins", "Noto Sans Thai", "Noto Sans Myanmar", "Prompt", "Inter", "Segoe UI", "Helvetica Neue", Arial, system-ui,
     -apple-system, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol",
     sans-serif;
 }
@@ -118,5 +118,46 @@ select[multiple] {
   .field-tap-sm {
     min-height: 40px;
     min-width: 40px;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+ * App shell: desktop sidebar is 16rem, or a 4.5rem icon rail when the user
+ * collapses it (html.sidebar-collapsed, remembered in localStorage).
+ * ------------------------------------------------------------------------- */
+@media (min-width: 1024px) {
+  .app-content {
+    padding-left: 16rem;
+    transition: padding-left 150ms ease;
+  }
+  #app-sidebar {
+    transition: width 150ms ease, transform 200ms ease;
+  }
+  html.sidebar-collapsed .app-content {
+    padding-left: 4.5rem;
+  }
+  html.sidebar-collapsed #app-sidebar {
+    width: 4.5rem;
+  }
+  html.sidebar-collapsed #app-sidebar .nav-label {
+    display: none;
+  }
+  html.sidebar-collapsed #app-sidebar .sidebar-brand,
+  html.sidebar-collapsed #app-sidebar .sidebar-collapse-btn,
+  html.sidebar-collapsed #app-sidebar .sidebar-user {
+    justify-content: center;
+    padding-left: 0;
+    padding-right: 0;
+  }
+  html.sidebar-collapsed #app-sidebar .sidebar-user > div {
+    justify-content: center;
+  }
+  html.sidebar-collapsed #app-sidebar .nav-link {
+    justify-content: center;
+    padding-left: 0;
+    padding-right: 0;
+  }
+  html.sidebar-collapsed #app-sidebar .sidebar-collapse-icon {
+    transform: rotate(180deg);
   }
 }

@@ -15,10 +15,10 @@ import (
 )
 
 var (
-	ErrNotFound               = errors.New("invoice not found")
-	ErrBookingNotFound        = errors.New("booking not found")
-	ErrBookingNotCompleted    = errors.New("booking not completed")
-	ErrActiveInvoiceExists    = errors.New("booking has an active invoice")
+	ErrNotFound            = errors.New("invoice not found")
+	ErrBookingNotFound     = errors.New("booking not found")
+	ErrBookingNotBillable  = errors.New("booking is cancelled")
+	ErrActiveInvoiceExists = errors.New("booking has an active invoice")
 )
 
 type Repository struct {
@@ -29,8 +29,11 @@ func NewRepository(pool *pgxpool.Pool) *Repository {
 	return &Repository{pool: pool}
 }
 
-const invoiceColumns = `id, invoice_number, booking_id, booking_number, customer_name, customer_email, address,
+// booking_id is NULL once the booking is deleted (the invoice keeps its
+// booking number snapshot); it reads as 0 then.
+const invoiceColumns = `id, invoice_number, COALESCE(booking_id, 0), booking_number, customer_name, customer_email, address,
 	service_type, service_name, subtotal, tax_rate, tax_amount, total, currency, status,
+	customer_tax_id, customer_tax_branch, withholding_rate::float8, withholding_amount::float8, amount_paid::float8,
 	contract_id, idempotency_key, billing_period_start, billing_period_end,
 	issued_at, paid_at, created_at, updated_at`
 
@@ -39,7 +42,8 @@ func scanInvoice(row pgx.Row) (Invoice, error) {
 	err := row.Scan(&inv.ID, &inv.InvoiceNumber, &inv.BookingID, &inv.BookingNumber,
 		&inv.CustomerName, &inv.CustomerEmail, &inv.Address, &inv.ServiceType, &inv.ServiceName,
 		&inv.Subtotal, &inv.TaxRate, &inv.TaxAmount, &inv.Total, &inv.Currency,
-		&inv.Status, &inv.ContractID, &inv.IdempotencyKey, &inv.BillingPeriodStart, &inv.BillingPeriodEnd,
+		&inv.Status, &inv.CustomerTaxID, &inv.CustomerTaxBranch, &inv.WithholdingRate, &inv.WithholdingAmount, &inv.AmountPaid,
+		&inv.ContractID, &inv.IdempotencyKey, &inv.BillingPeriodStart, &inv.BillingPeriodEnd,
 		&inv.IssuedAt, &inv.PaidAt, &inv.CreatedAt, &inv.UpdatedAt)
 	return inv, err
 }
@@ -119,17 +123,23 @@ func (r *Repository) GetActiveByBookingID(ctx context.Context, bookingID int64) 
 func (r *Repository) BookingForInvoice(ctx context.Context, bookingID int64) (BookingSnapshot, error) {
 	var b BookingSnapshot
 	err := r.pool.QueryRow(ctx,
-		`SELECT id, booking_number, customer_name, customer_email, address, service_type, duration_minutes, status
-		   FROM bookings WHERE id = $1`, bookingID).
+		`SELECT b.id, b.booking_number, b.customer_name, b.customer_email, b.address, b.service_type,
+		        b.duration_minutes, b.status,
+		        COALESCE(c.tax_id, ''), COALESCE(c.tax_branch, ''), COALESCE(c.withholding_rate, 0)::float8,
+		        b.price::float8
+		   FROM bookings b LEFT JOIN customers c ON c.id = b.customer_id
+		  WHERE b.id = $1`, bookingID).
 		Scan(&b.ID, &b.BookingNumber, &b.CustomerName, &b.CustomerEmail, &b.Address, &b.ServiceType,
-			&b.DurationMinutes, &b.Status)
+			&b.DurationMinutes, &b.Status, &b.CustomerTaxID, &b.CustomerTaxBranch, &b.WithholdingRate, &b.Price)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return BookingSnapshot{}, ErrBookingNotFound
 	}
 	if err != nil {
 		return BookingSnapshot{}, fmt.Errorf("load booking %d for invoice: %w", bookingID, err)
 	}
-	b.Completed = b.Status == "completed"
+	// Any live booking can be billed: before the job (a deposit invoice) or
+	// after it. Cancelled and no-show bookings cannot.
+	b.Billable = b.Status != "cancelled" && b.Status != "no_show"
 	return b, nil
 }
 
@@ -153,13 +163,16 @@ func (r *Repository) Create(ctx context.Context, inv Invoice) (Invoice, error) {
 	created, err := scanInvoice(r.pool.QueryRow(ctx,
 		`INSERT INTO invoices (invoice_number, booking_id, booking_number, customer_name, customer_email, address,
 			service_type, service_name, subtotal, tax_rate, tax_amount, total, currency, status,
-			contract_id, idempotency_key, billing_period_start, billing_period_end)
-		 VALUES (`+invNumberExpr+`, $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
+			contract_id, idempotency_key, billing_period_start, billing_period_end,
+			customer_tax_id, customer_tax_branch, withholding_rate, withholding_amount)
+		 VALUES (`+invNumberExpr+`, $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17,
+			$18, $19, $20, $21)
 		 RETURNING `+invoiceColumns,
 		inv.BookingID, inv.BookingNumber, inv.CustomerName, inv.CustomerEmail, inv.Address,
 		inv.ServiceType, inv.ServiceName, inv.Subtotal, inv.TaxRate, inv.TaxAmount,
 		inv.Total, inv.Currency, inv.Status,
-		inv.ContractID, inv.IdempotencyKey, inv.BillingPeriodStart, inv.BillingPeriodEnd))
+		inv.ContractID, inv.IdempotencyKey, inv.BillingPeriodStart, inv.BillingPeriodEnd,
+		inv.CustomerTaxID, inv.CustomerTaxBranch, inv.WithholdingRate, inv.WithholdingAmount))
 	if err != nil {
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
@@ -173,17 +186,25 @@ func (r *Repository) Create(ctx context.Context, inv Invoice) (Invoice, error) {
 	return created, nil
 }
 
-// Stack: status -> allowed next statuses.
+// allowedTransitions lists the manual status changes. Payment statuses
+// (partially_paid, paid) are only ever reached by recording a payment, and an
+// invoice that has received money must have it refunded before it is voided.
 var allowedTransitions = map[Status][]Status{
-	StatusDraft:  {StatusIssued, StatusVoid},
-	StatusIssued: {StatusPaid, StatusVoid},
-	StatusPaid:   {StatusVoid},
-	StatusVoid:   {},
+	StatusDraft:         {StatusIssued, StatusVoid},
+	StatusIssued:        {StatusVoid},
+	StatusPartiallyPaid: {StatusVoid},
+	StatusPaid:          {StatusVoid},
+	StatusVoid:          {},
 }
 
 // Update applies a status transition and returns the updated invoice.
 func (r *Repository) Update(ctx context.Context, id int64, next Status) (Invoice, error) {
-	current, err := r.GetByID(ctx, id)
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return Invoice{}, fmt.Errorf("begin tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	current, err := lockInvoice(ctx, tx, id)
 	if err != nil {
 		return Invoice{}, err
 	}
@@ -205,23 +226,17 @@ func (r *Repository) Update(ctx context.Context, id int64, next Status) (Invoice
 	if !permitted {
 		return Invoice{}, fmt.Errorf("cannot change invoice %d from %q to %q", id, current.Status, next)
 	}
+	if next == StatusVoid && current.AmountPaid > 0 {
+		return Invoice{}, ErrInvoiceHasPaid
+	}
 
-	var paidAt any
-	if next == StatusPaid {
-		paidAt = time.Now()
-	}
-	updated, err := scanInvoice(r.pool.QueryRow(ctx,
-		`UPDATE invoices SET
-			status = $2,
-			paid_at = COALESCE($3, paid_at)
-		 WHERE id = $1
-		 RETURNING `+invoiceColumns,
-		id, next, paidAt))
-	if errors.Is(err, pgx.ErrNoRows) {
-		return Invoice{}, ErrNotFound
-	}
+	updated, err := scanInvoice(tx.QueryRow(ctx,
+		`UPDATE invoices SET status = $2 WHERE id = $1 RETURNING `+invoiceColumns, id, next))
 	if err != nil {
 		return Invoice{}, fmt.Errorf("update invoice %d: %w", id, err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return Invoice{}, fmt.Errorf("commit invoice %d: %w", id, err)
 	}
 	return updated, nil
 }
@@ -231,7 +246,7 @@ func (r *Repository) Update(ctx context.Context, id int64, next Status) (Invoice
 func (r *Repository) OverdueIssued(ctx context.Context, before time.Time) ([]Invoice, error) {
 	rows, err := r.pool.Query(ctx,
 		`SELECT `+invoiceColumns+` FROM invoices
-		 WHERE status = 'issued' AND paid_at IS NULL AND reminder_sent_at IS NULL AND issued_at < $1
+		 WHERE status IN ('issued', 'partially_paid') AND reminder_sent_at IS NULL AND issued_at < $1
 		   AND customer_email IS NOT NULL AND customer_email <> ''
 		 ORDER BY issued_at ASC
 		 LIMIT 100`, before)
@@ -261,27 +276,86 @@ func (r *Repository) MarkReminderSent(ctx context.Context, id int64) error {
 	return nil
 }
 
-// MarkPaidForBooking settles any active invoices for a booking (payments hook).
-func (r *Repository) MarkPaidForBooking(ctx context.Context, bookingNumber string) error {
-	if _, err := r.pool.Exec(ctx,
-		`UPDATE invoices SET status = 'paid', paid_at = COALESCE(paid_at, now())
-		 WHERE booking_number = $1 AND status IN ('draft', 'issued')`,
-		bookingNumber); err != nil {
-		return fmt.Errorf("mark invoices paid for %s: %w", bookingNumber, err)
-	}
-	return nil
-}
-
-// GetByBookingNumber returns the most recent invoice for a booking.
-func (r *Repository) GetByBookingNumber(ctx context.Context, bookingNumber string) (Invoice, error) {
-	inv, err := scanInvoice(r.pool.QueryRow(ctx,
-		`SELECT `+invoiceColumns+` FROM invoices
-		 WHERE booking_number = $1 ORDER BY id DESC LIMIT 1`, bookingNumber))
+// LineContactForBooking returns the booking customer's name and LINE user id
+// ("" when the customer has no LINE chat).
+func (r *Repository) LineContactForBooking(ctx context.Context, bookingID int64) (string, string, error) {
+	var name, lineID string
+	err := r.pool.QueryRow(ctx,
+		`SELECT TRIM(c.first_name || ' ' || c.last_name), c.line_user_id
+		   FROM bookings b JOIN customers c ON c.id = b.customer_id
+		  WHERE b.id = $1`, bookingID).Scan(&name, &lineID)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return Invoice{}, ErrNotFound
+		return "", "", nil
 	}
 	if err != nil {
-		return Invoice{}, fmt.Errorf("get invoice for booking %s: %w", bookingNumber, err)
+		return "", "", fmt.Errorf("line contact for booking %d: %w", bookingID, err)
 	}
-	return inv, nil
+	return name, lineID, nil
+}
+
+// PrintDetails are looked up when a document is printed: the booking's work
+// site and the customer's phone and current tax ID.
+type PrintDetails struct {
+	SiteName  string
+	Phone     string
+	TaxID     string
+	TaxBranch string
+}
+
+// PrintDetailsForBooking loads the print details for a booking (zero values
+// when the booking or its customer is gone).
+func (r *Repository) PrintDetailsForBooking(ctx context.Context, bookingID int64) PrintDetails {
+	var d PrintDetails
+	_ = r.pool.QueryRow(ctx,
+		`SELECT COALESCE(s.name, ''), COALESCE(c.phone, ''), COALESCE(c.tax_id, ''), COALESCE(c.tax_branch, '')
+		   FROM bookings b
+		   LEFT JOIN sites s ON s.id = b.site_id
+		   LEFT JOIN customers c ON c.id = b.customer_id
+		  WHERE b.id = $1`, bookingID).Scan(&d.SiteName, &d.Phone, &d.TaxID, &d.TaxBranch)
+	return d
+}
+
+// apply adds the print details to an invoice. The customer's tax ID is
+// filled in only when the invoice was issued before it was recorded.
+func (d PrintDetails) apply(inv *Invoice) {
+	inv.SiteName, inv.CustomerPhone = d.SiteName, d.Phone
+	if digitsOf(inv.CustomerTaxID) == "" && digitsOf(d.TaxID) != "" {
+		inv.CustomerTaxID, inv.CustomerTaxBranch = d.TaxID, d.TaxBranch
+	}
+}
+
+// MarkUnpaid clears the paid amount of an invoice that was marked paid
+// without a receipt (before receipts existed, or by hand in an older
+// version). Invoices with receipts must have those payments cancelled
+// instead, so the receipts and the ledger stay consistent.
+func (r *Repository) MarkUnpaid(ctx context.Context, id int64) (Invoice, error) {
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return Invoice{}, fmt.Errorf("begin tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	current, err := lockInvoice(ctx, tx, id)
+	if err != nil {
+		return Invoice{}, err
+	}
+	if current.Status != StatusPaid && current.Status != StatusPartiallyPaid {
+		return Invoice{}, ErrInvoiceNotPaid
+	}
+	var receipts int
+	if err := tx.QueryRow(ctx,
+		`SELECT COUNT(*) FROM receipts WHERE invoice_id = $1 AND status = 'valid'`, id).Scan(&receipts); err != nil {
+		return Invoice{}, fmt.Errorf("count receipts of invoice %d: %w", id, err)
+	}
+	if receipts > 0 {
+		return Invoice{}, ErrInvoiceHasReceipts
+	}
+	updated, err := scanInvoice(tx.QueryRow(ctx,
+		`UPDATE invoices SET status = 'issued', amount_paid = 0, paid_at = NULL WHERE id = $1 RETURNING `+invoiceColumns, id))
+	if err != nil {
+		return Invoice{}, fmt.Errorf("mark invoice %d unpaid: %w", id, err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return Invoice{}, fmt.Errorf("commit: %w", err)
+	}
+	return updated, nil
 }

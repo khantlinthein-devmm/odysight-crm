@@ -61,6 +61,7 @@ func (s *Service) Create(ctx context.Context, req CreateBookingRequest) (Booking
 		ServiceType:     ServiceType(req.ServiceType),
 		ScheduledFor:    scheduledFor,
 		DurationMinutes: req.DurationMinutes,
+		Price:           req.Price,
 		Address:         req.Address,
 		Area:            req.Area,
 		AssignedCleaner: req.AssignedCleaner,
@@ -103,7 +104,9 @@ func (s *Service) notifyCreated(b Booking) {
 		}
 		phone := ""
 		if b.CustomerID != nil {
-			phone, _ = s.repo.CustomerPhone(ctx, *b.CustomerID)
+			c, _ := s.repo.CustomerContact(ctx, *b.CustomerID)
+			phone = c.Phone
+			s.notifier.EmitLINE(ctx, notifications.EventBookingCreated, c.LineUserID, c.Name, lineConfirmationText(b))
 		}
 		phone = strings.TrimSpace(phone)
 		if phone == "" {
@@ -184,6 +187,12 @@ func (s *Service) Update(ctx context.Context, id int64, req UpdateBookingRequest
 	}
 	if req.DurationMinutes != nil {
 		patch.DurationMinutes = req.DurationMinutes
+	}
+	if req.Price != nil {
+		patch.Price = req.Price
+	}
+	if req.ClearPrice != nil && *req.ClearPrice {
+		patch.ClearPrice = true
 	}
 	if req.Address != nil {
 		v := strings.TrimSpace(*req.Address)
@@ -281,6 +290,7 @@ func (s *Service) Update(ctx context.Context, id int64, req UpdateBookingRequest
 	if err != nil {
 		return Booking{}, mapRepoError(err)
 	}
+	s.notifyCompletedOnce(updated)
 	return updated, nil
 }
 

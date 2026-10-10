@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from "vue";
-import { createSite, deleteSite, getSites, type Site } from "../../../lib/sites";
+import { createSite, deleteSite, getSites, updateSite, type Site } from "../../../lib/sites";
+import { getPosition, parseCoordinates } from "../../../lib/geo";
 import { getCustomers, type Customer } from "../../../lib/customers";
 import { showToast } from "../../../lib/toast";
 
@@ -124,6 +125,41 @@ async function handleDelete(id: number) {
   }
 }
 
+// GPS pin: cleaners' check-in is geofenced against it (Settings → Booking).
+const pinText = ref("");
+const pinSaving = ref(false);
+
+async function savePin(coords: { latitude: number; longitude: number } | null) {
+  const s = selected.value;
+  if (!s) return;
+  if (!coords) {
+    showToast("Paste a Google Maps link or \"lat, lng\" (e.g. 13.7462, 100.5347)", "error");
+    return;
+  }
+  pinSaving.value = true;
+  try {
+    const updated = await updateSite(s.id, coords);
+    sites.value = sites.value.map((x) => (x.id === updated.id ? updated : x));
+    pinText.value = "";
+    showToast("GPS pin saved", "success");
+  } catch (err) {
+    showToast(err instanceof Error ? err.message : "Failed to save GPS pin", "error");
+  } finally {
+    pinSaving.value = false;
+  }
+}
+
+async function pinFromHere() {
+  pinSaving.value = true;
+  const fix = await getPosition();
+  pinSaving.value = false;
+  if (!fix) {
+    showToast("Could not get your location — allow location access and try again", "error");
+    return;
+  }
+  await savePin({ latitude: fix.latitude, longitude: fix.longitude });
+}
+
 onMounted(fetchSites);
 </script>
 
@@ -237,6 +273,28 @@ onMounted(fetchSites);
               <p class="mt-1 line-clamp-2 text-xs text-gray-600">{{ selected.address }}</p>
               <p v-if="selected.phone" class="mt-0.5 text-xs text-gray-500">{{ selected.phone }}</p>
             </div>
+          </div>
+          <div class="mt-3 rounded-lg bg-gray-50 p-2 ring-1 ring-gray-200">
+            <p class="text-[11px] font-semibold text-gray-600">
+              GPS pin
+              <span v-if="selected.latitude != null && selected.longitude != null" class="font-normal text-emerald-700">
+                · {{ selected.latitude.toFixed(5) }}, {{ selected.longitude.toFixed(5) }}
+              </span>
+              <span v-else class="font-normal text-amber-700">· not set (needed for check-in radius)</span>
+            </p>
+            <div class="mt-1.5 flex gap-1.5">
+              <input
+                v-model="pinText"
+                type="text"
+                placeholder="Paste Maps link or lat, lng"
+                class="min-w-0 flex-1 rounded-md border border-gray-200 bg-white px-2 py-1 text-xs"
+                @keydown.enter.prevent="savePin(parseCoordinates(pinText))"
+              />
+              <button type="button" :disabled="pinSaving" class="rounded-md bg-navy-600 px-2 py-1 text-xs font-semibold text-white disabled:opacity-50" @click="savePin(parseCoordinates(pinText))">Save</button>
+            </div>
+            <button type="button" :disabled="pinSaving" class="mt-1.5 text-[11px] font-semibold text-navy-700 hover:underline disabled:opacity-50" @click="pinFromHere">
+              📍 Use my current location (when on site)
+            </button>
           </div>
           <div class="mt-3 grid grid-cols-2 gap-2">
             <a :href="directionsUrl" target="_blank" rel="noopener" class="rounded-lg bg-navy-600 px-3 py-2 text-center text-xs font-semibold text-white transition hover:bg-navy-700">

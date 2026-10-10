@@ -6,13 +6,15 @@ import AuthLayout from "../layouts/AuthLayout.astro";
   <div class="w-full max-w-md px-4">
     <div class="mb-8 flex flex-col items-center gap-3">
       <img
-        src="/logo/logo.png"
-        alt="Odysight logo"
-        class="h-16 w-16 rounded-2xl bg-white object-contain shadow-sm ring-1 ring-gray-200"
+        src="/logo/logo-full.png"
+        alt="Smile Clean Thailand — One Stop Cleaning Services"
+        width="600"
+        height="740"
+        class="h-44 w-auto object-contain"
       />
       <div class="text-center">
-        <h1 class="text-2xl font-semibold text-gray-900">Odysight CRM</h1>
-        <p class="mt-1 text-sm text-gray-500">
+        <h1 class="sr-only">Smile Clean Thailand</h1>
+        <p class="text-sm text-gray-500">
           Sign in to your account to continue
         </p>
       </div>
@@ -96,6 +98,52 @@ import AuthLayout from "../layouts/AuthLayout.astro";
       </div>
     </form>
 
+    <form
+      id="mfa-form"
+      class="hidden rounded-xl border border-gray-200 bg-white p-6 shadow-sm"
+    >
+      <div class="space-y-4">
+        <div>
+          <h2 class="text-base font-semibold text-gray-900">Two-factor authentication</h2>
+          <p id="mfa-hint" class="mt-1 text-sm text-gray-500">
+            Open your authenticator app and enter the 6-digit code for Smile Clean.
+          </p>
+        </div>
+        <input
+          id="mfa-code"
+          name="code"
+          type="text"
+          inputmode="numeric"
+          autocomplete="one-time-code"
+          maxlength="11"
+          required
+          placeholder="123 456"
+          class="w-full rounded-lg border border-gray-200 bg-white px-3 py-3 text-center text-2xl tracking-[0.3em] text-gray-900 placeholder-gray-300 focus:border-gray-500 focus:outline-none focus:ring-1 focus:ring-navy-500"
+        />
+        <label class="flex items-center gap-2 text-sm text-gray-600">
+          <input id="mfa-remember" type="checkbox" class="rounded border-gray-300 text-navy-600 focus:ring-navy-500" />
+          Remember this device for 30 days
+        </label>
+        <p
+          id="mfa-error"
+          class="hidden rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700"
+        ></p>
+        <button
+          id="mfa-submit"
+          type="submit"
+          class="w-full rounded-lg bg-navy-600 py-2.5 text-sm font-semibold text-white hover:bg-navy-700 disabled:opacity-50"
+        >
+          Verify
+        </button>
+        <div class="flex items-center justify-between text-sm">
+          <button id="mfa-backup" type="button" class="font-medium text-navy-600 hover:text-navy-700">
+            Use a backup code
+          </button>
+          <button id="mfa-back" type="button" class="text-gray-500 hover:text-gray-800">← Back</button>
+        </div>
+      </div>
+    </form>
+
     <p class="mt-6 text-center text-sm text-gray-500">
       <a href="/" class="font-medium text-gray-600 hover:text-gray-900"
         >← Back to welcome page</a
@@ -111,7 +159,7 @@ import AuthLayout from "../layouts/AuthLayout.astro";
   </div>
 
   <script>
-    import { login } from "../lib/auth";
+    import { login, verifyLogin, type AuthUser } from "../lib/auth";
 
     const form = document.getElementById(
       "login-form",
@@ -127,6 +175,56 @@ import AuthLayout from "../layouts/AuthLayout.astro";
       errorEl.classList.remove("hidden");
     }
 
+    const mfaForm = document.getElementById("mfa-form") as HTMLFormElement | null;
+    const mfaCode = document.getElementById("mfa-code") as HTMLInputElement | null;
+    const mfaError = document.getElementById("mfa-error");
+    const mfaSubmit = document.getElementById("mfa-submit") as HTMLButtonElement | null;
+    const mfaRemember = document.getElementById("mfa-remember") as HTMLInputElement | null;
+    const mfaHint = document.getElementById("mfa-hint");
+    let mfaToken = "";
+    let backupMode = false;
+
+    function goHome(user: AuthUser) {
+      const params = new URLSearchParams(window.location.search);
+      // Field cleaners work from their job list, not the office dashboard.
+      const home = user?.role === "CLEANER" ? "/bookings" : "/dashboard";
+      window.location.href = params.get("next") ?? home;
+    }
+
+    document.getElementById("mfa-backup")?.addEventListener("click", () => {
+      backupMode = !backupMode;
+      if (!mfaCode || !mfaHint) return;
+      mfaCode.value = "";
+      mfaCode.inputMode = backupMode ? "text" : "numeric";
+      mfaCode.placeholder = backupMode ? "xxxxx-xxxxx" : "123 456";
+      mfaHint.textContent = backupMode
+        ? "Enter one of your backup codes. Each code works once."
+        : "Open your authenticator app and enter the 6-digit code for Smile Clean.";
+      mfaCode.focus();
+    });
+
+    document.getElementById("mfa-back")?.addEventListener("click", () => {
+      mfaForm?.classList.add("hidden");
+      form?.classList.remove("hidden");
+      if (submitBtn) submitBtn.disabled = false;
+    });
+
+    mfaForm?.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      if (!mfaCode || !mfaError || !mfaSubmit) return;
+      mfaError.classList.add("hidden");
+      mfaSubmit.disabled = true;
+      try {
+        const user = await verifyLogin(mfaToken, mfaCode.value, mfaRemember?.checked ?? false);
+        goHome(user);
+      } catch (err) {
+        mfaError.textContent = err instanceof Error ? err.message : "Verification failed";
+        mfaError.classList.remove("hidden");
+        mfaSubmit.disabled = false;
+        mfaCode.select();
+      }
+    });
+
     form?.addEventListener("submit", async (event) => {
       event.preventDefault();
       if (!errorEl || !submitBtn) return;
@@ -138,9 +236,19 @@ import AuthLayout from "../layouts/AuthLayout.astro";
       const password = String(data.get("password") ?? "");
 
       try {
-        await login(email, password);
-        const params = new URLSearchParams(window.location.search);
-        window.location.href = params.get("next") ?? "/dashboard";
+        const outcome = await login(email, password);
+        if (outcome.mfaToken) {
+          mfaToken = outcome.mfaToken;
+          form.classList.add("hidden");
+          mfaForm?.classList.remove("hidden");
+          mfaCode?.focus();
+          return;
+        }
+        if (outcome.mfaSetupRequired) {
+          window.location.href = "/setup-2fa";
+          return;
+        }
+        goHome(outcome.user);
       } catch (err) {
         showError(err instanceof Error ? err.message : "Sign in failed");
         submitBtn.disabled = false;

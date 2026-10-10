@@ -25,20 +25,28 @@ const { title = "Dashboard" } = Astro.props;
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="default" />
     <link rel="manifest" href="/manifest.webmanifest" />
-    <link rel="apple-touch-icon" href="/logo/logo.png" />
+    <link rel="apple-touch-icon" href="/logo/apple-touch-icon.png" />
     <meta name="generator" content={Astro.generator} />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
-      href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap"
+      href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&family=Noto+Sans+Thai:wght@400;600&family=Noto+Sans+Myanmar:wght@400;600&display=swap"
       rel="stylesheet"
     />
-    <title>{title} · Odysight CRM</title>
+    <title>{title} · Smile Clean</title>
+    <script is:inline>
+      // Apply the saved desktop sidebar width before first paint (no jump).
+      try {
+        if (localStorage.getItem("smileclean.sidebar") === "collapsed") {
+          document.documentElement.classList.add("sidebar-collapsed");
+        }
+      } catch (e) {}
+    </script>
   </head>
   <body class="bg-gray-50 text-gray-900 antialiased">
     <Sidebar />
 
-    <div class="flex min-h-screen flex-col lg:pl-64">
+    <div class="app-content flex min-h-screen flex-col">
       <Header title={title} />
       <main class="mobile-nav-clearance flex-1 p-4 sm:p-6 lg:pb-6">
         <slot />
@@ -50,7 +58,22 @@ const { title = "Dashboard" } = Astro.props;
     <BottomNav client:load />
     <script>
       import { initOffline } from "../lib/offline";
+      import { refreshSessionUser } from "../lib/auth";
       initOffline();
+      // An admin may have changed this role's permissions: re-read them and,
+      // if they differ, reload once so menus and buttons match.
+      refreshSessionUser()
+        .then((changed) => {
+          if (changed && !sessionStorage.getItem("perm-reload")) {
+            sessionStorage.setItem("perm-reload", "1");
+            window.location.reload();
+          } else {
+            sessionStorage.removeItem("perm-reload");
+          }
+        })
+        .catch(() => {
+          /* offline or signed out: keep what we have */
+        });
     </script>
   </body>
 </html>

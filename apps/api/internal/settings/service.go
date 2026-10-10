@@ -299,3 +299,16 @@ func validateKey(key string, raw json.RawMessage) error {
 	}
 	return response.NewAPIError(400, "unknown setting: "+key)
 }
+
+// CheckInRadius returns the cleaner check-in geofence in metres (0 = off).
+func (s *Service) CheckInRadius(ctx context.Context) int {
+	all, err := s.GetAll(ctx)
+	if err != nil {
+		return 0
+	}
+	var b BookingDefaults
+	if raw, ok := all[KeyBooking]; ok {
+		_ = json.Unmarshal(raw, &b)
+	}
+	return b.CheckInRadiusMeters
+}

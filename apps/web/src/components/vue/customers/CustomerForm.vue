@@ -45,6 +45,9 @@ const form = reactive<CreateCustomerInput>({
   area: props.customer?.area ?? "",
   status: props.customer?.status ?? "active",
   leadId: props.customer?.leadId ?? null,
+  taxId: props.customer?.taxId ?? "",
+  taxBranch: props.customer?.taxBranch ?? "",
+  withholdingRate: props.customer?.withholdingRate ?? 0,
 });
 
 const leads = ref<Lead[]>([]);
@@ -91,6 +94,10 @@ const errors = computed(() => {
   if (!form.phone.trim()) e.phone = "Phone is required";
   if (!form.address.trim()) e.address = "Address is required";
   if (!form.area.trim()) e.area = "Area is required";
+  const taxDigits = (form.taxId ?? "").replace(/\D/g, "");
+  if (taxDigits && taxDigits.length !== 13) e.taxId = "Tax ID must be 13 digits";
+  const wht = Number(form.withholdingRate ?? 0);
+  if (Number.isNaN(wht) || wht < 0 || wht > 15) e.withholdingRate = "Withholding must be 0–15%";
   return e;
 });
 
@@ -127,15 +134,16 @@ onMounted(loadLeads);
   >
     <div class="absolute inset-0 bg-black/50" @click="emit('cancel')"></div>
 
-    <div class="relative w-full max-w-lg rounded-xl bg-white shadow-xl">
-      <div class="border-b border-gray-200 px-6 py-4">
+    <!-- Capped to the viewport: the fields scroll, header and buttons stay put. -->
+    <div class="relative flex max-h-[calc(100dvh-2rem)] w-full max-w-2xl flex-col rounded-xl bg-white shadow-xl">
+      <div class="shrink-0 border-b border-gray-200 px-6 py-4">
         <h2 :id="titleId" class="text-base font-semibold text-gray-900">
           {{ customer ? "Edit Customer" : "New Customer" }}
         </h2>
       </div>
 
-      <form @submit.prevent="handleSubmit">
-        <div class="grid grid-cols-1 gap-4 px-6 py-5 sm:grid-cols-2">
+      <form class="flex min-h-0 flex-1 flex-col" @submit.prevent="handleSubmit">
+        <div class="grid min-h-0 flex-1 grid-cols-1 gap-4 overflow-y-auto px-6 py-5 sm:grid-cols-2">
           <div v-if="isCreating" class="sm:col-span-2">
             <label
               class="mb-1 block text-sm font-medium text-gray-700"
@@ -327,9 +335,33 @@ onMounted(loadLeads);
               </option>
             </select>
           </div>
+
+          <div class="sm:col-span-2 border-t border-gray-100 pt-3">
+            <p class="text-sm font-medium text-gray-700">Tax invoice details <span class="font-normal text-gray-400">(companies only)</span></p>
+          </div>
+          <div>
+            <label class="mb-1 block text-sm font-medium text-gray-700" for="c-taxId">Tax ID (เลขประจำตัวผู้เสียภาษี)</label>
+            <input id="c-taxId" v-model="form.taxId" type="text" inputmode="numeric" maxlength="17" placeholder="13 digits" :class="inputClassFor('taxId')" />
+            <p v-if="submitted && errors.taxId" class="mt-1 text-xs text-red-600">{{ errors.taxId }}</p>
+          </div>
+          <div>
+            <label class="mb-1 block text-sm font-medium text-gray-700" for="c-taxBranch">Branch (00000 = head office)</label>
+            <input id="c-taxBranch" v-model="form.taxBranch" type="text" inputmode="numeric" maxlength="5" placeholder="00000" :class="inputClass" />
+          </div>
+          <div>
+            <label class="mb-1 block text-sm font-medium text-gray-700" for="c-wht">Withholding tax % (หัก ณ ที่จ่าย)</label>
+            <select id="c-wht" v-model.number="form.withholdingRate" :class="inputClassFor('withholdingRate')">
+              <option :value="0">None — individual</option>
+              <option :value="1">1%</option>
+              <option :value="2">2%</option>
+              <option :value="3">3% — company (services)</option>
+              <option :value="5">5%</option>
+            </select>
+            <p v-if="submitted && errors.withholdingRate" class="mt-1 text-xs text-red-600">{{ errors.withholdingRate }}</p>
+          </div>
         </div>
 
-        <div class="flex justify-end gap-3 border-t border-gray-200 px-6 py-4">
+        <div class="flex shrink-0 justify-end gap-3 border-t border-gray-200 px-6 py-4">
           <button
             type="button"
             class="rounded-lg border border-gray-200 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100"

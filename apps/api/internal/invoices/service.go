@@ -14,6 +14,7 @@ import (
 	"github.com/odysight/crm/internal/settings"
 	"github.com/odysight/crm/pkg/mailer"
 	"github.com/odysight/crm/pkg/pagination"
+	"github.com/odysight/crm/pkg/promptpay"
 	"github.com/odysight/crm/pkg/response"
 )
 
@@ -47,12 +48,19 @@ func (s *Service) Get(ctx context.Context, id int64) (Invoice, error) {
 }
 
 // PDF renders the branded invoice PDF, incorporating company settings.
-func (s *Service) PDF(ctx context.Context, id int64) (Invoice, []byte, error) {
+// PDF renders the invoice. depositPct > 0 renders a deposit request for an
+// unpaid invoice instead (QR and amount due = the deposit).
+func (s *Service) PDF(ctx context.Context, id int64, depositPct int) (Invoice, []byte, error) {
 	inv, err := s.repo.GetByID(ctx, id)
 	if err != nil {
 		return Invoice{}, nil, mapRepoError(err)
 	}
-	pdfBytes, err := s.renderPDF(ctx, inv)
+	if depositPct > 0 && (inv.Status != StatusIssued || inv.AmountPaid > 0) {
+		return Invoice{}, nil, response.NewAPIError(422, "a deposit request is only for an unpaid invoice")
+	}
+	company, pay := s.billingSettings(ctx)
+	s.repo.PrintDetailsForBooking(ctx, inv.BookingID).apply(&inv)
+	pdfBytes, err := renderInvoicePDF(inv, company, pay, s.dueDays(ctx), depositPct)
 	if err != nil {
 		return Invoice{}, nil, err
 	}
@@ -61,19 +69,72 @@ func (s *Service) PDF(ctx context.Context, id int64) (Invoice, []byte, error) {
 
 // renderPDF renders an invoice PDF with company branding from settings.
 func (s *Service) renderPDF(ctx context.Context, inv Invoice) ([]byte, error) {
+	company, pay := s.billingSettings(ctx)
+	s.repo.PrintDetailsForBooking(ctx, inv.BookingID).apply(&inv)
+	return renderInvoicePDF(inv, company, pay, s.dueDays(ctx), 0)
+}
+
+// dueDays is the payment term printed on invoices: the number of days after
+// which an unpaid invoice counts as overdue (Settings → Notifications).
+func (s *Service) dueDays(ctx context.Context) int {
+	days := settings.DefaultOverdueReminderDays
+	if raw, err := s.settings.GetAll(ctx); err == nil {
+		var n settings.NotificationSettings
+		if v, ok := raw[settings.KeyNotifications]; ok && json.Unmarshal(v, &n) == nil && n.OverdueReminderDays >= 1 {
+			days = n.OverdueReminderDays
+		}
+	}
+	return days
+}
+
+// billingSettings loads the company identity and payment details printed on
+// invoices. Missing or unreadable settings fall back to zero values.
+func (s *Service) billingSettings(ctx context.Context) (settings.Company, settings.PaymentSettings) {
 	var company settings.Company
+	var pay settings.PaymentSettings
 	if raw, err := s.settings.GetAll(ctx); err == nil {
 		if v, ok := raw[settings.KeyCompany]; ok {
 			_ = json.Unmarshal(v, &company)
 		}
+		if v, ok := raw[settings.KeyPayments]; ok {
+			_ = json.Unmarshal(v, &pay)
+		}
 	}
-	return renderInvoicePDF(inv, company)
+	return company, pay
 }
 
-// Create bills a completed booking, pricing it from the service catalog.
+// PromptPayQR renders the PromptPay QR (PNG) for an invoice's balance due. It
+// fails when no PromptPay ID is configured.
+func (s *Service) PromptPayQR(ctx context.Context, id int64) ([]byte, error) {
+	inv, err := s.repo.GetByID(ctx, id)
+	if err != nil {
+		return nil, mapRepoError(err)
+	}
+	_, pay := s.billingSettings(ctx)
+	if strings.TrimSpace(pay.PromptPayID) == "" {
+		return nil, response.NewAPIError(404, "PromptPay is not configured; set it under Settings → Payments")
+	}
+	if inv.BalanceDue() <= 0 {
+		return nil, response.NewAPIError(404, "nothing is due on this invoice")
+	}
+	payload, err := promptpay.Payload(pay.PromptPayID, inv.BalanceDue())
+	if err != nil {
+		return nil, response.NewAPIError(422, err.Error())
+	}
+	return promptpay.PNG(payload, 512)
+}
+
+// Create bills a booking, pricing it from the service catalog. It can be
+// issued before the job so the customer can pay a deposit against it.
 // When req.IdempotencyKey is set, an existing invoice for that key is
 // returned instead of creating a duplicate (contract billing retries).
 func (s *Service) Create(ctx context.Context, req CreateInvoiceRequest) (Invoice, error) {
+	return s.create(ctx, req, true)
+}
+
+// create bills the booking; notify=false skips the invoice email/LINE (used
+// when the customer pays on the spot and only needs the receipt).
+func (s *Service) create(ctx context.Context, req CreateInvoiceRequest, notify bool) (Invoice, error) {
 	if err := req.Validate(); err != nil {
 		return Invoice{}, err
 	}
@@ -88,11 +149,11 @@ func (s *Service) Create(ctx context.Context, req CreateInvoiceRequest) (Invoice
 	if err != nil {
 		return Invoice{}, mapRepoError(err)
 	}
-	if !b.Completed {
-		return Invoice{}, response.NewAPIError(422, "only completed bookings can be invoiced")
+	if !b.Billable {
+		return Invoice{}, response.NewAPIError(422, "a cancelled or no-show booking cannot be invoiced")
 	}
 
-	catalog, taxRate, currency, err := s.pricing(ctx)
+	catalog, taxRate, inclusive, currency, err := s.pricing(ctx)
 	if err != nil {
 		return Invoice{}, err
 	}
@@ -104,28 +165,46 @@ func (s *Service) Create(ctx context.Context, req CreateInvoiceRequest) (Invoice
 		basePrice = item.BasePrice
 	}
 
+	// Price: an explicit amount, else the booking's agreed price, else the
+	// catalog base price.
 	subtotal := basePrice
+	if b.Price != nil {
+		subtotal = *b.Price
+	}
 	if req.Subtotal != nil {
 		subtotal = *req.Subtotal
 	}
-	taxAmount := round2(subtotal * taxRate / 100)
+	if round2(subtotal) <= 0 {
+		return Invoice{}, response.NewAPIError(422,
+			"this booking has no price: set a price on the booking or enter an amount")
+	}
+	subtotal, taxAmount, total := splitVAT(subtotal, taxRate, inclusive)
+	// Withholding tax is computed on the pre-VAT amount (Thai WHT rules).
+	whtRate := b.WithholdingRate
+	if req.WithholdingRate != nil {
+		whtRate = *req.WithholdingRate
+	}
 
 	inv := Invoice{
-		BookingID:     b.ID,
-		BookingNumber: b.BookingNumber,
-		CustomerName:  b.CustomerName,
-		CustomerEmail: b.CustomerEmail,
-		Address:       b.Address,
-		ServiceType:   b.ServiceType,
-		ServiceName:   serviceName,
-		Subtotal:      round2(subtotal),
-		TaxRate:       taxRate,
-		TaxAmount:     taxAmount,
-		Total:         round2(subtotal + taxAmount),
-		Currency:      currency,
-		Status:        StatusIssued,
-		ContractID:    req.ContractID,
-		IdempotencyKey: req.IdempotencyKey,
+		BookingID:         b.ID,
+		BookingNumber:     b.BookingNumber,
+		CustomerName:      b.CustomerName,
+		CustomerEmail:     b.CustomerEmail,
+		Address:           b.Address,
+		ServiceType:       b.ServiceType,
+		ServiceName:       serviceName,
+		Subtotal:          round2(subtotal),
+		TaxRate:           taxRate,
+		TaxAmount:         taxAmount,
+		Total:             total,
+		Currency:          currency,
+		Status:            StatusIssued,
+		CustomerTaxID:     b.CustomerTaxID,
+		CustomerTaxBranch: b.CustomerTaxBranch,
+		WithholdingRate:   whtRate,
+		WithholdingAmount: round2(round2(subtotal) * whtRate / 100),
+		ContractID:        req.ContractID,
+		IdempotencyKey:    req.IdempotencyKey,
 	}
 	if req.BillingPeriodStart != nil {
 		if v, err := time.Parse("2006-01-02", strings.TrimSpace(*req.BillingPeriodStart)); err == nil {
@@ -148,10 +227,9 @@ func (s *Service) Create(ctx context.Context, req CreateInvoiceRequest) (Invoice
 		}
 		return Invoice{}, mapRepoError(err)
 	}
-	s.deliver(ctx, created, "Invoice",
-		fmt.Sprintf("Your invoice %s for booking %s is ready. Total: %s %s.",
-			created.InvoiceNumber, created.BookingNumber, created.Currency,
-			fmt.Sprintf("%0.2f", created.Total)))
+	if notify {
+		s.deliver(ctx, created)
+	}
 	return created, nil
 }
 
@@ -164,17 +242,23 @@ func (s *Service) Update(ctx context.Context, id int64, req UpdateInvoiceRequest
 	}
 
 	next := Status(strings.TrimSpace(*req.Status))
+	if next == StatusPaid || next == StatusPartiallyPaid {
+		return Invoice{}, response.NewAPIError(422, "record a payment to mark an invoice paid")
+	}
 	updated, err := s.repo.Update(ctx, id, next)
 	if err != nil {
 		return Invoice{}, mapUpdateError(err)
 	}
-	if updated.Status == StatusPaid {
-		s.deliver(ctx, updated, "Receipt",
-			fmt.Sprintf("Payment received for invoice %s (booking %s). Total: %s %s.",
-				updated.InvoiceNumber, updated.BookingNumber, updated.Currency,
-				fmt.Sprintf("%0.2f", updated.Total)))
-	}
 	return updated, nil
+}
+
+// MarkUnpaid reopens an invoice that was marked paid without a receipt.
+func (s *Service) MarkUnpaid(ctx context.Context, id int64) (Invoice, error) {
+	inv, err := s.repo.MarkUnpaid(ctx, id)
+	if err != nil {
+		return Invoice{}, mapRepoError(err)
+	}
+	return inv, nil
 }
 
 // SendEmail explicitly (re)sends the invoice/Pdf to the customer.
@@ -200,86 +284,84 @@ func (s *Service) SendEmail(ctx context.Context, id int64) error {
 	err = mail.Send(ctx, inv.CustomerEmail, "Invoice "+inv.InvoiceNumber,
 		invoiceEmailBody(inv), &mailer.Attachment{FileName: inv.InvoiceNumber + ".pdf", Data: pdf})
 	if err != nil {
-		s.record(ctx, notifications.EventInvoiceIssued, inv, "failed", err.Error())
+		s.record(ctx, notifications.EventInvoiceIssued, inv.CustomerEmail, "Invoice "+inv.InvoiceNumber, "failed", err.Error())
 		return fmt.Errorf("send invoice %d email: %w", inv.ID, err)
 	}
-	s.record(ctx, notifications.EventInvoiceIssued, inv, "sent", "")
+	s.record(ctx, notifications.EventInvoiceIssued, inv.CustomerEmail, "Invoice "+inv.InvoiceNumber, "sent", "")
 	return nil
 }
 
-// MarkPaidForBooking is invoked by the payments flow when a payment becomes paid.
-// It settles the booking's invoice and emails the receipt. A payment recorded
-// for a booking without an invoice is valid and is not an error.
-func (s *Service) MarkPaidForBooking(ctx context.Context, bookingNumber string) error {
-	if err := s.repo.MarkPaidForBooking(ctx, bookingNumber); err != nil {
-		return err
-	}
-	inv, err := s.repo.GetByBookingNumber(ctx, bookingNumber)
-	if errors.Is(err, ErrNotFound) {
-		return nil
-	}
-	if err != nil {
-		return err
-	}
-	if inv.Status == StatusPaid {
-		s.deliver(ctx, inv, "Receipt",
-			fmt.Sprintf("Payment received for invoice %s (booking %s). Total: %s %s.",
-				inv.InvoiceNumber, inv.BookingNumber, inv.Currency,
-				fmt.Sprintf("%0.2f", inv.Total)))
-	}
-	return nil
-}
-
-// deliver sends invoice/receipt emails best-effort: missing SMTP config or an
-// absent customer email is logged (slog + notification log), never fatal to
-// the request.
-func (s *Service) deliver(ctx context.Context, inv Invoice, kind, body string) {
+// deliver sends the invoice by email and LINE, best-effort: missing SMTP
+// config or an absent customer email is logged (slog + notification log),
+// never fatal to the request.
+func (s *Service) deliver(ctx context.Context, inv Invoice) {
 	if inv.Status == StatusVoid {
 		return
 	}
-	eventType := notifications.EventInvoiceIssued
+	s.deliverLINE(ctx, inv)
 	subject := "Invoice " + inv.InvoiceNumber
-	if kind == "Receipt" {
-		eventType = notifications.EventPaymentReceived
-		subject = "Payment received — Invoice " + inv.InvoiceNumber
-	}
+	s.sendMail(ctx, notifications.EventInvoiceIssued, inv.CustomerEmail, subject, invoiceEmailBody(inv),
+		inv.InvoiceNumber, func() ([]byte, error) { return s.renderPDF(ctx, inv) })
+}
 
-	if strings.TrimSpace(inv.CustomerEmail) == "" {
-		slog.Debug("invoice email skipped: no customer email", "invoice", inv.InvoiceNumber)
-		s.record(ctx, eventType, inv, "skipped", "no customer email")
+// sendMail emails one document with its PDF attached and logs the outcome.
+func (s *Service) sendMail(ctx context.Context, eventType, to, subject, body, docNumber string, render func() ([]byte, error)) {
+	if strings.TrimSpace(to) == "" {
+		slog.Debug("document email skipped: no customer email", "document", docNumber)
+		s.record(ctx, eventType, to, subject, "skipped", "no customer email")
 		return
 	}
 	mail := s.mailer()
 	if mail == nil || !mail.Enabled() {
-		slog.Debug("invoice email skipped: smtp not configured", "invoice", inv.InvoiceNumber)
-		s.record(ctx, eventType, inv, "skipped", "smtp not configured")
+		slog.Debug("document email skipped: smtp not configured", "document", docNumber)
+		s.record(ctx, eventType, to, subject, "skipped", "smtp not configured")
 		return
 	}
-	pdf, err := s.renderPDF(ctx, inv)
+	pdf, err := render()
 	if err != nil {
-		slog.Warn("invoice email skipped: pdf render failed", "invoice", inv.InvoiceNumber, "error", err)
-		s.record(ctx, eventType, inv, "failed", "pdf render failed")
+		slog.Warn("document email skipped: pdf render failed", "document", docNumber, "error", err)
+		s.record(ctx, eventType, to, subject, "failed", "pdf render failed")
 		return
 	}
-	if err := mail.Send(ctx, inv.CustomerEmail, subject, invoiceEmailBody(inv),
-		&mailer.Attachment{FileName: inv.InvoiceNumber + ".pdf", Data: pdf}); err != nil {
-		slog.Warn("invoice email failed", "invoice", inv.InvoiceNumber, "error", err)
-		s.record(ctx, eventType, inv, "failed", err.Error())
+	if err := mail.Send(ctx, to, subject, body, &mailer.Attachment{FileName: docNumber + ".pdf", Data: pdf}); err != nil {
+		slog.Warn("document email failed", "document", docNumber, "error", err)
+		s.record(ctx, eventType, to, subject, "failed", err.Error())
 		return
 	}
-	s.record(ctx, eventType, inv, "sent", "")
+	s.record(ctx, eventType, to, subject, "sent", "")
 }
 
-// record writes the email outcome to the notification log (best-effort).
-func (s *Service) record(ctx context.Context, eventType string, inv Invoice, status, errMsg string) {
+// deliverLINE pushes the invoice summary to the customer's LINE chat when
+// they have one, including the PromptPay ID to pay to.
+func (s *Service) deliverLINE(ctx context.Context, inv Invoice) {
 	if s.notifier == nil {
 		return
 	}
-	subject := "Invoice " + inv.InvoiceNumber
-	if eventType == notifications.EventPaymentReceived {
-		subject = "Payment received — Invoice " + inv.InvoiceNumber
+	name, lineID, err := s.repo.LineContactForBooking(ctx, inv.BookingID)
+	if err != nil || lineID == "" {
+		return
 	}
-	s.notifier.Record(ctx, notifications.ChannelEmail, eventType, inv.CustomerEmail, subject, status, errMsg)
+	_, pay := s.billingSettings(ctx)
+	text := fmt.Sprintf("🧾 ใบแจ้งหนี้ %s\nงาน: %s (%s)\nยอดชำระ: %s %s",
+		inv.InvoiceNumber, inv.ServiceName, inv.BookingNumber, inv.Currency, amount(inv.BalanceDue()))
+	if inv.WithholdingAmount > 0 {
+		text += fmt.Sprintf("\n(หักภาษี ณ ที่จ่าย %s%% แล้ว)", trimRate(inv.WithholdingRate))
+	}
+	if id, ok := promptpay.Normalize(pay.PromptPayID); ok {
+		text += "\n\nชำระผ่าน PromptPay: " + id
+	}
+	if b := strings.TrimSpace(pay.BankAccount); b != "" {
+		text += "\nหรือโอนเข้าบัญชี: " + b
+	}
+	s.notifier.EmitLINE(ctx, notifications.EventInvoiceIssued, lineID, name, text)
+}
+
+// record writes the email outcome to the notification log (best-effort).
+func (s *Service) record(ctx context.Context, eventType, to, subject, status, errMsg string) {
+	if s.notifier == nil {
+		return
+	}
+	s.notifier.Record(ctx, notifications.ChannelEmail, eventType, to, subject, status, errMsg)
 }
 
 func invoiceEmailBody(inv Invoice) string {
@@ -305,26 +387,31 @@ func htmlEscape(s string) string {
 }
 
 // pricing reads the effective service catalog, tax rate, currency and SMTP config.
-func (s *Service) pricing(ctx context.Context) (map[string]settings.ServiceItem, float64, string, error) {
+func (s *Service) pricing(ctx context.Context) (map[string]settings.ServiceItem, float64, bool, string, error) {
 	raw, err := s.settings.GetAll(ctx)
 	if err != nil {
-		return nil, 0, "", fmt.Errorf("load settings: %w", err)
+		return nil, 0, false, "", fmt.Errorf("load settings: %w", err)
 	}
 	catalog := map[string]settings.ServiceItem{}
 	if items, ok := raw[settings.KeyServices]; ok {
 		var list []settings.ServiceItem
 		if err := json.Unmarshal(items, &list); err != nil {
-			return nil, 0, "", fmt.Errorf("parse service catalog: %w", err)
+			return nil, 0, false, "", fmt.Errorf("parse service catalog: %w", err)
 		}
 		for _, it := range list {
 			catalog[it.ID] = it
 		}
 	}
+	// VAT is only charged by a VAT-registered company (Settings → Company).
+	var company settings.Company
+	if v, ok := raw[settings.KeyCompany]; ok {
+		_ = json.Unmarshal(v, &company)
+	}
 	taxRate := 0.0
-	if v, ok := raw[settings.KeyPayments]; ok {
+	if v, ok := raw[settings.KeyPayments]; ok && company.VATRegistered {
 		var p settings.PaymentSettings
 		if err := json.Unmarshal(v, &p); err != nil {
-			return nil, 0, "", fmt.Errorf("parse payment settings: %w", err)
+			return nil, 0, false, "", fmt.Errorf("parse payment settings: %w", err)
 		}
 		taxRate = p.TaxRatePercent
 	}
@@ -332,11 +419,24 @@ func (s *Service) pricing(ctx context.Context) (map[string]settings.ServiceItem,
 	if v, ok := raw[settings.KeyLocalization]; ok {
 		var loc settings.Localization
 		if err := json.Unmarshal(v, &loc); err != nil {
-			return nil, 0, "", fmt.Errorf("parse localization settings: %w", err)
+			return nil, 0, false, "", fmt.Errorf("parse localization settings: %w", err)
 		}
 		currency = strings.ToUpper(loc.Currency)
 	}
-	return catalog, taxRate, currency, nil
+	return catalog, taxRate, company.PricesIncludeVAT && taxRate > 0, currency, nil
+}
+
+// splitVAT turns a price into value before VAT, VAT and total. When prices
+// include VAT (ราคารวม VAT) the price is the total and the VAT inside it is
+// rate/(100+rate) of it: 11,000 at 7% is 10,280.37 + 719.63.
+func splitVAT(price, rate float64, inclusive bool) (subtotal, vat, total float64) {
+	price = round2(price)
+	if inclusive && rate > 0 {
+		subtotal = round2(price * 100 / (100 + rate))
+		return subtotal, round2(price - subtotal), price
+	}
+	vat = round2(price * rate / 100)
+	return price, vat, round2(price + vat)
 }
 
 func round2(v float64) float64 {
@@ -349,18 +449,34 @@ func mapRepoError(err error) error {
 		return response.NewAPIError(404, "invoice not found")
 	case errors.Is(err, ErrBookingNotFound):
 		return response.NewAPIError(404, "booking not found")
-	case errors.Is(err, ErrBookingNotCompleted):
-		return response.NewAPIError(422, "only completed bookings can be invoiced")
+	case errors.Is(err, ErrBookingNotBillable):
+		return response.NewAPIError(422, "a cancelled or no-show booking cannot be invoiced")
 	case errors.Is(err, ErrActiveInvoiceExists):
 		return response.NewAPIError(409, "booking already has an active invoice")
+	case errors.Is(err, ErrReceiptNotFound):
+		return response.NewAPIError(404, "receipt not found")
+	case errors.Is(err, ErrPaymentNotFound):
+		return response.NewAPIError(404, "payment not found")
+	case errors.Is(err, ErrInvoiceFullyPaid):
+		return response.NewAPIError(422, "invoice is already fully paid")
+	case errors.Is(err, ErrInvoiceNotOpen):
+		return response.NewAPIError(422, "a void invoice cannot take payments")
+	case errors.Is(err, ErrOverpayment):
+		return response.NewAPIError(422, err.Error())
+	case errors.Is(err, ErrInvoiceHasPaid):
+		return response.NewAPIError(422, "this invoice has payments; refund them before voiding it")
+	case errors.Is(err, ErrInvoiceHasReceipts):
+		return response.NewAPIError(422, "this invoice has receipts — use Cancel payment on each receipt instead")
+	case errors.Is(err, ErrInvoiceNotPaid):
+		return response.NewAPIError(422, "this invoice has nothing paid")
 	default:
 		return err
 	}
 }
 
 func mapUpdateError(err error) error {
-	if errors.Is(err, ErrNotFound) {
-		return response.NewAPIError(404, "invoice not found")
+	if errors.Is(err, ErrNotFound) || errors.Is(err, ErrInvoiceHasPaid) {
+		return mapRepoError(err)
 	}
 	var apiErr *response.APIError
 	if errors.As(err, &apiErr) {

@@ -372,7 +372,5 @@ onMounted(async () => {
         </a>
       </section>
     </div>
-
-    <p class="mt-4 text-xs text-gray-400">Live data from the Go API · GET /api/v1/reports/summary</p>
   </template>
 </template>

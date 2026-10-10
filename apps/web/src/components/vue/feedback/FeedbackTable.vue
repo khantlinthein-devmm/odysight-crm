@@ -62,8 +62,11 @@ async function handleDelete(fb: Feedback) {
     await deleteFeedback(fb.id);
     items.value = items.value.filter((f) => f.id !== fb.id);
     showToast("Feedback deleted");
-  } catch {
-    showToast("Failed to delete feedback", "error");
+  } catch (err) {
+    showToast(
+      err instanceof Error ? `Failed to delete feedback: ${err.message}` : "Failed to delete feedback",
+      "error",
+    );
   } finally {
     deleting.value = false;
     pendingDelete.value = null;
