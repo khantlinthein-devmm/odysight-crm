@@ -4,6 +4,7 @@ import { useModalA11y } from "../ui/useModalA11y";
 import { getCustomers, type Customer } from "../../../lib/customers";
 import type { Cleaner } from "../../../lib/cleaners";
 import { getCleaners } from "../../../lib/cleaners";
+import TeamPicker from "./TeamPicker.vue";
 import { getSites, type Site } from "../../../lib/sites";
 import { getContracts, type Contract } from "../../../lib/contracts";
 import type {
@@ -55,10 +56,6 @@ const serviceTypeOptions = computed(() => {
   if (list.length > 0) return list.map((s) => ({ value: s.id, label: s.name }));
   return [{ value: "house_cleaning", label: "House Cleaning" }];
 });
-
-function fullName(c: Cleaner): string {
-  return `${c.firstName} ${c.lastName}`.trim();
-}
 
 function applyServiceDuration(fallback?: number) {
   // New bookings only: prefill the catalog's default duration.
@@ -296,7 +293,7 @@ const errors = computed(() => {
   if (!form.address.trim()) e.address = "Address is required";
   if (priceValue() !== null && priceValue()! < 0) e.price = "Price cannot be negative";
   if (typeof primaryCleanerId.value !== "number") {
-    e.assignedCleaner = "Primary cleaner is required";
+    e.assignedCleaner = "Choose a lead cleaner";
   } else if (
     crewIds.value.length > 0 &&
     cleaners.value.length > 0 &&
@@ -617,74 +614,14 @@ function inputClassFor(field: keyof CreateBookingInput) {
             </p>
           </div>
 
-          <div>
-            <label
-              class="mb-1 block text-sm font-medium text-gray-700"
-              for="b-cleaner"
-              >Primary cleaner</label
-            >
-            <select
-              id="b-cleaner"
-              v-model="primaryCleanerId"
-              :class="inputClassFor('assignedCleaner')"
-              :disabled="cleanersLoading"
-            >
-              <option :value="''" disabled>
-                {{ cleanersLoading ? "Loading cleaners…" : "Select a cleaner" }}
-              </option>
-              <option
-                v-for="c in cleaners"
-                :key="c.id"
-                :value="c.id"
-                :disabled="c.status === 'inactive' || c.status === 'on_leave'"
-              >
-                {{ fullName(c) }}
-                <template v-if="c.status === 'on_leave'"> (on leave)</template>
-              </option>
-            </select>
-            <p
-              v-if="submitted && errors.assignedCleaner"
-              class="mt-1 text-xs text-red-600"
-            >
-              {{ errors.assignedCleaner }}
-            </p>
-          </div>
-
-          <div>
-            <label
-              class="mb-1 block text-sm font-medium text-gray-700"
-              for="b-crew"
-              >Crew (optional)</label
-            >
-            <select
-              id="b-crew"
-              v-model="crewIds"
-              multiple
-              size="4"
-              :class="[
-                inputClass,
-                submitted && errors.crewIds
-                  ? 'border-red-300 focus:border-red-500 focus:ring-red-500'
-                  : '',
-              ]"
-              :disabled="cleanersLoading"
-            >
-              <option
-                v-for="c in availableCrew"
-                :key="c.id"
-                :value="c.id"
-                :disabled="c.status === 'inactive' || c.status === 'on_leave'"
-              >
-                {{ fullName(c) }}
-                <template v-if="c.status === 'on_leave'"> (on leave)</template>
-              </option>
-            </select>
-            <p
-              v-if="submitted && errors.crewIds"
-              class="mt-1 text-xs text-red-600"
-            >
-              {{ errors.crewIds }}
-            </p>
+          <div class="sm:col-span-2">
+            <TeamPicker
+              v-model:primary="primaryCleanerId"
+              v-model:crew="crewIds"
+              :cleaners="cleaners"
+              :loading="cleanersLoading"
+              :error="submitted ? errors.assignedCleaner || errors.crewIds : ''"
+            />
           </div>
 
           <div class="sm:col-span-2">
