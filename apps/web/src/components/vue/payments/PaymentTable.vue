@@ -225,6 +225,11 @@ onMounted(fetchPayments);
         </button>
       </div>
     </div>
+    <p class="border-b border-gray-200 bg-navy-50/60 px-6 py-2.5 text-xs text-gray-600">
+      All money received, in one list. To take a payment for a bill, open it in
+      <a href="/invoices" class="font-medium text-navy-700 hover:underline">Invoices</a>
+      and click <strong>Record payment</strong>: the receipt is issued automatically.
+    </p>
 
     <div v-if="loading" class="px-6 py-16 text-center">
       <p class="text-sm text-gray-500">Loading payments...</p>

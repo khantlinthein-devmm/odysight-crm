@@ -131,9 +131,22 @@ async function setStatus(inv: Invoice, next: InvoiceStatus) {
     const updated = await updateInvoice(inv.id, { status: next });
     const idx = invoices.value.findIndex((i) => i.id === updated.id);
     if (idx !== -1) invoices.value[idx] = updated;
+    if (next === "void") showToast(`Invoice ${inv.invoiceNumber} voided`, "success");
   } catch (e) {
     error.value = e instanceof ApiError ? e.message : "Failed to update invoice";
   }
+}
+
+// Voiding cannot be undone, so it asks first.
+const pendingVoid = ref<Invoice | null>(null);
+const voiding = ref(false);
+async function confirmVoid() {
+  const inv = pendingVoid.value;
+  if (!inv) return;
+  voiding.value = true;
+  await setStatus(inv, "void");
+  voiding.value = false;
+  pendingVoid.value = null;
 }
 
 onMounted(() => {
@@ -185,7 +198,7 @@ onMounted(() => {
       {{ error }}
     </p>
 
-    <div class="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">
+    <div class="overflow-x-auto rounded-xl border border-gray-200 bg-white shadow-sm">
       <table class="min-w-full divide-y divide-gray-200 text-sm">
         <thead class="bg-gray-50 text-left text-xs font-medium uppercase text-gray-500">
           <tr>
@@ -250,7 +263,7 @@ onMounted(() => {
                 <button
                   v-if="canUpdate && OPEN.includes(inv.status) && !(inv.amountPaid ?? 0)"
                   class="text-red-700 hover:underline"
-                  @click="setStatus(inv, 'void')"
+                  @click="pendingVoid = inv"
                 >Void</button>
               </div>
             </td>
@@ -258,6 +271,16 @@ onMounted(() => {
         </tbody>
       </table>
     </div>
+
+    <ConfirmDialog
+      v-if="pendingVoid"
+      :title="`Void invoice ${pendingVoid.invoiceNumber}?`"
+      message="The invoice will be cancelled and can no longer be paid. This cannot be undone."
+      confirm-label="Void invoice"
+      :busy="voiding"
+      @confirm="confirmVoid"
+      @cancel="pendingVoid = null"
+    />
 
     <ConfirmDialog
       v-if="showCreate"

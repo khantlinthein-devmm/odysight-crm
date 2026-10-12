@@ -157,6 +157,12 @@ select[multiple] {
     padding-left: 0;
     padding-right: 0;
   }
+  /* Icon rail: group headings are hidden, so separate groups with a rule. */
+  html.sidebar-collapsed #app-sidebar .nav-group:not(:first-child) {
+    border-top: 1px solid rgb(229 231 235);
+    padding-top: 0.75rem;
+    margin-top: 0.75rem;
+  }
   html.sidebar-collapsed #app-sidebar .sidebar-collapse-icon {
     transform: rotate(180deg);
   }

@@ -1,7 +1,9 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref, useId } from "vue";
+import { computed, onMounted, reactive, ref, useId, watch } from "vue";
 import { useModalA11y } from "../ui/useModalA11y";
-import { getCustomers, type Customer } from "../../../lib/customers";
+import { createCustomer, getCustomers, type Customer } from "../../../lib/customers";
+import { getSessionUser } from "../../../lib/auth";
+import { hasPermission } from "../../../lib/roles";
 import type { Cleaner } from "../../../lib/cleaners";
 import { getCleaners } from "../../../lib/cleaners";
 import TeamPicker from "./TeamPicker.vue";
@@ -166,6 +168,113 @@ function customerFullName(c: Customer): string {
   return `${c.firstName} ${c.lastName}`.trim();
 }
 
+// --- Customer search: type a name or phone instead of scrolling a list ---
+const customerQuery = ref("");
+const customerListOpen = ref(false);
+const selectedCustomer = computed(() =>
+  customers.value.find((c) => c.id === selectedCustomerId.value),
+);
+const digits = (s: string) => s.replace(/\D/g, "");
+const customerMatches = computed(() => {
+  const q = customerQuery.value.trim().toLowerCase();
+  if (!q) return customers.value.slice(0, 8);
+  const qDigits = digits(q);
+  return customers.value
+    .filter(
+      (c) =>
+        customerFullName(c).toLowerCase().includes(q) ||
+        c.email.toLowerCase().includes(q) ||
+        (qDigits.length >= 3 && digits(c.phone).includes(qDigits)),
+    )
+    .slice(0, 8);
+});
+
+// Only the first 200 customers are preloaded; ask the server for the rest
+// (it searches name, email and phone).
+let searchTimer: ReturnType<typeof setTimeout> | undefined;
+watch(customerQuery, (q) => {
+  clearTimeout(searchTimer);
+  const term = q.trim();
+  if (term.length < 2) return;
+  searchTimer = setTimeout(async () => {
+    try {
+      const found = await getCustomers({ search: term, limit: 20 });
+      const known = new Set(customers.value.map((c) => c.id));
+      const fresh = found.filter((c) => !known.has(c.id));
+      if (fresh.length) customers.value = [...customers.value, ...fresh];
+    } catch {
+      /* local matches are still shown */
+    }
+  }, 250);
+});
+
+function pickCustomer(c: Customer) {
+  applyCustomer(c.id);
+  customerQuery.value = "";
+  customerListOpen.value = false;
+}
+
+function clearCustomer() {
+  applyCustomer("");
+  customerListOpen.value = true;
+}
+
+// Quick-add: create the customer record without leaving the booking.
+const canCreateCustomer = hasPermission(getSessionUser()?.role, "customers.create");
+const showNewCustomer = ref(false);
+const newCustomerSaving = ref(false);
+const newCustomerError = ref("");
+const newCustomer = reactive({ firstName: "", lastName: "", phone: "", area: "", address: "" });
+
+function openNewCustomer() {
+  const q = customerQuery.value.trim();
+  const isPhone = digits(q).length >= 3 && /^[\d\s+()-]+$/.test(q);
+  Object.assign(newCustomer, {
+    firstName: isPhone ? "" : q,
+    lastName: "",
+    phone: isPhone ? q : "",
+    area: "",
+    address: form.address,
+  });
+  newCustomerError.value = "";
+  customerListOpen.value = false;
+  showNewCustomer.value = true;
+}
+
+async function saveNewCustomer() {
+  const missing = [
+    !newCustomer.firstName.trim() && "name",
+    !newCustomer.phone.trim() && "phone",
+    !newCustomer.address.trim() && "address",
+    !newCustomer.area.trim() && "area",
+  ].filter(Boolean);
+  if (missing.length) {
+    newCustomerError.value = `Please fill in: ${missing.join(", ")}`;
+    return;
+  }
+  newCustomerSaving.value = true;
+  newCustomerError.value = "";
+  try {
+    const created = await createCustomer({
+      firstName: newCustomer.firstName.trim(),
+      lastName: newCustomer.lastName.trim(),
+      phone: newCustomer.phone.trim(),
+      address: newCustomer.address.trim(),
+      area: newCustomer.area.trim(),
+      propertyType: "house",
+      status: "active",
+    });
+    customers.value = [created, ...customers.value];
+    pickCustomer(created);
+    if (!form.address) form.address = created.address;
+    showNewCustomer.value = false;
+  } catch (e) {
+    newCustomerError.value = e instanceof Error ? e.message : "Could not create the customer";
+  } finally {
+    newCustomerSaving.value = false;
+  }
+}
+
 function applyCustomer(customerId: number | string) {
   const raw = typeof customerId === "string" ? Number(customerId) : customerId;
   selectedCustomerId.value = raw || null;
@@ -188,7 +297,8 @@ onMounted(async () => {
       if (!form.serviceType && ws.services.length > 0) {
         form.serviceType = ws.services[0]!.id;
       }
-      applyServiceDuration(ws.booking.defaultDurationMinutes);
+      // Keep a duration handed over by the calculator.
+      if (!props.prefill?.durationMinutes) applyServiceDuration(ws.booking.defaultDurationMinutes);
       const found = ws.services.find((s) => s.id === form.serviceType);
       if (found) {
         basePrice.value = found.basePrice ?? 0;
@@ -292,9 +402,9 @@ const errors = computed(() => {
     e.durationMinutes = "Duration must be greater than zero";
   if (!form.address.trim()) e.address = "Address is required";
   if (priceValue() !== null && priceValue()! < 0) e.price = "Price cannot be negative";
-  if (typeof primaryCleanerId.value !== "number") {
-    e.assignedCleaner = "Choose a lead cleaner";
-  } else if (
+  // The team is optional: unassigned bookings show under "Needs Crew" on the
+  // dashboard and can be staffed later from Dispatch.
+  if (
     crewIds.value.length > 0 &&
     cleaners.value.length > 0 &&
     availableCrew.value.length === 0
@@ -377,24 +487,116 @@ function inputClassFor(field: keyof CreateBookingInput) {
               for="b-customerId"
               >Customer</label
             >
-            <select
-              id="b-customerId"
-              :value="selectedCustomerId ?? ''"
-              :disabled="customersLoading"
-              @change="applyCustomer(($event.target as HTMLSelectElement).value)"
-              class="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-900 focus:border-gray-500 focus:outline-none focus:ring-1 focus:ring-navy-500"
+            <div
+              v-if="selectedCustomerId"
+              class="flex items-center justify-between gap-3 rounded-lg border border-navy-200 bg-navy-50 px-3 py-2"
             >
-              <option value="">
-                {{ customersLoading ? "Loading customers…" : "Manual entry" }}
-              </option>
-              <option v-for="c in customers" :key="c.id" :value="c.id">
-                {{ customerFullName(c) }} — {{ c.phone }}
-              </option>
-            </select>
-            <p class="mt-1 text-xs text-gray-500">
-              Pick a customer to pre-fill the name, or leave empty to enter
-              manually.
-            </p>
+              <div class="min-w-0 text-sm">
+                <p class="truncate font-medium text-gray-900">
+                  {{ selectedCustomer ? customerFullName(selectedCustomer) : form.customerName }}
+                </p>
+                <p v-if="selectedCustomer" class="truncate text-xs text-gray-500">
+                  {{ selectedCustomer.phone }}<span v-if="selectedCustomer.area"> · {{ selectedCustomer.area }}</span>
+                </p>
+              </div>
+              <button
+                type="button"
+                class="shrink-0 text-xs font-medium text-navy-600 hover:underline"
+                @click="clearCustomer"
+              >
+                Change
+              </button>
+            </div>
+            <div v-else class="relative">
+              <input
+                id="b-customerId"
+                v-model="customerQuery"
+                type="search"
+                autocomplete="off"
+                :disabled="customersLoading"
+                :placeholder="customersLoading ? 'Loading customers…' : 'Search by name or phone'"
+                :class="inputClass"
+                role="combobox"
+                aria-autocomplete="list"
+                :aria-expanded="customerListOpen"
+                @focus="customerListOpen = true"
+                @input="customerListOpen = true"
+                @blur="customerListOpen = false"
+                @keydown.escape.stop="customerListOpen = false"
+              />
+              <ul
+                v-if="customerListOpen && !customersLoading"
+                class="absolute z-20 mt-1 max-h-64 w-full overflow-y-auto rounded-lg border border-gray-200 bg-white py-1 shadow-lg"
+                role="listbox"
+              >
+                <li v-for="c in customerMatches" :key="c.id">
+                  <button
+                    type="button"
+                    class="flex w-full items-center justify-between gap-3 px-3 py-2 text-left text-sm hover:bg-gray-50"
+                    @mousedown.prevent="pickCustomer(c)"
+                  >
+                    <span class="truncate font-medium text-gray-900">{{ customerFullName(c) }}</span>
+                    <span class="shrink-0 text-xs text-gray-500">{{ c.phone }}</span>
+                  </button>
+                </li>
+                <li v-if="customerMatches.length === 0" class="px-3 py-2 text-sm text-gray-500">
+                  No customer found.
+                </li>
+                <li v-if="canCreateCustomer" class="border-t border-gray-100">
+                  <button
+                    type="button"
+                    class="w-full px-3 py-2 text-left text-sm font-medium text-navy-600 hover:bg-navy-50"
+                    @mousedown.prevent="openNewCustomer"
+                  >
+                    + New customer{{ customerQuery.trim() ? ` “${customerQuery.trim()}”` : "" }}
+                  </button>
+                </li>
+                <li class="border-t border-gray-100">
+                  <button
+                    type="button"
+                    class="w-full px-3 py-2 text-left text-xs text-gray-500 hover:bg-gray-50"
+                    @mousedown.prevent="customerListOpen = false"
+                  >
+                    One-off job — just type the name below (no customer record)
+                  </button>
+                </li>
+              </ul>
+            </div>
+
+            <div
+              v-if="showNewCustomer"
+              class="mt-3 grid grid-cols-1 gap-3 rounded-xl bg-gray-50 p-4 ring-1 ring-gray-100 sm:grid-cols-2"
+            >
+              <p class="text-sm font-medium text-gray-900 sm:col-span-2">New customer</p>
+              <input v-model="newCustomer.firstName" :class="inputClass" placeholder="First name *" aria-label="First name" />
+              <input v-model="newCustomer.lastName" :class="inputClass" placeholder="Last name" aria-label="Last name" />
+              <input v-model="newCustomer.phone" type="tel" :class="inputClass" placeholder="Phone *" aria-label="Phone" />
+              <input v-model="newCustomer.area" :class="inputClass" placeholder="Area * (e.g. Sukhumvit)" aria-label="Area" />
+              <input
+                v-model="newCustomer.address"
+                :class="[inputClass, 'sm:col-span-2']"
+                placeholder="Address *"
+                aria-label="Address"
+              />
+              <p v-if="newCustomerError" class="text-xs text-red-600 sm:col-span-2">{{ newCustomerError }}</p>
+              <div class="flex justify-end gap-2 sm:col-span-2">
+                <button
+                  type="button"
+                  class="rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-100"
+                  @click="showNewCustomer = false"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  :disabled="newCustomerSaving"
+                  class="rounded-lg bg-navy-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-navy-700 disabled:opacity-60"
+                  @click="saveNewCustomer"
+                >
+                  {{ newCustomerSaving ? "Saving…" : "Save customer" }}
+                </button>
+              </div>
+            </div>
           </div>
 
           <div v-if="selectedCustomerId">
@@ -702,13 +904,23 @@ function inputClassFor(field: keyof CreateBookingInput) {
                 Total: <span class="font-semibold text-gray-900">{{ formatMoney(estimateTotal) }}</span>
                 <a href="/calculator" target="_blank" class="ml-2 text-xs text-navy-600 hover:underline">Full calculator →</a>
               </p>
-              <button
-                type="button"
-                class="rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-100"
-                @click="insertEstimateIntoNotes"
-              >
-                Insert into notes
-              </button>
+              <div class="flex gap-2">
+                <button
+                  type="button"
+                  class="rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-100"
+                  @click="insertEstimateIntoNotes"
+                >
+                  Insert into notes
+                </button>
+                <button
+                  type="button"
+                  :disabled="estimateTotal <= 0"
+                  class="rounded-lg bg-navy-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-navy-700 disabled:opacity-50"
+                  @click="form.price = Math.round(estimateTotal * 100) / 100"
+                >
+                  Use as booking price
+                </button>
+              </div>
             </div>
           </div>
         </div>

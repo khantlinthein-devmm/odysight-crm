@@ -192,6 +192,39 @@ async function openFromQuote() {
   }
 }
 
+// The calculator ("Create a booking with this price") and customer cards
+// ("New booking") land here with ?newBooking=1: open a pre-filled booking.
+async function openNewFromLink() {
+  const params = new URLSearchParams(window.location.search);
+  if (params.get("newBooking") !== "1") return;
+  history.replaceState(null, "", window.location.pathname);
+  const inclusive = await getWorkspaceSettings()
+    .then((st) => !!st.company.pricesIncludeVat)
+    .catch(() => false);
+  // Same rule as quotes: with VAT-inclusive pricing the price is the total.
+  const price = Number(params.get(inclusive ? "total" : "price"));
+  const minutes = Number(params.get("minutes"));
+  const service = params.get("service");
+  // "New booking" on a customer card passes ?customer=<id>.
+  const customerId = Number(params.get("customer"));
+  const c = customerId ? await getCustomer(customerId).catch(() => null) : null;
+  prefill.value = {
+    ...(c
+      ? {
+          customerId: c.id,
+          customerName: `${c.firstName} ${c.lastName}`.trim(),
+          customerEmail: c.email,
+          address: c.address,
+        }
+      : {}),
+    ...(Number.isFinite(price) && price > 0 ? { price } : {}),
+    ...(service ? { serviceType: service } : {}),
+    ...(minutes > 0 ? { durationMinutes: minutes } : {}),
+  };
+  editingBooking.value = undefined;
+  showForm.value = true;
+}
+
 async function handleSave(input: CreateBookingInput) {
   saving.value = true;
   try {
@@ -302,6 +335,7 @@ function formatDate(iso: string): string {
 onMounted(() => {
   void fetchBookings();
   void openFromQuote();
+  void openNewFromLink();
 });
 </script>
 

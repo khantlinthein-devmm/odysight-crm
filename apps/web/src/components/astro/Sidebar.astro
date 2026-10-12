@@ -6,155 +6,206 @@ interface NavItem {
   // Permission needed to use the page; items without one show for everyone.
   // Hidden client-side for roles that lack it (the API enforces it anyway).
   perm?: string;
+  /** Tooltip explaining what the page is for, where names overlap. */
+  hint?: string;
 }
 
-const navItems: NavItem[] = [
+interface NavGroup {
+  /** Shown as a small heading; empty for the top (ungrouped) items. */
+  title: string;
+  items: NavItem[];
+}
+
+const navGroups: NavGroup[] = [
   {
-    label: "Dashboard",
-    href: "/dashboard",
-    icon: "M3 12l9-9 9 9M5 10v10a1 1 0 001 1h4v-6h4v6h4a1 1 0 001-1V10",
+    title: "",
+    items: [
+    {
+        label: "Dashboard",
+        href: "/dashboard",
+        icon: "M3 12l9-9 9 9M5 10v10a1 1 0 001 1h4v-6h4v6h4a1 1 0 001-1V10",
+      },
+    {
+        label: "Chat",
+        href: "/chat",
+        icon: "M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z",
+      },
+    {
+        label: "Notifications",
+        perm: "notifications.read",
+        href: "/notifications",
+        icon: "M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9",
+      },
+    ],
   },
   {
-    label: "Chat",
-    href: "/chat",
-    icon: "M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z",
+    title: "Jobs",
+    items: [
+    {
+        label: "Bookings",
+        perm: "bookings.read",
+        href: "/bookings",
+        icon: "M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z",
+      },
+    {
+        label: "Dispatch",
+        perm: "cleaners.read",
+        href: "/dispatch",
+        icon: "M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z",
+      },
+    {
+        label: "Checklists",
+        perm: "checklists.read",
+        href: "/checklists",
+        icon: "M9 12l2 2 4-4M7.835 4.697a3.42 3.42 0 001.946-.806 3.42 3.42 0 014.438 0 3.42 3.42 0 001.946.806 3.42 3.42 0 013.138 3.138 3.42 3.42 0 00.806 1.946 3.42 3.42 0 010 4.438 3.42 3.42 0 00-.806 1.946 3.42 3.42 0 01-3.138 3.138 3.42 3.42 0 00-1.946.806 3.42 3.42 0 01-4.438 0 3.42 3.42 0 00-1.946-.806 3.42 3.42 0 01-3.138-3.138 3.42 3.42 0 00-.806-1.946 3.42 3.42 0 010-4.438 3.42 3.42 0 00.806-1.946 3.42 3.42 0 013.138-3.138z",
+      },
+    {
+        label: "Service Records",
+        hint: "Proof of work: photos and notes from finished jobs.",
+        perm: "service_records.read",
+        href: "/service-records",
+        icon: "M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z",
+      },
+    ],
   },
   {
-    label: "Leads",
-    perm: "leads.read",
-    href: "/leads",
-    icon: "M17 20h5v-2a4 4 0 00-3-3.87M9 20H4v-2a4 4 0 013-3.87m6-1.13a4 4 0 10-4-4 4 4 0 004 4zm6-4a3 3 0 11-3-3",
+    title: "Customers & Sales",
+    items: [
+    {
+        label: "Customers",
+        perm: "customers.read",
+        href: "/customers",
+        icon: "M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197",
+      },
+    {
+        label: "Leads",
+        perm: "leads.read",
+        href: "/leads",
+        icon: "M17 20h5v-2a4 4 0 00-3-3.87M9 20H4v-2a4 4 0 013-3.87m6-1.13a4 4 0 10-4-4 4 4 0 004 4zm6-4a3 3 0 11-3-3",
+      },
+    {
+        label: "Quotes",
+        hint: "Price offers sent to customers. An accepted quote becomes a booking.",
+        perm: "quotes.read",
+        href: "/quotes",
+        icon: "M9 7h6m-5 4h4m5-7H5a2 2 0 00-2 2v12a2 2 0 002 2h14a2 2 0 002-2V6a2 2 0 00-2-2zm-3 14h-2v-2h2v2z",
+      },
+    {
+        label: "Calculator",
+        hint: "Quick price check. Not saved — use Quotes to send a price to a customer.",
+        href: "/calculator",
+        icon: "M9 7h6m-5 4h4m5-7H5a2 2 0 00-2 2v12a2 2 0 002 2h14a2 2 0 002-2V6a2 2 0 00-2-2zm-3 14h-2v-2h2v2z",
+      },
+    {
+        label: "Sites",
+        hint: "Extra addresses for customers with more than one location.",
+        perm: "sites.read",
+        href: "/sites",
+        icon: "M17.657 16.657L13.414 20.9a2 2 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z M15 11a3 3 0 11-6 0 3 3 0 016 0z",
+      },
+    {
+        label: "Contracts",
+        hint: "Optional: only for customers with a signed recurring agreement.",
+        perm: "contracts.read",
+        href: "/contracts",
+        icon: "M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z",
+      },
+    ],
   },
   {
-    label: "Customers",
-    perm: "customers.read",
-    href: "/customers",
-    icon: "M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197",
+    title: "Money",
+    items: [
+    {
+        label: "Invoices",
+        hint: "Bills to customers. Record payments from the invoice.",
+        perm: "invoices.read",
+        href: "/invoices",
+        icon: "M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z",
+      },
+    {
+        label: "Payments",
+        hint: "All money received, across every invoice.",
+        perm: "payments.read",
+        href: "/payments",
+        icon: "M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z",
+      },
+    {
+        label: "Receipts",
+        hint: "Receipts issued automatically when a payment is recorded.",
+        perm: "payments.read",
+        href: "/receipts",
+        icon: "M9 14l2 2 4-4M7 3h10a2 2 0 012 2v16l-3-2-2 2-2-2-2 2-2-2-3 2V5a2 2 0 012-2z",
+      },
+    {
+        label: "Finance",
+        perm: "expenses.read",
+        href: "/finance",
+        icon: "M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z",
+      },
+    {
+        label: "Reports",
+        perm: "reports.read",
+        href: "/reports",
+        icon: "M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z",
+      },
+    ],
   },
   {
-    label: "Bookings",
-    perm: "bookings.read",
-    href: "/bookings",
-    icon: "M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z",
+    title: "Staff",
+    items: [
+    {
+        label: "Cleaners",
+        perm: "cleaners.read",
+        href: "/cleaners",
+        icon: "M17 20h5v-2a4 4 0 00-3-3.87M9 20H4v-2a4 4 0 013-3.87m6-1.13a4 4 0 10-4-4 4 4 0 004 4zm6-4a3 3 0 11-3-3",
+      },
+    {
+        label: "Attendance",
+        perm: "attendance.read",
+        href: "/attendance",
+        icon: "M9 12l2 2 4-4M7.835 4.697a3.42 3.42 0 001.946-.806 3.42 3.42 0 014.438 0 3.42 3.42 0 001.946.806 3.42 3.42 0 013.138 3.138 3.42 3.42 0 00.806 1.946 3.42 3.42 0 010 4.438 3.42 3.42 0 00-.806 1.946 3.42 3.42 0 01-3.138 3.138 3.42 3.42 0 00-1.946.806 3.42 3.42 0 01-4.438 0 3.42 3.42 0 00-1.946-.806 3.42 3.42 0 01-3.138-3.138 3.42 3.42 0 00-.806-1.946 3.42 3.42 0 010-4.438 3.42 3.42 0 00.806-1.946 3.42 3.42 0 013.138-3.138z",
+      },
+    {
+        label: "Payroll",
+        perm: "payroll.read",
+        href: "/payroll",
+        icon: "M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z",
+      },
+    {
+        label: "Supplies",
+        perm: "supplies.read",
+        href: "/supplies",
+        icon: "M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4",
+      },
+    ],
   },
   {
-    label: "Sites",
-    perm: "sites.read",
-    href: "/sites",
-    icon: "M17.657 16.657L13.414 20.9a2 2 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z M15 11a3 3 0 11-6 0 3 3 0 016 0z",
+    title: "Customer care",
+    items: [
+    {
+        label: "Complaints",
+        perm: "complaints.read",
+        href: "/complaints",
+        icon: "M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z",
+      },
+    {
+        label: "Feedback",
+        perm: "feedback.read",
+        href: "/feedback",
+        icon: "M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z",
+      },
+    ],
   },
   {
-    label: "Contracts",
-    perm: "contracts.read",
-    href: "/contracts",
-    icon: "M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z",
-  },
-  {
-    label: "Quotes",
-    perm: "quotes.read",
-    href: "/quotes",
-    icon: "M9 7h6m-5 4h4m5-7H5a2 2 0 00-2 2v12a2 2 0 002 2h14a2 2 0 002-2V6a2 2 0 00-2-2zm-3 14h-2v-2h2v2z",
-  },
-  {
-    label: "Checklists",
-    perm: "checklists.read",
-    href: "/checklists",
-    icon: "M9 12l2 2 4-4M7.835 4.697a3.42 3.42 0 001.946-.806 3.42 3.42 0 014.438 0 3.42 3.42 0 001.946.806 3.42 3.42 0 013.138 3.138 3.42 3.42 0 00.806 1.946 3.42 3.42 0 010 4.438 3.42 3.42 0 00-.806 1.946 3.42 3.42 0 01-3.138 3.138 3.42 3.42 0 00-1.946.806 3.42 3.42 0 01-4.438 0 3.42 3.42 0 00-1.946-.806 3.42 3.42 0 01-3.138-3.138 3.42 3.42 0 00-.806-1.946 3.42 3.42 0 010-4.438 3.42 3.42 0 00.806-1.946 3.42 3.42 0 013.138-3.138z",
-  },
-  {
-    label: "Calculator",
-    href: "/calculator",
-    icon: "M9 7h6m-5 4h4m5-7H5a2 2 0 00-2 2v12a2 2 0 002 2h14a2 2 0 002-2V6a2 2 0 00-2-2zm-3 14h-2v-2h2v2z",
-  },
-  {
-    label: "Dispatch",
-    perm: "cleaners.read",
-    href: "/dispatch",
-    icon: "M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z",
-  },
-  {
-    label: "Cleaners",
-    perm: "cleaners.read",
-    href: "/cleaners",
-    icon: "M17 20h5v-2a4 4 0 00-3-3.87M9 20H4v-2a4 4 0 013-3.87m6-1.13a4 4 0 10-4-4 4 4 0 004 4zm6-4a3 3 0 11-3-3",
-  },
-  {
-    label: "Attendance",
-    perm: "attendance.read",
-    href: "/attendance",
-    icon: "M9 12l2 2 4-4M7.835 4.697a3.42 3.42 0 001.946-.806 3.42 3.42 0 014.438 0 3.42 3.42 0 001.946.806 3.42 3.42 0 013.138 3.138 3.42 3.42 0 00.806 1.946 3.42 3.42 0 010 4.438 3.42 3.42 0 00-.806 1.946 3.42 3.42 0 01-3.138 3.138 3.42 3.42 0 00-1.946.806 3.42 3.42 0 01-4.438 0 3.42 3.42 0 00-1.946-.806 3.42 3.42 0 01-3.138-3.138 3.42 3.42 0 00-.806-1.946 3.42 3.42 0 010-4.438 3.42 3.42 0 00.806-1.946 3.42 3.42 0 013.138-3.138z",
-  },
-  {
-    label: "Service Records",
-    perm: "service_records.read",
-    href: "/service-records",
-    icon: "M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z",
-  },
-  {
-    label: "Supplies",
-    perm: "supplies.read",
-    href: "/supplies",
-    icon: "M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4",
-  },
-  {
-    label: "Invoices",
-    perm: "invoices.read",
-    href: "/invoices",
-    icon: "M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z",
-  },
-  {
-    label: "Payments",
-    perm: "payments.read",
-    href: "/payments",
-    icon: "M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z",
-  },
-  {
-    label: "Receipts",
-    perm: "payments.read",
-    href: "/receipts",
-    icon: "M9 14l2 2 4-4M7 3h10a2 2 0 012 2v16l-3-2-2 2-2-2-2 2-2-2-3 2V5a2 2 0 012-2z",
-  },
-  {
-    label: "Payroll",
-    perm: "payroll.read",
-    href: "/payroll",
-    icon: "M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z",
-  },
-  {
-    label: "Finance",
-    perm: "expenses.read",
-    href: "/finance",
-    icon: "M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z",
-  },
-  {
-    label: "Reports",
-    perm: "reports.read",
-    href: "/reports",
-    icon: "M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z",
-  },
-  {
-    label: "Notifications",
-    perm: "notifications.read",
-    href: "/notifications",
-    icon: "M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9",
-  },
-  {
-    label: "Complaints",
-    perm: "complaints.read",
-    href: "/complaints",
-    icon: "M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z",
-  },
-  {
-    label: "Feedback",
-    perm: "feedback.read",
-    href: "/feedback",
-    icon: "M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z",
-  },
-  {
-    label: "Settings",
-    perm: "settings.read",
-    href: "/settings",
-    icon: "M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z M15 12a3 3 0 11-6 0 3 3 0 016 0z",
+    title: "Admin",
+    items: [
+    {
+        label: "Settings",
+        perm: "settings.read",
+        href: "/settings",
+        icon: "M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z M15 12a3 3 0 11-6 0 3 3 0 016 0z",
+      },
+    ],
   },
 ];
 
@@ -177,12 +228,19 @@ const isActive = (href: string) =>
     <span class="nav-label text-lg font-semibold text-gray-900">Smile Clean</span>
   </div>
 
-  <nav id="sidebar-nav" class="flex-1 space-y-1 overflow-y-auto px-3 py-4">
+  <nav id="sidebar-nav" class="flex-1 overflow-y-auto px-3 py-4">
     {
-      navItems.map((item) => (
+      navGroups.map((group) => (
+        <div class="nav-group space-y-1 [&:not(:first-child)]:mt-4" data-nav-group>
+          {group.title && (
+            <p class="nav-label px-3 pb-1 text-[11px] font-semibold uppercase tracking-wider text-gray-400">
+              {group.title}
+            </p>
+          )}
+          {group.items.map((item) => (
         <a
           href={item.href}
-          title={item.label}
+          title={item.hint ? `${item.label} — ${item.hint}` : item.label}
           data-perm={item.perm}
           aria-current={isActive(item.href) ? "page" : undefined}
           class:list={[
@@ -218,6 +276,8 @@ const isActive = (href: string) =>
             />
           )}
         </a>
+          ))}
+        </div>
       ))
     }
   </nav>
@@ -287,6 +347,10 @@ const isActive = (href: string) =>
       const perm = el.dataset.perm ?? "";
       const selfAttendance = perm === "attendance.read" && user.role === "CLEANER";
       if (!selfAttendance && !hasPermission(user.role, perm)) el.remove();
+    });
+    // Drop group headings whose pages this role cannot see.
+    document.querySelectorAll<HTMLElement>("#app-sidebar [data-nav-group]").forEach((g) => {
+      if (!g.querySelector(".nav-link")) g.remove();
     });
 
     const avatar = document.getElementById("sidebar-avatar");
