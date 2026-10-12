@@ -64,7 +64,7 @@ function toggleCrew(id: number) {
   <div>
     <div class="mb-1 flex flex-wrap items-baseline justify-between gap-2">
       <span class="text-sm font-medium text-gray-700">Cleaning team</span>
-      <span class="text-xs text-gray-500">1 lead (required) · crew optional</span>
+      <span class="text-xs text-gray-500">Optional · leave empty to assign later from Dispatch</span>
     </div>
 
     <div
@@ -75,7 +75,7 @@ function toggleCrew(id: number) {
     >
       <div class="flex flex-wrap items-center gap-1.5 border-b border-gray-100 px-3 py-2 text-xs">
         <span v-if="leadName" class="rounded-full bg-navy-600 px-2 py-0.5 font-medium text-white">Lead: {{ leadName }}</span>
-        <span v-else class="rounded-full bg-amber-50 px-2 py-0.5 font-medium text-amber-700">No lead selected</span>
+        <span v-else class="rounded-full bg-amber-50 px-2 py-0.5 font-medium text-amber-700">Not assigned yet</span>
         <span v-for="name in crewNames" :key="name" class="rounded-full bg-navy-50 px-2 py-0.5 font-medium text-navy-700">
           Crew: {{ name }}
         </span>

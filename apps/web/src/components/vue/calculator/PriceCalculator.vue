@@ -118,6 +118,20 @@ const result = computed(() =>
   ),
 );
 
+// Opens a new booking already filled with this price, service and duration.
+const bookingHref = computed(() => {
+  const r = result.value;
+  const q = new URLSearchParams({
+    newBooking: "1",
+    price: String(Math.round(r.taxable * 100) / 100),
+    total: String(Math.round(r.total * 100) / 100),
+  });
+  const service = lines.value[0]?.serviceId;
+  if (service) q.set("service", service);
+  if (r.estimatedMinutes > 0) q.set("minutes", String(r.estimatedMinutes));
+  return `/bookings?${q}`;
+});
+
 async function copySummary() {
   const text = buildQuoteSummary(result.value, (n) => formatMoney(n));
   try {
@@ -380,10 +394,10 @@ const stepBadge =
           </button>
         </div>
         <a
-          href="/bookings"
+          :href="bookingHref"
           class="relative mt-3 block text-center text-xs text-gray-400 hover:text-white hover:underline"
         >
-          Use this total when creating the booking →
+          Create a booking with this price →
         </a>
       </div>
     </div>

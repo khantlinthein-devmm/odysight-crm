@@ -196,6 +196,9 @@ function fmtDate(iso: string | null): string {
   return new Date(iso).toLocaleString();
 }
 
+// Voiding cannot be undone, so the button asks first.
+const confirmingVoid = ref(false);
+
 async function setStatus(next: "void") {
   if (!invoice.value) return;
   busy.value = true;
@@ -203,6 +206,7 @@ async function setStatus(next: "void") {
   try {
     invoice.value = await updateInvoice(invoice.value.id, { status: next });
     void loadQr();
+    showToast(`Invoice ${invoice.value.invoiceNumber} voided`, "success");
   } catch (e) {
     actionError.value =
       e instanceof ApiError ? e.message : "Failed to update invoice";
@@ -307,7 +311,7 @@ onMounted(load);
             v-if="canUpdate && isOpen && !(invoice.amountPaid ?? 0)"
             :disabled="busy"
             class="rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-50"
-            @click="setStatus('void')"
+            @click="confirmingVoid = true"
           >Void</button>
         </div>
       </div>
@@ -498,5 +502,14 @@ onMounted(load);
         @cancel="pendingUndo = null"
       />
     </template>
-  </div>
+    <ConfirmDialog
+      v-if="confirmingVoid && invoice"
+      :title="`Void invoice ${invoice.invoiceNumber}?`"
+      message="The invoice will be cancelled and can no longer be paid. This cannot be undone."
+      confirm-label="Void invoice"
+      :busy="busy"
+      @confirm="setStatus('void').then(() => (confirmingVoid = false))"
+      @cancel="confirmingVoid = false"
+    />
+</div>
 </template>

@@ -14,6 +14,10 @@ import { showToast } from "../../../lib/toast";
 import { updateLead } from "../../../lib/leads";
 import CustomerForm from "./CustomerForm.vue";
 import ConfirmDialog from "../ui/ConfirmDialog.vue";
+import { getSessionUser } from "../../../lib/auth";
+import { hasPermission } from "../../../lib/roles";
+
+const canBook = hasPermission(getSessionUser()?.role, "bookings.create");
 
 const statusLabels: Record<CustomerStatus, string> = {
   active: "Active",
@@ -101,7 +105,10 @@ const filteredCustomers = computed(() => {
       `${customer.firstName} ${customer.lastName}`
         .toLowerCase()
         .includes(query) ||
-      customer.email.toLowerCase().includes(query);
+      customer.email.toLowerCase().includes(query) ||
+      // Phone matches ignore spaces/dashes: "0812345678" finds "081-234-5678".
+      (query.replace(/\D/g, "").length >= 3 &&
+        customer.phone.replace(/\D/g, "").includes(query.replace(/\D/g, "")));
     return matchesStatus && matchesQuery;
   });
 });
@@ -215,7 +222,7 @@ onMounted(fetchCustomers);
           v-model="search"
           @input="page = 1"
           type="search"
-          placeholder="Search name or email..."
+          placeholder="Search name, phone or email..."
           class="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-gray-500 focus:outline-none focus:ring-1 focus:ring-navy-500 sm:w-56"
         />
         <select
@@ -347,6 +354,13 @@ onMounted(fetchCustomers);
             >
               Edit
             </button>
+            <a
+              v-if="canBook"
+              :href="`/bookings?newBooking=1&customer=${customer.id}`"
+              class="rounded-lg bg-navy-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-navy-700"
+            >
+              New booking
+            </a>
             <button
               type="button"
               class="ml-auto rounded-lg px-2.5 py-1.5 text-sm font-medium text-red-600 hover:bg-red-50"
