@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from "vue";
+import { computed, onMounted, ref, watch } from "vue";
 import {
   createBooking,
   deleteBooking,
@@ -22,6 +22,8 @@ import { getQuote, updateQuote, type Quote } from "../../../lib/quotes";
 import { getCustomer } from "../../../lib/customers";
 import ConfirmDialog from "../ui/ConfirmDialog.vue";
 import MyJobs from "./MyJobs.vue";
+import BookingDetailPanel from "./BookingDetailPanel.vue";
+import BookingCalendar from "./BookingCalendar.vue";
 
 const role = getSessionUser()?.role;
 const canCreate = computed(() => hasPermission(role, "bookings.create"));
@@ -106,6 +108,37 @@ const pendingDelete = ref<Booking | null>(null);
 const deleting = ref(false);
 const invoicingId = ref<number | null>(null);
 
+// Clicking a booking opens a side panel with the booking, its customer and
+// the customer's other bookings.
+const viewing = ref<Booking | null>(null);
+
+function openDetails(booking: Booking, event?: MouseEvent) {
+  // Buttons and links on the card keep their own action.
+  if (event && (event.target as HTMLElement).closest("button, a")) return;
+  viewing.value = booking;
+}
+
+function editFromPanel(booking: Booking) {
+  viewing.value = null;
+  openEdit(booking);
+}
+
+function collectFromPanel(booking: Booking) {
+  viewing.value = null;
+  collecting.value = booking;
+}
+
+// List of cards, or the day / month / year calendar with its summary.
+type PageView = "list" | "calendar";
+const pageView = ref<PageView>("list");
+function setPageView(v: PageView) {
+  pageView.value = v;
+  const url = new URL(window.location.href);
+  if (v === "calendar") url.searchParams.set("view", "calendar");
+  else url.searchParams.delete("view");
+  history.replaceState(null, "", url);
+}
+
 const filteredBookings = computed(() => {
   const query = search.value.trim().toLowerCase();
   return bookings.value.filter((booking) => {
@@ -128,18 +161,105 @@ const pagedBookings = computed(() => {
   return filteredBookings.value.slice(start, start + pageSize);
 });
 
+// --- Date filter: asks the server for the chosen days ---
+type DatePreset = "all" | "today" | "tomorrow" | "week" | "month" | "custom";
+const datePresets: { value: DatePreset; label: string }[] = [
+  { value: "all", label: "All dates" },
+  { value: "today", label: "Today" },
+  { value: "tomorrow", label: "Tomorrow" },
+  { value: "week", label: "This week" },
+  { value: "month", label: "This month" },
+  { value: "custom", label: "Pick dates" },
+];
+const datePreset = ref<DatePreset>("all");
+const customFrom = ref("");
+const customTo = ref("");
+
+function dayStart(d: Date, addDays = 0): Date {
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate() + addDays);
+}
+
+function parseDay(value: string): Date | null {
+  const [y, m, d] = value.split("-").map(Number);
+  return y && m && d ? new Date(y, m - 1, d) : null;
+}
+
+const dateRange = computed<{ from: Date; to: Date } | null>(() => {
+  const today = dayStart(new Date());
+  switch (datePreset.value) {
+    case "today":
+      return { from: today, to: dayStart(today, 1) };
+    case "tomorrow":
+      return { from: dayStart(today, 1), to: dayStart(today, 2) };
+    case "week": {
+      const monday = dayStart(today, -((today.getDay() + 6) % 7));
+      return { from: monday, to: dayStart(monday, 7) };
+    }
+    case "month":
+      return {
+        from: new Date(today.getFullYear(), today.getMonth(), 1),
+        to: new Date(today.getFullYear(), today.getMonth() + 1, 1),
+      };
+    case "custom": {
+      const from = parseDay(customFrom.value);
+      const to = parseDay(customTo.value || customFrom.value);
+      if (!from || !to) return null;
+      // "To" is inclusive for the admin: search up to the end of that day.
+      return from <= to ? { from, to: dayStart(to, 1) } : { from: to, to: dayStart(from, 1) };
+    }
+    default:
+      return null;
+  }
+});
+
+const PAGE = 200;
+const MAX_PAGES = 10;
+const truncated = ref(false);
+
+let fetchSeq = 0;
 async function fetchBookings() {
+  const seq = ++fetchSeq;
   loading.value = true;
+  truncated.value = false;
   try {
     // Warm the workspace settings cache so service names render from the catalog.
     await getWorkspaceSettings().catch(() => null);
-    bookings.value = await getBookings();
+    const range = dateRange.value;
+    const rows: Booking[] = [];
+    for (let i = 0; i < MAX_PAGES; i++) {
+      const batch = await getBookings({
+        limit: PAGE,
+        offset: i * PAGE,
+        ...(range ? { from: range.from.toISOString(), to: range.to.toISOString() } : {}),
+      });
+      rows.push(...batch);
+      if (batch.length < PAGE) break;
+      if (i === MAX_PAGES - 1) truncated.value = true;
+    }
+    if (seq !== fetchSeq) return;
+    // A date range reads best in time order; "All dates" keeps newest first.
+    if (range) rows.sort((a, b) => a.scheduledFor.localeCompare(b.scheduledFor));
+    bookings.value = rows;
   } catch {
-    showToast("Failed to load bookings", "error");
+    if (seq === fetchSeq) showToast("Failed to load bookings", "error");
   } finally {
-    loading.value = false;
+    if (seq === fetchSeq) loading.value = false;
   }
 }
+
+watch(dateRange, (next, prev) => {
+  if (next?.from.getTime() === prev?.from.getTime() && next?.to.getTime() === prev?.to.getTime()) return;
+  page.value = 1;
+  void fetchBookings();
+});
+
+const rangeLabel = computed(() => {
+  const r = dateRange.value;
+  if (!r) return "";
+  const last = dayStart(r.to, -1);
+  const fmt = (d: Date) => d.toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" });
+  return r.from.getTime() === last.getTime() ? fmt(r.from) : `${fmt(r.from)} – ${fmt(last)}`;
+});
 
 function openCreate() {
   editingBooking.value = undefined;
@@ -333,6 +453,7 @@ function formatDate(iso: string): string {
 }
 
 onMounted(() => {
+  if (new URLSearchParams(window.location.search).get("view") === "calendar") pageView.value = "calendar";
   void fetchBookings();
   void openFromQuote();
   void openNewFromLink();
@@ -346,13 +467,36 @@ onMounted(() => {
     >
       <h2 class="text-base font-semibold text-gray-900">Bookings</h2>
       <span
-        class="rounded-full bg-gray-100 px-2.5 py-0.5 text-xs font-medium text-gray-600"
+        v-if="pageView === 'list'"
+        class="self-start rounded-full bg-gray-100 px-2.5 py-0.5 text-xs font-medium text-gray-600 sm:self-auto"
       >
         {{ filteredBookings.length }}
       </span>
+      <div
+        v-if="role !== 'CLEANER'"
+        class="inline-flex self-start rounded-lg bg-gray-100 p-0.5"
+        role="tablist"
+        aria-label="Bookings view"
+      >
+        <button
+          v-for="v in (['list', 'calendar'] as const)"
+          :key="v"
+          type="button"
+          role="tab"
+          :aria-selected="pageView === v"
+          :class="[
+            'rounded-md px-3 py-1 text-sm font-medium capitalize transition-colors',
+            pageView === v ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-800',
+          ]"
+          @click="setPageView(v)"
+        >
+          {{ v }}
+        </button>
+      </div>
 
       <div class="sm:ml-auto flex flex-col gap-2 sm:flex-row">
         <input
+          v-if="pageView === 'list'"
           v-model="search"
           @input="page = 1"
           type="search"
@@ -360,6 +504,7 @@ onMounted(() => {
           class="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-gray-500 focus:outline-none focus:ring-1 focus:ring-navy-500 sm:w-56"
         />
         <select
+          v-if="pageView === 'list'"
           v-model="statusFilter"
           @change="page = 1"
           class="rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-gray-500 focus:outline-none focus:ring-1 focus:ring-navy-500"
@@ -384,12 +529,62 @@ onMounted(() => {
       </div>
     </div>
 
+    <div
+      v-if="pageView === 'list'"
+      class="flex flex-wrap items-center gap-2 border-b border-gray-200 bg-white px-6 py-3"
+    >
+      <span class="text-xs font-medium text-gray-500">Date</span>
+      <button
+        v-for="d in datePresets"
+        :key="d.value"
+        type="button"
+        :aria-pressed="datePreset === d.value"
+        :class="[
+          'rounded-full px-3 py-1 text-xs font-medium ring-1 transition-colors',
+          datePreset === d.value
+            ? 'bg-navy-600 text-white ring-navy-600'
+            : 'bg-white text-gray-600 ring-gray-200 hover:bg-gray-50',
+        ]"
+        @click="datePreset = d.value"
+      >
+        {{ d.label }}
+      </button>
+      <template v-if="datePreset === 'custom'">
+        <label class="sr-only" for="bk-from">From</label>
+        <input
+          id="bk-from"
+          v-model="customFrom"
+          type="date"
+          class="rounded-lg border border-gray-200 px-2 py-1 text-xs focus:border-gray-500 focus:outline-none focus:ring-1 focus:ring-navy-500"
+        />
+        <span class="text-xs text-gray-400">to</span>
+        <label class="sr-only" for="bk-to">To</label>
+        <input
+          id="bk-to"
+          v-model="customTo"
+          type="date"
+          :min="customFrom || undefined"
+          class="rounded-lg border border-gray-200 px-2 py-1 text-xs focus:border-gray-500 focus:outline-none focus:ring-1 focus:ring-navy-500"
+        />
+      </template>
+      <span v-if="rangeLabel" class="text-xs text-gray-500 sm:ml-auto">
+        {{ rangeLabel }} · <strong class="text-gray-900">{{ filteredBookings.length }}</strong> bookings
+      </span>
+    </div>
+    <p v-if="pageView === 'list' && truncated" class="bg-amber-50 px-6 py-2 text-xs text-amber-800">
+      Showing the first {{ PAGE * MAX_PAGES }} bookings. Pick a shorter date range to see the rest.
+    </p>
+
     <!-- Cleaner field view (mobile cards with Accept / Check-in actions) -->
     <div v-if="role === 'CLEANER'" class="p-4 lg:hidden">
       <MyJobs :bookings="filteredBookings" :loading="loading" @changed="fetchBookings" />
     </div>
 
-    <div>
+    <div v-if="pageView === 'calendar'" class="p-4 sm:p-6">
+      <BookingCalendar @open="viewing = $event" />
+    </div>
+
+    <div v-else>
 
     <div v-if="loading" class="px-6 py-16 text-center">
       <p class="text-sm text-gray-500">Loading bookings...</p>
@@ -401,7 +596,7 @@ onMounted(() => {
     >
       <p class="text-sm font-medium text-gray-900">No bookings found</p>
       <p class="mt-1 text-sm text-gray-500">
-        Try adjusting your filters or create a new booking.
+        {{ dateRange ? "No bookings on these dates." : "Try adjusting your filters or create a new booking." }}
       </p>
     </div>
 
@@ -409,7 +604,8 @@ onMounted(() => {
       <article
         v-for="booking in pagedBookings"
         :key="booking.id"
-        class="flex flex-col overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm transition hover:shadow-md"
+        class="flex cursor-pointer flex-col overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm transition hover:shadow-md hover:ring-1 hover:ring-navy-200"
+        @click="openDetails(booking, $event)"
       >
         <!-- Status color bar -->
         <div :class="['h-1.5 w-full', statusAccent[booking.status]]"></div>
@@ -472,6 +668,13 @@ onMounted(() => {
         </dl>
 
         <div class="mt-4 flex flex-wrap items-center gap-2 border-t border-gray-100 pt-3">
+          <button
+            type="button"
+            class="rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-sm font-semibold text-gray-700 hover:bg-gray-100"
+            @click="viewing = booking"
+          >
+            Details
+          </button>
           <button
             v-if="canEdit"
             type="button"
@@ -544,6 +747,20 @@ onMounted(() => {
     </div>
     </div>
   </div>
+
+  <BookingDetailPanel
+    v-if="viewing"
+    :booking="viewing"
+    :can-edit="canEdit"
+    :can-invoice="canInvoice"
+    :can-collect="canCollect"
+    :invoicing="invoicingId === viewing.id"
+    @close="viewing = null"
+    @open="viewing = $event"
+    @edit="editFromPanel"
+    @invoice="handleInvoice"
+    @collect="collectFromPanel"
+  />
 
   <BookingForm
     v-if="showForm"
