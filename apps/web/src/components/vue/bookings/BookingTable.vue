@@ -23,7 +23,6 @@ import BookingForm from "./BookingForm.vue";
 import { getQuote, updateQuote, type Quote } from "../../../lib/quotes";
 import { getCustomer } from "../../../lib/customers";
 import ConfirmDialog from "../ui/ConfirmDialog.vue";
-import MyJobs from "./MyJobs.vue";
 import BookingDetailPanel from "./BookingDetailPanel.vue";
 import BookingCalendar from "./BookingCalendar.vue";
 
@@ -526,6 +525,11 @@ function cleanerSummary(booking: Booking): string {
 }
 
 onMounted(() => {
+  // Cleaners use their own field app (no prices, no customer details).
+  if (role === "CLEANER") {
+    window.location.replace("/jobs");
+    return;
+  }
   if (new URLSearchParams(window.location.search).get("view") === "calendar") pageView.value = "calendar";
   void fetchBookings();
   void openFromQuote();
@@ -648,10 +652,6 @@ onMounted(() => {
       Showing the first {{ PAGE * MAX_PAGES }} bookings. Pick a shorter date range to see the rest.
     </p>
 
-    <!-- Cleaner field view (mobile cards with Accept / Check-in actions) -->
-    <div v-if="role === 'CLEANER'" class="p-4 lg:hidden">
-      <MyJobs :bookings="filteredBookings" :loading="loading" @changed="fetchBookings" />
-    </div>
 
     <div v-if="pageView === 'calendar'" class="p-4 sm:p-6">
       <BookingCalendar @open="viewing = $event" />

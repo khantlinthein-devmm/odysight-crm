@@ -30,7 +30,7 @@ export const PERMISSION_MATRIX: PermissionGroup[] = [
   {
     resource: "Customers",
     permissions: [
-      { key: "customers.read", label: "View", roles: ["SUPER_ADMIN", "ADMIN", "MANAGER", "DISPATCH", "ACCOUNTANT", "CLEANER"] },
+      { key: "customers.read", label: "View", roles: ["SUPER_ADMIN", "ADMIN", "MANAGER", "DISPATCH", "ACCOUNTANT"] },
       { key: "customers.create", label: "Create", roles: ["SUPER_ADMIN", "ADMIN", "MANAGER"] },
       { key: "customers.update", label: "Edit", roles: ["SUPER_ADMIN", "ADMIN", "MANAGER"] },
       { key: "customers.delete", label: "Delete", roles: ["SUPER_ADMIN", "ADMIN"] },

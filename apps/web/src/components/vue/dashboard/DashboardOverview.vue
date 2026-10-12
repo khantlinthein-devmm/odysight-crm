@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from "vue";
 import { ApiError } from "../../../lib/api";
-import { clearSession } from "../../../lib/auth";
+import { clearSession, getSessionUser } from "../../../lib/auth";
 import {
   currencyCode,
   formatMoney,
@@ -260,7 +260,14 @@ function signInAgain() {
   window.location.href = "/login?next=/dashboard";
 }
 
-onMounted(load);
+onMounted(() => {
+  // Cleaners have no dashboard; their home is the field app.
+  if (getSessionUser()?.role === "CLEANER") {
+    window.location.replace("/jobs");
+    return;
+  }
+  void load();
+});
 </script>
 
 <template>

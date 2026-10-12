@@ -175,7 +175,8 @@ var rolePermissions = map[Role]map[Permission]struct{}{
 	RoleCleaner: perms(
 		PermBookingsRead, PermBookingsUpdate,
 		PermServiceRecordsRead, PermServiceRecordsCreate, PermServiceRecordsUpdate,
-		PermCustomersRead,
+		// No customers.read: a cleaner's job card already names the customer
+		// and the address; the customer list (phones, tax IDs) stays office-only.
 		PermSettingsRead,
 		PermSitesRead,
 		PermChecklistsRead, PermChecklistsManage,

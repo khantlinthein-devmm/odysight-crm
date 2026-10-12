@@ -325,6 +325,21 @@ export async function acceptBooking(id: number): Promise<Booking> {
   });
 }
 
+/**
+ * Open jobs a cleaner can accept (GET /api/v1/bookings/available): pending
+ * and nobody assigned yet.
+ */
+export async function getAvailableBookings(): Promise<Booking[]> {
+  if (USE_MOCKS) {
+    await delay(200);
+    return mockBookings
+      .filter((b) => b.status === "pending" && (b.cleaners ?? []).length === 0 && !b.assignedCleaner)
+      .map(clone);
+  }
+  const json = await apiFetch<Booking[] | Page<Booking>>("/api/v1/bookings/available");
+  return unwrapPage(json);
+}
+
 export interface MyJobsIdentity {
   email: string;
   name: string;

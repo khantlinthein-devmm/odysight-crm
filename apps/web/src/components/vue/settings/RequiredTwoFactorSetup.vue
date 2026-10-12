@@ -7,7 +7,7 @@ import TwoFactorSetup from "./TwoFactorSetup.vue";
 const user = getSessionUser();
 
 function finish() {
-  window.location.href = user?.role === "CLEANER" ? "/bookings" : "/dashboard";
+  window.location.href = user?.role === "CLEANER" ? "/jobs" : "/dashboard";
 }
 </script>
 
