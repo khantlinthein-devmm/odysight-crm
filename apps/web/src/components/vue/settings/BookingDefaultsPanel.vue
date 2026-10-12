@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { hoursToMinutes, minutesToHours } from "../../../lib/duration";
 import { computed, onMounted, ref } from "vue";
 import { ApiError } from "../../../lib/api";
 import {
@@ -71,8 +72,17 @@ const input =
     <div v-if="loading" class="mt-4 text-sm text-gray-500">Loading…</div>
     <div v-else class="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
       <label class="block">
-        <span class="mb-1 block text-xs font-medium text-gray-600">Default duration (minutes)</span>
-        <input v-model.number="form.defaultDurationMinutes" type="number" min="15" max="1440" :class="input" :disabled="!editable" />
+        <span class="mb-1 block text-xs font-medium text-gray-600">Default duration (hours)</span>
+        <input
+          :value="minutesToHours(form.defaultDurationMinutes)"
+          type="number"
+          min="0.25"
+          max="24"
+          step="0.25"
+          :class="input"
+          :disabled="!editable"
+          @change="form.defaultDurationMinutes = hoursToMinutes(($event.target as HTMLInputElement).value) || form.defaultDurationMinutes"
+        />
       </label>
       <label class="block">
         <span class="mb-1 block text-xs font-medium text-gray-600">Buffer between bookings (minutes)</span>

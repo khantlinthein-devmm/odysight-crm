@@ -11,8 +11,10 @@ const props = withDefaults(
     message?: string;
     confirmLabel?: string;
     busy?: boolean;
+    /** "danger" (red) for destructive actions, "primary" for everything else. */
+    tone?: "danger" | "primary";
   }>(),
-  { open: true },
+  { open: true, tone: "danger" },
 );
 
 const emit = defineEmits<{
@@ -53,7 +55,10 @@ const { container } = useModalA11y(() => emit("cancel"));
         <button
           type="button"
           :disabled="busy"
-          class="rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-50"
+          :class="[
+            'rounded-lg px-4 py-2 text-sm font-medium text-white disabled:opacity-50',
+            tone === 'primary' ? 'bg-navy-600 hover:bg-navy-700' : 'bg-red-600 hover:bg-red-700',
+          ]"
           @click="emit('confirm')"
         >
           {{ confirmLabel ?? "Delete" }}

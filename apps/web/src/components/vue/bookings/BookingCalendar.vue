@@ -4,6 +4,7 @@ import { getBookings, type Booking, type BookingStatus } from "../../../lib/book
 import { activeServices, getWorkspaceSettings, serviceLabel } from "../../../lib/settings";
 import { showToast } from "../../../lib/toast";
 import DonutChart from "../reports/DonutChart.vue";
+import { formatDuration } from "../../../lib/duration";
 import type { DonutSegment } from "../../../lib/charts";
 
 const emit = defineEmits<{ open: [booking: Booking] }>();
@@ -400,7 +401,7 @@ const views: { value: View; label: string }[] = [
           >
             <div class="w-24 shrink-0">
               <p class="text-sm font-semibold text-gray-900">{{ time(b.scheduledFor) }}</p>
-              <p class="text-xs text-gray-500">{{ b.durationMinutes }} min</p>
+              <p class="text-xs text-gray-500">{{ formatDuration(b.durationMinutes) }}</p>
             </div>
             <div class="min-w-0 flex-1">
               <p class="truncate text-sm font-medium text-gray-900">

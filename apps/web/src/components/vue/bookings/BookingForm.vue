@@ -21,6 +21,7 @@ import {
   getWorkspaceSettings,
 } from "../../../lib/settings";
 import { lineTotal } from "../../../lib/pricing";
+import { hoursToMinutes, minutesToHours } from "../../../lib/duration";
 
 const props = defineProps<{
   booking?: Booking;
@@ -389,6 +390,20 @@ if (!props.booking && props.prefill) {
   selectedCustomerId.value = form.customerId ?? null;
 }
 
+// The field is in hours; the booking stores minutes. Keep the typed text so
+// partial input like "1." is not rewritten while the user is still typing.
+const durationHours = ref<string | number>(String(minutesToHours(form.durationMinutes)));
+watch(durationHours, (h) => {
+  form.durationMinutes = hoursToMinutes(h);
+});
+watch(
+  () => form.durationMinutes,
+  (m) => {
+    // Changed elsewhere (service default, calculator): show it in hours.
+    if (hoursToMinutes(durationHours.value) !== m) durationHours.value = String(minutesToHours(m));
+  },
+);
+
 const submitted = ref(false);
 
 const errors = computed(() => {
@@ -756,13 +771,15 @@ function inputClassFor(field: keyof CreateBookingInput) {
             <label
               class="mb-1 block text-sm font-medium text-gray-700"
               for="b-duration"
-              >Duration (minutes)</label
+              >Duration (hours)</label
             >
             <input
               id="b-duration"
-              v-model.number="form.durationMinutes"
+              v-model="durationHours"
               type="number"
-              min="1"
+              min="0.25"
+              max="24"
+              step="0.25"
               :class="inputClassFor('durationMinutes')"
             />
             <p

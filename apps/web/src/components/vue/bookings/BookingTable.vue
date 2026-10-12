@@ -11,12 +11,13 @@ import {
 } from "../../../lib/bookings";
 import { showToast } from "../../../lib/toast";
 import { isOfflineQueued } from "../../../lib/offline";
-import { currencyCode, getWorkspaceSettings, serviceLabel } from "../../../lib/settings";
+import { activeServices, currencyCode, getWorkspaceSettings, serviceLabel } from "../../../lib/settings";
 import { getSessionUser } from "../../../lib/auth";
 import { hasPermission } from "../../../lib/roles";
 import { createInvoice, getInvoices, isBillableBooking, type PaymentResult } from "../../../lib/invoices";
 import { ApiError } from "../../../lib/api";
 import RecordPaymentDialog from "../invoices/RecordPaymentDialog.vue";
+import VatBreakdown from "../invoices/VatBreakdown.vue";
 import BookingForm from "./BookingForm.vue";
 import { getQuote, updateQuote, type Quote } from "../../../lib/quotes";
 import { getCustomer } from "../../../lib/customers";
@@ -411,10 +412,55 @@ async function handleDelete() {
   }
 }
 
+// "Invoice" first shows the price so it can be changed for this job, instead
+// of editing the service catalog in Settings before every invoice.
+const pendingInvoice = ref<Booking | null>(null);
+const invoiceAmount = ref<string | number>("");
+const savePriceOnBooking = ref(true);
+const pricesIncludeVat = ref(false);
+
+function catalogPrice(serviceType: string): number | null {
+  const found = activeServices().find((s) => s.id === serviceType);
+  return found && found.basePrice > 0 ? found.basePrice : null;
+}
+
 async function handleInvoice(booking: Booking) {
+  const ws = await getWorkspaceSettings().catch(() => null);
+  pricesIncludeVat.value = !!ws?.company.pricesIncludeVat;
+  const start = booking.price ?? catalogPrice(booking.serviceType);
+  invoiceAmount.value = start != null ? String(start) : "";
+  savePriceOnBooking.value = true;
+  pendingInvoice.value = booking;
+}
+
+const invoiceAmountValue = computed(() => {
+  const n = Number(invoiceAmount.value);
+  return String(invoiceAmount.value).trim() !== "" && Number.isFinite(n) && n > 0 ? n : null;
+});
+
+async function confirmInvoice() {
+  const booking = pendingInvoice.value;
+  const amount = invoiceAmountValue.value;
+  if (!booking || amount == null) return;
+  pendingInvoice.value = null;
+  if (savePriceOnBooking.value && booking.price !== amount) {
+    // Keep the booking (and reports) in step with what was billed.
+    const updated = await updateBooking(booking.id, { price: amount }).catch(() => null);
+    if (updated) {
+      const i = bookings.value.findIndex((b) => b.id === updated.id);
+      if (i !== -1) bookings.value[i] = updated;
+      if (viewing.value?.id === updated.id) viewing.value = updated;
+    } else {
+      showToast("Invoice will use the new price, but the booking price was not updated", "info");
+    }
+  }
+  await issueInvoice(booking, amount);
+}
+
+async function issueInvoice(booking: Booking, amount: number) {
   invoicingId.value = booking.id;
   try {
-    const created = await createInvoice({ bookingId: booking.id });
+    const created = await createInvoice({ bookingId: booking.id, subtotal: amount });
     showToast("Invoice created", "success");
     window.location.href = `/invoices/${created.id}`;
   } catch (err) {
@@ -781,6 +827,43 @@ onMounted(() => {
     @done="onCollected"
     @cancel="collecting = null"
   />
+
+  <ConfirmDialog
+    v-if="pendingInvoice"
+    :title="`Invoice ${pendingInvoice.bookingNumber}`"
+    :message="`${pendingInvoice.customerName} · ${labelForService(pendingInvoice.serviceType)}`"
+    confirm-label="Create invoice"
+    tone="primary"
+    @confirm="confirmInvoice"
+    @cancel="pendingInvoice = null"
+  >
+    <div class="mt-3 space-y-3">
+      <label class="block">
+        <span class="mb-1 block text-xs font-medium text-gray-600">
+          {{ pricesIncludeVat ? "Price for this job (VAT included)" : "Price for this job (before VAT)" }}
+        </span>
+        <input
+          v-model="invoiceAmount"
+          type="number"
+          min="0"
+          step="0.01"
+          inputmode="decimal"
+          class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-gray-500 focus:outline-none focus:ring-1 focus:ring-navy-500"
+          placeholder="Enter the price"
+        />
+      </label>
+      <p class="text-xs text-gray-500">
+        Pre-filled from {{ pendingInvoice.price != null ? "this booking" : "the service price in Settings" }}.
+        Change it here for this job only — no need to edit Settings.
+      </p>
+      <label class="flex items-center gap-2 text-sm text-gray-700">
+        <input v-model="savePriceOnBooking" type="checkbox" class="h-4 w-4 rounded border-gray-300" />
+        Also save this price on the booking
+      </label>
+      <p v-if="invoiceAmountValue == null" class="text-xs text-red-600">Enter a price greater than zero.</p>
+      <VatBreakdown :price="invoiceAmountValue" :currency="currencyCode()" />
+    </div>
+  </ConfirmDialog>
 
   <ConfirmDialog
     v-if="pendingDelete"
