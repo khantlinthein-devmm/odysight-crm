@@ -25,12 +25,6 @@ const statusLabels: Record<CustomerStatus, string> = {
   blocked: "Blocked",
 };
 
-const statusStyles: Record<CustomerStatus, string> = {
-  active: "bg-green-100 text-green-800 ring-1 ring-green-300",
-  inactive: "bg-gray-200 text-gray-700 ring-1 ring-gray-300",
-  blocked: "bg-red-100 text-red-800 ring-1 ring-red-300",
-};
-
 const statusAccent: Record<CustomerStatus, string> = {
   active: "bg-green-500",
   inactive: "bg-gray-300",
@@ -194,6 +188,27 @@ async function handleDelete() {
   }
 }
 
+// Card cover colour: fixed per customer (by id), so a card keeps its colour.
+const COVERS = [
+  "from-sky-400 to-indigo-500",
+  "from-emerald-400 to-teal-600",
+  "from-amber-400 to-orange-500",
+  "from-fuchsia-400 to-purple-600",
+  "from-rose-400 to-pink-600",
+  "from-cyan-400 to-blue-600",
+];
+
+function coverFor(customer: Customer): string {
+  if (customer.status === "blocked") return "from-gray-400 to-gray-600";
+  return COVERS[customer.id % COVERS.length]!;
+}
+
+const customerStatusText: Record<CustomerStatus, string> = {
+  active: "text-green-700",
+  inactive: "text-gray-600",
+  blocked: "text-red-700",
+};
+
 function formatDate(iso: string): string {
   return new Date(iso).toLocaleDateString(undefined, {
     year: "numeric",
@@ -267,106 +282,124 @@ onMounted(fetchCustomers);
       <article
         v-for="customer in pagedCustomers"
         :key="customer.id"
-        class="flex flex-col overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm transition hover:shadow-md"
+        class="group relative flex flex-col overflow-hidden rounded-3xl bg-white shadow-sm ring-1 ring-gray-200 transition duration-200 hover:-translate-y-0.5 hover:shadow-xl"
       >
-        <div :class="['h-1.5 w-full', statusAccent[customer.status]]"></div>
-        <div class="flex flex-1 flex-col p-5">
-          <div class="flex items-center justify-between gap-2">
-            <span class="rounded bg-gray-900 px-2 py-0.5 font-mono text-[11px] font-semibold tracking-wide text-white">
-              #{{ customer.no || customer.id }}
-            </span>
+        <!-- Cover: a colour per customer so cards are easy to tell apart -->
+        <div :class="['relative h-20 bg-gradient-to-br', coverFor(customer)]">
+          <div class="absolute inset-0 bg-[radial-gradient(circle_at_1px_1px,rgba(255,255,255,0.35)_1px,transparent_0)] [background-size:14px_14px]"></div>
+          <span class="absolute left-4 top-3 rounded-full bg-black/20 px-2 py-0.5 font-mono text-[11px] font-semibold text-white backdrop-blur-sm">
+            #{{ customer.no || customer.id }}
+          </span>
+          <span
+            :class="[
+              'absolute right-4 top-3 inline-flex items-center gap-1.5 rounded-full bg-white/90 px-2 py-0.5 text-[11px] font-semibold shadow-sm backdrop-blur-sm',
+              customerStatusText[customer.status],
+            ]"
+          >
+            <span :class="['h-1.5 w-1.5 rounded-full', statusAccent[customer.status]]"></span>
+            {{ statusLabels[customer.status] }}
+          </span>
+        </div>
+
+        <div class="flex flex-1 flex-col px-5 pb-5">
+          <div class="relative z-10 -mt-8 flex items-end justify-between gap-3">
             <span
               :class="[
-                'inline-flex shrink-0 items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-bold',
-                statusStyles[customer.status],
+                'flex h-16 w-16 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br text-xl font-bold text-white shadow-md ring-4 ring-white',
+                coverFor(customer),
               ]"
             >
-              <span :class="['h-1.5 w-1.5 rounded-full', statusAccent[customer.status]]"></span>
-              {{ statusLabels[customer.status] }}
-            </span>
-          </div>
-
-          <div class="mt-3 flex items-center gap-3">
-            <span class="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-navy-600 text-base font-bold text-white shadow-sm">
               {{ (customer.firstName || "?").charAt(0).toUpperCase() }}{{ (customer.lastName || "").charAt(0).toUpperCase() }}
             </span>
-            <div class="min-w-0">
-              <h3 class="truncate text-base font-bold text-gray-900">
-                {{ customer.firstName }} {{ customer.lastName }}
-              </h3>
-              <p class="mt-0.5 flex flex-wrap items-center gap-1.5 text-xs">
-                <span v-if="customer.propertyType" class="inline-flex items-center gap-1 rounded-md bg-slate-100 px-2 py-0.5 font-semibold text-slate-700 ring-1 ring-slate-200">
-                  <svg class="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" /></svg>
-                  {{ customer.propertyType }}
-                </span>
-                <span v-if="customer.area" class="inline-flex items-center gap-1 rounded-md bg-slate-100 px-2 py-0.5 font-semibold text-slate-700 ring-1 ring-slate-200">
-                  <svg class="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M17.657 16.657L13.414 20.9a2 2 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" /><path stroke-linecap="round" stroke-linejoin="round" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
-                  {{ customer.area }}
-                </span>
-              </p>
+            <!-- Quick contact -->
+            <div class="flex gap-1.5 pb-1">
+              <a
+                v-if="customer.phone"
+                :href="`tel:${customer.phone}`"
+                class="flex h-8 w-8 items-center justify-center rounded-full bg-gray-100 text-gray-600 transition hover:bg-navy-600 hover:text-white"
+                :title="`Call ${customer.phone}`"
+                :aria-label="`Call ${customer.firstName}`"
+              >
+                <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" /></svg>
+              </a>
+              <a
+                v-if="customer.email"
+                :href="`mailto:${customer.email}`"
+                class="flex h-8 w-8 items-center justify-center rounded-full bg-gray-100 text-gray-600 transition hover:bg-navy-600 hover:text-white"
+                :title="`Email ${customer.email}`"
+                :aria-label="`Email ${customer.firstName}`"
+              >
+                <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" /></svg>
+              </a>
+              <span
+                v-if="customer.lineLinked"
+                class="flex h-8 items-center rounded-full bg-[#06C755] px-2.5 text-[11px] font-bold text-white"
+                title="Booking confirmations, reminders and invoices are sent to this customer's LINE chat"
+              >LINE</span>
             </div>
           </div>
 
-          <dl class="mt-4 space-y-2 rounded-lg bg-gray-50 p-3 text-sm ring-1 ring-gray-100">
-            <div class="flex items-center gap-2">
-              <span class="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-blue-100 text-blue-700"><svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" /></svg></span>
+          <h3 class="mt-3 truncate text-lg font-semibold text-gray-900">
+            {{ customer.firstName }} {{ customer.lastName }}
+          </h3>
+          <p class="mt-0.5 flex flex-wrap items-center gap-x-2 text-sm text-gray-500">
+            <span v-if="customer.propertyType" class="capitalize">{{ customer.propertyType }}</span>
+            <span v-if="customer.propertyType && customer.area" class="text-gray-300">&bull;</span>
+            <span v-if="customer.area">{{ customer.area }}</span>
+          </p>
+
+          <dl class="mt-4 grid grid-cols-1 gap-2 text-sm">
+            <div class="flex items-center justify-between gap-3 rounded-xl bg-gray-50 px-3 py-2">
+              <dt class="text-xs text-gray-500">Phone</dt>
+              <dd class="min-w-0 truncate font-medium tabular-nums text-gray-900">{{ customer.phone || "—" }}</dd>
+            </div>
+            <div class="flex items-center justify-between gap-3 rounded-xl bg-gray-50 px-3 py-2">
+              <dt class="text-xs text-gray-500">Email</dt>
               <dd class="min-w-0 truncate text-gray-700">{{ customer.email || "—" }}</dd>
-            </div>
-            <div class="flex items-center gap-2">
-              <span class="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-green-100 text-green-700"><svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" /></svg></span>
-              <dd class="min-w-0 truncate font-medium text-gray-800">{{ customer.phone || "—" }}</dd>
-            </div>
-            <div class="flex items-center gap-2">
-              <span class="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-gray-100 text-gray-500"><svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg></span>
-              <dd class="min-w-0 text-gray-600">{{ formatDate(customer.createdAt) }}</dd>
             </div>
           </dl>
 
-          <div class="mt-3">
+          <div class="mt-3 flex items-center justify-between text-xs text-gray-400">
+            <span>Customer since {{ formatDate(customer.createdAt) }}</span>
             <button
               type="button"
-              class="inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs font-semibold transition-colors"
+              class="inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 font-semibold ring-1 transition-colors"
               :class="
                 customer.portalEnabled
-                  ? 'border-green-300 bg-green-100 text-green-800 hover:bg-green-200'
-                  : 'border-gray-200 bg-gray-100 text-gray-600 hover:bg-gray-200'
+                  ? 'bg-green-50 text-green-700 ring-green-200 hover:bg-green-100'
+                  : 'bg-white text-gray-500 ring-gray-200 hover:bg-gray-50'
               "
               @click="openPortalModal(customer)"
             >
-              <span
-                class="h-1.5 w-1.5 rounded-full"
-                :class="customer.portalEnabled ? 'bg-green-500' : 'bg-gray-400'"
-              />
-              Portal: {{ customer.portalEnabled ? "Enabled" : "Off" }}
+              <span class="h-1.5 w-1.5 rounded-full" :class="customer.portalEnabled ? 'bg-green-500' : 'bg-gray-300'" />
+              Portal {{ customer.portalEnabled ? "on" : "off" }}
             </button>
-            <span
-              v-if="customer.lineLinked"
-              class="ml-2 inline-flex items-center gap-1 rounded-lg border border-green-300 bg-green-50 px-2.5 py-1 text-xs font-semibold text-green-700"
-              title="Booking confirmations, reminders and invoices are sent to this customer's LINE chat"
-            >LINE ✓</span>
           </div>
 
-          <div class="mt-4 flex flex-wrap items-center gap-2 border-t border-gray-100 pt-3">
-            <button
-              type="button"
-              class="rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-sm font-semibold text-gray-700 hover:bg-gray-100"
-              @click="openEdit(customer)"
-            >
-              Edit
-            </button>
+          <div class="mt-auto flex items-center gap-2 pt-4">
             <a
               v-if="canBook"
               :href="`/bookings?newBooking=1&customer=${customer.id}`"
-              class="rounded-lg bg-navy-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-navy-700"
+              class="flex-1 rounded-xl bg-navy-600 px-3 py-2 text-center text-sm font-semibold text-white shadow-sm hover:bg-navy-700"
             >
               New booking
             </a>
             <button
               type="button"
-              class="ml-auto rounded-lg px-2.5 py-1.5 text-sm font-medium text-red-600 hover:bg-red-50"
+              class="rounded-xl bg-gray-100 px-3 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-200"
+              :class="canBook ? '' : 'flex-1'"
+              @click="openEdit(customer)"
+            >
+              Edit
+            </button>
+            <button
+              type="button"
+              class="rounded-xl p-2 text-gray-400 transition hover:bg-red-50 hover:text-red-600"
+              :aria-label="`Delete ${customer.firstName} ${customer.lastName}`.trim()"
+              title="Delete"
               @click="pendingDelete = customer"
             >
-              Delete
+              <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
             </button>
           </div>
         </div>
