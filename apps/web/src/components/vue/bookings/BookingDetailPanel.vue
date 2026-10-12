@@ -5,6 +5,7 @@ import { getBookings, type Booking, type BookingStatus } from "../../../lib/book
 import { getCustomer, type Customer } from "../../../lib/customers";
 import { formatMoney, serviceLabel } from "../../../lib/settings";
 import { isBillableBooking } from "../../../lib/invoices";
+import { formatDuration } from "../../../lib/duration";
 
 // Side panel on the Bookings page: the booking, the customer behind it and
 // that customer's other bookings, without leaving the page.
@@ -121,12 +122,6 @@ function shortDate(iso: string): string {
   return new Date(iso).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" });
 }
 
-function duration(min: number): string {
-  const h = Math.floor(min / 60);
-  const m = min % 60;
-  return [h ? `${h} h` : "", m ? `${m} min` : ""].filter(Boolean).join(" ") || "0 min";
-}
-
 const team = computed(() => {
   const list = props.booking.cleaners ?? [];
   const lead = list.find((c) => c.role === "primary") ?? list[0];
@@ -173,7 +168,7 @@ const team = computed(() => {
           <dl class="divide-y divide-gray-100 rounded-xl text-sm ring-1 ring-gray-200">
             <div class="flex gap-3 px-4 py-2.5">
               <dt class="w-24 shrink-0 text-gray-500">When</dt>
-              <dd class="font-medium text-gray-900">{{ dateTime(booking.scheduledFor) }} · {{ duration(booking.durationMinutes) }}</dd>
+              <dd class="font-medium text-gray-900">{{ dateTime(booking.scheduledFor) }} · {{ formatDuration(booking.durationMinutes) }}</dd>
             </div>
             <div class="flex gap-3 px-4 py-2.5">
               <dt class="w-24 shrink-0 text-gray-500">Service</dt>

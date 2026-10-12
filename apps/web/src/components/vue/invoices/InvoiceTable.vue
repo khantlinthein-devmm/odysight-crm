@@ -287,6 +287,7 @@ onMounted(() => {
       :title="'Create Invoice'"
       :message="'Bill a booking — before the job (the customer pays a deposit against it) or after it.'"
       :confirm-label="'Create'"
+      tone="primary"
       :busy="createBusy"
       @confirm="submitCreate"
       @cancel="showCreate = false"

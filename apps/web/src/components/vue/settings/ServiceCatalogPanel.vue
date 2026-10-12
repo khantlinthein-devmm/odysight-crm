@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { hoursToMinutes, minutesToHours } from "../../../lib/duration";
 import { computed, onMounted, ref } from "vue";
 import { ApiError } from "../../../lib/api";
 import {
@@ -23,7 +24,7 @@ const error = ref<string | null>(null);
 
 const newId = ref("");
 const newName = ref("");
-const newDuration = ref(120);
+const newHours = ref(2);
 const newPrice = ref(0);
 const newRate = ref(0);
 
@@ -59,14 +60,14 @@ function addItem() {
   items.value.push({
     id,
     name: newName.value.trim(),
-    durationMinutes: Number(newDuration.value) || 60,
+    durationMinutes: hoursToMinutes(newHours.value) || 60,
     basePrice: Number(newPrice.value) || 0,
     pricePerSqm: Number(newRate.value) || 0,
     active: true,
   });
   newId.value = "";
   newName.value = "";
-  newDuration.value = 120;
+  newHours.value = 2;
   newPrice.value = 0;
   newRate.value = 0;
 }
@@ -112,7 +113,7 @@ const input =
             <tr class="border-b border-gray-100 text-xs uppercase tracking-wide text-gray-400">
               <th class="py-2 pr-2 font-medium">ID</th>
               <th class="py-2 pr-2 font-medium">Name</th>
-              <th class="py-2 pr-2 font-medium">Duration (min)</th>
+              <th class="py-2 pr-2 font-medium">Duration (hours)</th>
               <th class="py-2 pr-2 font-medium">Base price</th>
               <th class="py-2 pr-2 font-medium">Per m²</th>
               <th class="py-2 pr-2 text-center font-medium">Active</th>
@@ -126,7 +127,17 @@ const input =
                 <input v-model="s.name" :class="input + ' w-full'" :disabled="!editable" />
               </td>
               <td class="py-2 pr-2">
-                <input v-model.number="s.durationMinutes" type="number" min="15" max="1440" :class="input + ' w-24'" :disabled="!editable" />
+                <input
+                  :value="minutesToHours(s.durationMinutes)"
+                  type="number"
+                  min="0.25"
+                  max="24"
+                  step="0.25"
+                  :class="input + ' w-24'"
+                  :disabled="!editable"
+                  :aria-label="`${s.name} duration in hours`"
+                  @change="s.durationMinutes = hoursToMinutes(($event.target as HTMLInputElement).value) || s.durationMinutes"
+                />
               </td>
               <td class="py-2 pr-2">
                 <input v-model.number="s.basePrice" type="number" min="0" step="0.01" :class="input + ' w-28'" :disabled="!editable" />
@@ -157,7 +168,7 @@ const input =
         <div class="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-6">
           <input v-model="newName" placeholder="Display name" :class="input" />
           <input v-model="newId" placeholder="id (auto from name)" :class="input" />
-          <input v-model.number="newDuration" type="number" min="15" placeholder="Minutes" :class="input" />
+          <input v-model.number="newHours" type="number" min="0.25" max="24" step="0.25" placeholder="Hours" aria-label="Duration in hours" :class="input" />
           <input v-model.number="newPrice" type="number" min="0" placeholder="Base price" :class="input" />
           <input v-model.number="newRate" type="number" min="0" placeholder="Per m²" :class="input" />
           <button
