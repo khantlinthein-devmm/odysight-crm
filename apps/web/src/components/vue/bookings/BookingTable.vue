@@ -18,6 +18,7 @@ import { createInvoice, getInvoices, isBillableBooking, type PaymentResult } fro
 import { ApiError } from "../../../lib/api";
 import RecordPaymentDialog from "../invoices/RecordPaymentDialog.vue";
 import VatBreakdown from "../invoices/VatBreakdown.vue";
+import { formatDuration } from "../../../lib/duration";
 import BookingForm from "./BookingForm.vue";
 import { getQuote, updateQuote, type Quote } from "../../../lib/quotes";
 import { getCustomer } from "../../../lib/customers";
@@ -483,6 +484,36 @@ async function issueInvoice(booking: Booking, amount: number) {
   }
 }
 
+// Card styling: the ticket stub takes the status colour.
+const stubTone: Record<BookingStatus, { bg: string; text: string }> = {
+  pending: { bg: "from-amber-50", text: "text-amber-600" },
+  confirmed: { bg: "from-blue-50", text: "text-blue-600" },
+  in_progress: { bg: "from-indigo-50", text: "text-indigo-600" },
+  completed: { bg: "from-green-50", text: "text-green-600" },
+  cancelled: { bg: "from-gray-100", text: "text-gray-400" },
+  no_show: { bg: "from-red-50", text: "text-red-600" },
+  rescheduled: { bg: "from-purple-50", text: "text-purple-600" },
+};
+
+function dayParts(iso: string) {
+  const d = new Date(iso);
+  return {
+    month: d.toLocaleDateString(undefined, { month: "short" }),
+    day: d.getDate(),
+    weekday: d.toLocaleDateString(undefined, { weekday: "short" }),
+    time: d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" }),
+  };
+}
+
+function initials(name: string): string {
+  return name
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((w) => w.charAt(0).toUpperCase())
+    .join("");
+}
+
 function cleanerSummary(booking: Booking): string {
   const primary =
     booking.cleaners?.find((c) => c.role === "primary")?.name ??
@@ -492,10 +523,6 @@ function cleanerSummary(booking: Booking): string {
   const crewCount = (booking.cleaners ?? []).filter((c) => c.role === "crew")
     .length;
   return crewCount > 0 ? `${primary} +${crewCount} crew` : primary;
-}
-
-function formatDate(iso: string): string {
-  return new Date(iso).toLocaleString();
 }
 
 onMounted(() => {
@@ -650,119 +677,145 @@ onMounted(() => {
       <article
         v-for="booking in pagedBookings"
         :key="booking.id"
-        class="flex cursor-pointer flex-col overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm transition hover:shadow-md hover:ring-1 hover:ring-navy-200"
+        class="group relative flex cursor-pointer overflow-hidden rounded-2xl bg-white shadow-sm ring-1 ring-gray-200 transition duration-200 hover:-translate-y-0.5 hover:shadow-lg hover:ring-gray-300"
         @click="openDetails(booking, $event)"
       >
-        <!-- Status color bar -->
-        <div :class="['h-1.5 w-full', statusAccent[booking.status]]"></div>
-        <div class="flex flex-1 flex-col p-5">
-        <div class="flex items-center justify-between gap-2">
-          <span class="rounded bg-gray-900 px-2 py-0.5 font-mono text-[11px] font-semibold tracking-wide text-white">
-            {{ booking.bookingNumber }}
+        <!-- Ticket stub: the date at a glance -->
+        <div
+          :class="[
+            'relative flex w-20 shrink-0 flex-col items-center justify-center gap-0.5 border-r-2 border-dashed border-gray-200 bg-gradient-to-b to-white px-2 py-4 text-center',
+            stubTone[booking.status].bg,
+          ]"
+        >
+          <span :class="['text-[11px] font-bold uppercase tracking-widest', stubTone[booking.status].text]">
+            {{ dayParts(booking.scheduledFor).month }}
           </span>
-          <span
-            :class="[
-              'inline-flex shrink-0 items-center gap-1 rounded-full px-2.5 py-1 text-xs font-bold',
-              statusStyles[booking.status],
-            ]"
-          >
-            <span :class="['h-1.5 w-1.5 rounded-full', statusAccent[booking.status]]"></span>
-            {{ statusLabels[booking.status] }}
+          <span class="text-3xl font-bold leading-none tracking-tight text-gray-900">
+            {{ dayParts(booking.scheduledFor).day }}
           </span>
+          <span class="text-[11px] font-medium text-gray-500">{{ dayParts(booking.scheduledFor).weekday }}</span>
+          <span class="mt-2 rounded-md bg-white px-1.5 py-0.5 text-[11px] font-semibold tabular-nums text-gray-700 shadow-sm ring-1 ring-gray-200">
+            {{ dayParts(booking.scheduledFor).time }}
+          </span>
+          <!-- ticket notches -->
+          <span class="absolute -right-[9px] -top-2 h-4 w-4 rounded-full bg-gray-100"></span>
+          <span class="absolute -bottom-2 -right-[9px] h-4 w-4 rounded-full bg-gray-100"></span>
         </div>
 
-        <div class="mt-3 flex items-center gap-3">
-          <span class="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-navy-600 text-base font-bold text-white">
-            {{ (booking.customerName || "?").charAt(0).toUpperCase() }}
-          </span>
-          <div class="min-w-0">
-            <h3 class="truncate text-base font-bold text-gray-900">
-              {{ booking.customerName }}
-            </h3>
-            <p class="mt-0.5 flex flex-wrap items-center gap-1.5 text-sm">
-              <span class="inline-flex rounded-md bg-slate-100 px-2 py-0.5 text-xs font-semibold text-slate-700 ring-1 ring-slate-200">
-                {{ labelForService(booking.serviceType) }}
-              </span>
+        <div class="flex min-w-0 flex-1 flex-col p-4">
+          <div class="flex items-center justify-between gap-2">
+            <span class="font-mono text-[11px] font-semibold tracking-wide text-gray-400">{{ booking.bookingNumber }}</span>
+            <span
+              :class="[
+                'inline-flex shrink-0 items-center gap-1.5 rounded-full px-2 py-0.5 text-[11px] font-semibold',
+                statusStyles[booking.status],
+              ]"
+            >
+              <span :class="['h-1.5 w-1.5 rounded-full', statusAccent[booking.status]]"></span>
+              {{ statusLabels[booking.status] }}
+            </span>
+          </div>
+
+          <h3 class="mt-1.5 truncate text-base font-semibold text-gray-900">{{ booking.customerName }}</h3>
+          <p class="mt-1 flex flex-wrap items-center gap-1.5">
+            <span class="inline-flex rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-700">
+              {{ labelForService(booking.serviceType) }}
+            </span>
+            <span class="inline-flex rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-700">
+              {{ formatDuration(booking.durationMinutes) }}
+            </span>
+            <span
+              v-if="booking.isRecurring && booking.recurrence"
+              class="inline-flex rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-800"
+              title="This booking repeats"
+            >
+              &#8635; {{ recurrenceLabels[booking.recurrence] ?? booking.recurrence }}
+            </span>
+          </p>
+
+          <div class="mt-3 space-y-1.5 text-sm">
+            <div class="flex items-center gap-2">
+              <template v-if="booking.cleaners?.length">
+                <span class="flex -space-x-1.5">
+                  <span
+                    v-for="c in booking.cleaners.slice(0, 3)"
+                    :key="c.id"
+                    :title="c.name"
+                    :class="[
+                      'flex h-6 w-6 items-center justify-center rounded-full text-[10px] font-bold text-white ring-2 ring-white',
+                      c.role === 'primary' ? 'bg-navy-600' : 'bg-slate-400',
+                    ]"
+                  >{{ initials(c.name) }}</span>
+                </span>
+                <span class="min-w-0 truncate text-gray-700">{{ cleanerSummary(booking) }}</span>
+              </template>
               <span
-                v-if="booking.isRecurring && booking.recurrence"
-                class="inline-flex rounded-md bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-800 ring-1 ring-amber-200"
-                title="This booking repeats"
+                v-else
+                class="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-xs font-semibold text-amber-700 ring-1 ring-amber-200"
               >
-                ↻ {{ recurrenceLabels[booking.recurrence] ?? booking.recurrence }}
+                <span class="h-1.5 w-1.5 animate-pulse rounded-full bg-amber-500"></span>
+                Needs a cleaner
               </span>
-            </p>
+            </div>
+            <div v-if="booking.address" class="flex items-center gap-2 text-gray-500">
+              <svg class="h-4 w-4 shrink-0 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M17.657 16.657L13.414 20.9a2 2 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" /><path stroke-linecap="round" stroke-linejoin="round" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
+              <span class="min-w-0 truncate">{{ booking.address }}</span>
+            </div>
+            <p v-if="booking.notes" class="line-clamp-1 text-xs italic text-gray-400">{{ booking.notes }}</p>
           </div>
-        </div>
 
-        <dl class="mt-4 space-y-2.5 rounded-lg bg-gray-50 p-3 text-sm ring-1 ring-gray-100">
-          <div class="flex items-center gap-2">
-            <span class="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-blue-100 text-blue-700"><svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg></span>
-            <dd class="min-w-0 font-medium text-gray-800">{{ formatDate(booking.scheduledFor) }}</dd>
+          <div class="mt-auto flex flex-wrap items-center gap-1.5 pt-4">
+            <button
+              type="button"
+              class="rounded-full bg-gray-100 px-3 py-1 text-xs font-semibold text-gray-700 hover:bg-gray-200"
+              @click="viewing = booking"
+            >
+              Details
+            </button>
+            <button
+              v-if="canEdit"
+              type="button"
+              class="rounded-full bg-gray-100 px-3 py-1 text-xs font-semibold text-gray-700 hover:bg-gray-200"
+              @click="openEdit(booking)"
+            >
+              Edit
+            </button>
+            <button
+              v-if="canCollect && booking.status === 'completed'"
+              type="button"
+              title="Customer pays now: bill the job and issue the receipt"
+              class="rounded-full bg-green-600 px-3 py-1 text-xs font-semibold text-white hover:bg-green-700"
+              @click="collecting = booking"
+            >
+              Collect payment
+            </button>
+            <button
+              v-if="canInvoice && isBillableBooking(booking.status)"
+              type="button"
+              :title="booking.status === 'completed' ? 'Customer pays later: send an invoice' : 'Invoice before the job, e.g. for a 50% deposit'"
+              :disabled="invoicingId === booking.id"
+              class="rounded-full bg-navy-600 px-3 py-1 text-xs font-semibold text-white hover:bg-navy-700 disabled:opacity-50"
+              @click="handleInvoice(booking)"
+            >
+              {{ invoicingId === booking.id ? "Invoicing..." : "Invoice" }}
+            </button>
+            <a
+              :href="`/checklists?booking=${booking.id}`"
+              class="rounded-full bg-navy-50 px-3 py-1 text-xs font-semibold text-navy-700 hover:bg-navy-100"
+            >
+              Checklist
+            </a>
+            <button
+              v-if="canDelete"
+              type="button"
+              class="ml-auto rounded-full p-1.5 text-gray-400 transition hover:bg-red-50 hover:text-red-600"
+              :aria-label="`Delete ${booking.bookingNumber}`"
+              title="Delete"
+              @click="pendingDelete = booking"
+            >
+              <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+            </button>
           </div>
-          <div class="flex items-center gap-2">
-            <span class="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-green-100 text-green-700"><svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z" /></svg></span>
-            <dd class="min-w-0 truncate text-gray-700">{{ cleanerSummary(booking) || "Unassigned" }}</dd>
-          </div>
-          <div v-if="booking.address" class="flex items-center gap-2">
-            <span class="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-orange-100 text-orange-700"><svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M17.657 16.657L13.414 20.9a2 2 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" /><path stroke-linecap="round" stroke-linejoin="round" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" /></svg></span>
-            <dd class="min-w-0 truncate text-gray-700">{{ booking.address }}</dd>
-          </div>
-          <div v-if="booking.notes" class="flex items-start gap-2">
-            <span class="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-yellow-100 text-yellow-700"><svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg></span>
-            <dd class="line-clamp-2 min-w-0 text-gray-500">{{ booking.notes }}</dd>
-          </div>
-        </dl>
-
-        <div class="mt-4 flex flex-wrap items-center gap-2 border-t border-gray-100 pt-3">
-          <button
-            type="button"
-            class="rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-sm font-semibold text-gray-700 hover:bg-gray-100"
-            @click="viewing = booking"
-          >
-            Details
-          </button>
-          <button
-            v-if="canEdit"
-            type="button"
-            class="rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-sm font-semibold text-gray-700 hover:bg-gray-100"
-            @click="openEdit(booking)"
-          >
-            Edit
-          </button>
-          <button
-            v-if="canCollect && booking.status === 'completed'"
-            type="button"
-            title="Customer pays now: bill the job and issue the receipt"
-            class="rounded-lg bg-green-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-green-700"
-            @click="collecting = booking"
-          >
-            Collect payment
-          </button>
-          <button
-            v-if="canInvoice && isBillableBooking(booking.status)"
-            type="button"
-            :title="booking.status === 'completed' ? 'Customer pays later: send an invoice' : 'Invoice before the job, e.g. for a 50% deposit'"
-            :disabled="invoicingId === booking.id"
-            class="rounded-lg bg-navy-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-navy-700 disabled:opacity-50"
-            @click="handleInvoice(booking)"
-          >
-            {{ invoicingId === booking.id ? "Invoicing…" : "Invoice" }}
-          </button>
-          <a
-            :href="`/checklists?booking=${booking.id}`"
-            class="rounded-lg border border-navy-200 bg-navy-50 px-3 py-1.5 text-sm font-semibold text-navy-700 hover:bg-navy-100"
-          >
-            Checklist
-          </a>
-          <button
-            v-if="canDelete"
-            type="button"
-            class="ml-auto rounded-lg px-2.5 py-1.5 text-sm font-medium text-red-600 hover:bg-red-50"
-            @click="pendingDelete = booking"
-          >
-            Delete
-          </button>
-        </div>
         </div>
       </article>
     </div>
