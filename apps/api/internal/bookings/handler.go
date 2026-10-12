@@ -43,9 +43,19 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 
 	dtos := make([]BookingDTO, 0, len(items))
 	for _, b := range items {
-		dtos = append(dtos, toDTO(b))
+		dtos = append(dtos, dtoFor(r, b))
 	}
 	response.JSON(w, http.StatusOK, pagination.Page[BookingDTO]{Data: dtos, Total: total, Limit: params.Limit, Offset: params.Offset})
+}
+
+// dtoFor hides money from cleaners: they see where and when to work, never
+// what the customer pays.
+func dtoFor(r *http.Request, b Booking) BookingDTO {
+	d := toDTO(b)
+	if ident, ok := auth.IdentityFromContext(r.Context()); ok && ident.Role == auth.RoleCleaner {
+		d.Price = nil
+	}
+	return d
 }
 
 func (h *Handler) Get(w http.ResponseWriter, r *http.Request) {
@@ -70,7 +80,7 @@ func (h *Handler) Get(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	response.JSON(w, http.StatusOK, toDTO(booking))
+	response.JSON(w, http.StatusOK, dtoFor(r, booking))
 }
 
 func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
@@ -84,7 +94,7 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 		response.HandleError(w, r, err)
 		return
 	}
-	response.JSON(w, http.StatusCreated, toDTO(booking))
+	response.JSON(w, http.StatusCreated, dtoFor(r, booking))
 }
 
 func (h *Handler) Update(w http.ResponseWriter, r *http.Request) {
@@ -124,7 +134,7 @@ func (h *Handler) Update(w http.ResponseWriter, r *http.Request) {
 		response.HandleError(w, r, err)
 		return
 	}
-	response.JSON(w, http.StatusOK, toDTO(booking))
+	response.JSON(w, http.StatusOK, dtoFor(r, booking))
 }
 
 func (h *Handler) Delete(w http.ResponseWriter, r *http.Request) {
@@ -156,7 +166,7 @@ func (h *Handler) Available(w http.ResponseWriter, r *http.Request) {
 	}
 	dtos := make([]BookingDTO, 0, len(items))
 	for _, b := range items {
-		dtos = append(dtos, toDTO(b))
+		dtos = append(dtos, dtoFor(r, b))
 	}
 	response.JSON(w, http.StatusOK, pagination.Page[BookingDTO]{Data: dtos, Total: total, Limit: params.Limit, Offset: params.Offset})
 }
@@ -178,7 +188,7 @@ func (h *Handler) Accept(w http.ResponseWriter, r *http.Request) {
 		response.HandleError(w, r, err)
 		return
 	}
-	response.JSON(w, http.StatusOK, toDTO(booking))
+	response.JSON(w, http.StatusOK, dtoFor(r, booking))
 }
 
 func parseID(w http.ResponseWriter, r *http.Request) (int64, bool) {

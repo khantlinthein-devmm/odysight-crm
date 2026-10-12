@@ -8,6 +8,8 @@ interface NavItem {
   perm?: string;
   /** Tooltip explaining what the page is for, where names overlap. */
   hint?: string;
+  /** Only these roles see the item (e.g. the cleaners' field app). */
+  roles?: string[];
 }
 
 interface NavGroup {
@@ -41,6 +43,12 @@ const navGroups: NavGroup[] = [
   {
     title: "Jobs",
     items: [
+      {
+        label: "My jobs",
+        roles: ["CLEANER"],
+        href: "/jobs",
+        icon: "M21 13.255A23.931 23.931 0 0112 15c-3.183 0-6.22-.62-9-1.745M16 6V4a2 2 0 00-2-2h-4a2 2 0 00-2 2v2m4 6h.01M5 20h14a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z",
+      },
       {
         label: "Bookings",
         hint: "All bookings as a list or a day / month / year calendar. Click one to see the customer.",
@@ -243,6 +251,7 @@ const isActive = (href: string) =>
           href={item.href}
           title={item.hint ? `${item.label} — ${item.hint}` : item.label}
           data-perm={item.perm}
+          data-roles={item.roles?.join(",")}
           aria-current={isActive(item.href) ? "page" : undefined}
           class:list={[
             "nav-link group flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
@@ -348,6 +357,13 @@ const isActive = (href: string) =>
       const perm = el.dataset.perm ?? "";
       const selfAttendance = perm === "attendance.read" && user.role === "CLEANER";
       if (!selfAttendance && !hasPermission(user.role, perm)) el.remove();
+    });
+    // Role-only items, and the cleaners' short menu: field pages only.
+    const CLEANER_MENU = ["/jobs", "/chat", "/attendance", "/checklists"];
+    document.querySelectorAll<HTMLAnchorElement>("#app-sidebar .nav-link").forEach((el) => {
+      const roles = el.dataset.roles?.split(",").filter(Boolean) ?? [];
+      if (roles.length && !roles.includes(user.role)) el.remove();
+      else if (user.role === "CLEANER" && !CLEANER_MENU.includes(el.getAttribute("href") ?? "")) el.remove();
     });
     // Drop group headings whose pages this role cannot see.
     document.querySelectorAll<HTMLElement>("#app-sidebar [data-nav-group]").forEach((g) => {

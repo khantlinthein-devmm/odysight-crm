@@ -187,7 +187,7 @@ import AuthLayout from "../layouts/AuthLayout.astro";
     function goHome(user: AuthUser) {
       const params = new URLSearchParams(window.location.search);
       // Field cleaners work from their job list, not the office dashboard.
-      const home = user?.role === "CLEANER" ? "/bookings" : "/dashboard";
+      const home = user?.role === "CLEANER" ? "/jobs" : "/dashboard";
       window.location.href = params.get("next") ?? home;
     }
 

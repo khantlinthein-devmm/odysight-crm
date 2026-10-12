@@ -4,6 +4,14 @@ import { verifySessionToken } from "./lib/session-token";
 const PUBLIC_PATHS = new Set(["/", "/login", "/signup", "/portal"]);
 const AUTH_PATHS = new Set(["/login", "/signup"]);
 
+// Cleaners get the field app only: their jobs, team chat, check-in and
+// checklists. Office pages (prices, customers, reports) redirect to /jobs.
+const CLEANER_PATHS = ["/jobs", "/chat", "/attendance", "/checklists", "/setup-2fa"];
+
+function cleanerMayOpen(pathname: string): boolean {
+  return CLEANER_PATHS.some((p) => pathname === p || pathname.startsWith(`${p}/`));
+}
+
 function isStaticAsset(pathname: string): boolean {
   return (
     pathname.startsWith("/_astro/") ||
@@ -32,6 +40,7 @@ export const onRequest = defineMiddleware((context, next) => {
   const session = cookies.get("odysight_session");
   let hasValidSession = false;
   let needsTwoFactorSetup = false;
+  let role = "";
   if (session?.value) {
     if (import.meta.env.DEV && session.value.startsWith("mock-token-")) {
       // Dev-only mock tokens (never valid in production builds).
@@ -40,6 +49,7 @@ export const onRequest = defineMiddleware((context, next) => {
       const claims = verifySessionToken(session.value, process.env.JWT_SECRET);
       hasValidSession = claims !== null;
       needsTwoFactorSetup = claims?.mfa_setup === true;
+      role = claims?.role ?? "";
     }
   }
 
@@ -58,7 +68,11 @@ export const onRequest = defineMiddleware((context, next) => {
   }
 
   if (hasValidSession && AUTH_PATHS.has(pathname)) {
-    return redirect("/dashboard");
+    return redirect(role === "CLEANER" ? "/jobs" : "/dashboard");
+  }
+
+  if (hasValidSession && role === "CLEANER" && !isPublic && !cleanerMayOpen(pathname)) {
+    return redirect("/jobs");
   }
 
   return next();

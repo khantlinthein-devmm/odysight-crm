@@ -3,6 +3,7 @@
   import { getLang, t, type Lang, type MessageKey } from '../../lib/i18n';
   import { getChatUnread } from '../../lib/chat';
   import { onChatEvent } from '../../lib/chatEvents';
+  import { getSessionUser } from '../../lib/auth';
 
   interface Item {
     label: MessageKey;
@@ -10,7 +11,7 @@
     icon: string;
   }
 
-  const items: Item[] = [
+  const officeItems: Item[] = [
     {
       label: 'nav.jobs',
       href: '/bookings',
@@ -38,6 +39,33 @@
     },
   ];
 
+  // Cleaners get their field app: jobs, check-in, team chat and checklists.
+  // No calculator or dashboard, so prices never show on their phones.
+  const cleanerItems: Item[] = [
+    {
+      label: 'nav.jobs',
+      href: '/jobs',
+      icon: 'M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z',
+    },
+    {
+      label: 'nav.checkin',
+      href: '/attendance',
+      icon: 'M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z',
+    },
+    {
+      label: 'nav.chat',
+      href: '/chat',
+      icon: 'M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z',
+    },
+    {
+      label: 'jobs.checklist',
+      href: '/checklists',
+      icon: 'M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4',
+    },
+  ];
+
+  let items = $state<Item[]>(officeItems);
+
   let path = $state('');
   // English on the server; the device language is applied after mount so
   // hydration matches the server-rendered markup.
@@ -48,6 +76,7 @@
   onMount(() => {
     path = window.location.pathname;
     lang = getLang();
+    if (getSessionUser()?.role === 'CLEANER') items = cleanerItems;
     const refresh = () => getChatUnread().then((n) => (unread = n)).catch(() => {});
     refresh();
     const timer = setInterval(refresh, 60_000);
@@ -73,7 +102,7 @@
   aria-label="Field navigation"
   class="fixed inset-x-0 bottom-0 z-30 border-t border-gray-200 bg-white/95 pb-[env(safe-area-inset-bottom,0px)] backdrop-blur lg:hidden"
 >
-  <div class="grid grid-cols-5">
+  <div class="grid" style="grid-template-columns: repeat({items.length}, minmax(0, 1fr));">
     {#each items as item}
       <a
         href={item.href}
