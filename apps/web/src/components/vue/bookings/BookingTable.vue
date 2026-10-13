@@ -112,6 +112,8 @@ const invoicingId = ref<number | null>(null);
 // Clicking a booking opens a side panel with the booking, its customer and
 // the customer's other bookings.
 const viewing = ref<Booking | null>(null);
+// The calendar view loads its own bookings; bump this after any change.
+const calendarRefresh = ref(0);
 
 function openDetails(booking: Booking, event?: MouseEvent) {
   // Buttons and links on the card keep their own action.
@@ -355,6 +357,7 @@ async function handleSave(input: CreateBookingInput) {
         bookings.value = bookings.value.map((b) =>
           b.id === updated.id ? updated : b,
         );
+        calendarRefresh.value++;
         showToast("Booking updated", "success");
       } catch (err) {
         if (isOfflineQueued(err)) {
@@ -372,6 +375,7 @@ async function handleSave(input: CreateBookingInput) {
     } else {
       const created = await createBooking(input);
       bookings.value = [created, ...bookings.value];
+      calendarRefresh.value++;
       const q = fromQuote.value;
       if (q) {
         await updateQuote(q.id, { convertedBookingId: created.id }).catch(() => {
@@ -400,6 +404,7 @@ async function handleDelete() {
     bookings.value = bookings.value.filter(
       (b) => b.id !== pendingDelete.value!.id,
     );
+    calendarRefresh.value++;
     showToast("Booking deleted", "success");
   } catch (err) {
     showToast(
@@ -450,6 +455,7 @@ async function confirmInvoice() {
       const i = bookings.value.findIndex((b) => b.id === updated.id);
       if (i !== -1) bookings.value[i] = updated;
       if (viewing.value?.id === updated.id) viewing.value = updated;
+      calendarRefresh.value++;
     } else {
       showToast("Invoice will use the new price, but the booking price was not updated", "info");
     }
@@ -654,7 +660,7 @@ onMounted(() => {
 
 
     <div v-if="pageView === 'calendar'" class="p-4 sm:p-6">
-      <BookingCalendar @open="viewing = $event" />
+      <BookingCalendar :refresh-key="calendarRefresh" @open="viewing = $event" />
     </div>
 
     <div v-else>

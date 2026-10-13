@@ -8,6 +8,9 @@ import { formatDuration } from "../../../lib/duration";
 import type { DonutSegment } from "../../../lib/charts";
 
 const emit = defineEmits<{ open: [booking: Booking] }>();
+// Bumped by the parent after a booking is saved or deleted, so the
+// calendar refetches instead of showing the old time.
+const props = defineProps<{ refreshKey?: number }>();
 
 // One place to see the schedule by day, month or year, with a summary of the
 // same period beside it (how many bookings, of which service and type).
@@ -143,6 +146,7 @@ async function load() {
 }
 
 watch(range, load);
+watch(() => props.refreshKey, load);
 onMounted(async () => {
   await getWorkspaceSettings().catch(() => null);
   await load();
