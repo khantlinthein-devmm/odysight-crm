@@ -11,5 +11,6 @@ func Routes(h *Handler, az *auth.Authorizer) chi.Router {
 	r.With(az.Require(auth.PermReportsRead)).Get("/summary", h.Summary)
 	r.With(az.Require(auth.PermReportsRead)).Get("/financial", h.Financial)
 	r.With(az.Require(auth.PermReportsRead)).Get("/commercial", h.Commercial)
+	r.With(az.Require(auth.PermReportsRead)).Get("/booking-profit", h.BookingProfit)
 	return r
 }

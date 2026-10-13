@@ -6,6 +6,9 @@ import { getCustomer, type Customer } from "../../../lib/customers";
 import { formatMoney, serviceLabel } from "../../../lib/settings";
 import { isBillableBooking } from "../../../lib/invoices";
 import { formatDuration } from "../../../lib/duration";
+import { getSessionUser } from "../../../lib/auth";
+import { hasPermission } from "../../../lib/roles";
+import BookingProfitBreakdown from "./BookingProfitBreakdown.vue";
 
 // Side panel on the Bookings page: the booking, the customer behind it and
 // that customer's other bookings, without leaving the page.
@@ -122,6 +125,12 @@ function shortDate(iso: string): string {
   return new Date(iso).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" });
 }
 
+const canSeeProfit = hasPermission(getSessionUser()?.role, "reports.read");
+// Changes whenever something that moves the profit estimate changes.
+const profitVersion = computed(() =>
+  [props.booking.price, props.booking.durationMinutes, (props.booking.cleaners ?? []).map((c) => c.id).join(".")].join("|"),
+);
+
 const team = computed(() => {
   const list = props.booking.cleaners ?? [];
   const lead = list.find((c) => c.role === "primary") ?? list[0];
@@ -228,6 +237,8 @@ const team = computed(() => {
             >Checklist</a>
           </div>
         </section>
+
+        <BookingProfitBreakdown v-if="canSeeProfit" :booking-id="booking.id" :version="profitVersion" />
 
         <!-- Customer -->
         <section>

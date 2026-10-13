@@ -11,7 +11,7 @@ import {
 } from "../../../lib/bookings";
 import { showToast } from "../../../lib/toast";
 import { isOfflineQueued } from "../../../lib/offline";
-import { activeServices, currencyCode, getWorkspaceSettings, serviceLabel } from "../../../lib/settings";
+import { activeServices, currencyCode, formatMoney, getWorkspaceSettings, serviceLabel } from "../../../lib/settings";
 import { getSessionUser } from "../../../lib/auth";
 import { hasPermission } from "../../../lib/roles";
 import { createInvoice, getInvoices, isBillableBooking, type PaymentResult } from "../../../lib/invoices";
@@ -25,6 +25,7 @@ import { getCustomer } from "../../../lib/customers";
 import ConfirmDialog from "../ui/ConfirmDialog.vue";
 import BookingDetailPanel from "./BookingDetailPanel.vue";
 import BookingCalendar from "./BookingCalendar.vue";
+import { getBookingProfits, type BookingProfit } from "../../../lib/booking-profit";
 
 const role = getSessionUser()?.role;
 const canCreate = computed(() => hasPermission(role, "bookings.create"));
@@ -32,6 +33,7 @@ const canCreate = computed(() => hasPermission(role, "bookings.create"));
 // the full edit form is office-only and the API rejects it for them.
 const canEdit = computed(() => role !== "CLEANER" && hasPermission(role, "bookings.update"));
 const canDelete = computed(() => hasPermission(role, "bookings.delete"));
+const canSeeProfit = hasPermission(role, "reports.read");
 const canInvoice = computed(() => hasPermission(role, "invoices.create"));
 const canCollect = computed(() => canInvoice.value && hasPermission(role, "payments.create"));
 const collecting = ref<Booking | null>(null);
@@ -267,6 +269,33 @@ const rangeLabel = computed(() => {
 function openCreate() {
   editingBooking.value = undefined;
   showForm.value = true;
+}
+
+// Profit estimates for the cards on screen. The key covers everything that
+// moves the estimate, so an edit (price, duration, team) refetches it.
+const profits = ref<Record<number, BookingProfit>>({});
+const profitKey = computed(() =>
+  pagedBookings.value
+    .map((b) => `${b.id}:${b.price}:${b.durationMinutes}:${(b.cleaners ?? []).map((c) => c.id).join(".")}`)
+    .join(","),
+);
+let profitSeq = 0;
+watch(profitKey, async () => {
+  if (!canSeeProfit) return;
+  const mine = ++profitSeq;
+  try {
+    const map = await getBookingProfits(pagedBookings.value.map((b) => b.id));
+    if (mine === profitSeq) profits.value = map;
+  } catch {
+    /* cards simply show no profit chip */
+  }
+});
+
+function profitChip(id: number): { text: string; loss: boolean } | null {
+  const p = profits.value[id];
+  if (!p || p.profit == null) return null;
+  const margin = p.margin != null ? ` · ${Math.round(p.margin)}%` : "";
+  return { text: `Profit ${formatMoney(p.profit)}${margin}`, loss: p.profit < 0 };
 }
 
 function openEdit(booking: Booking) {
@@ -736,6 +765,16 @@ onMounted(() => {
               title="This booking repeats"
             >
               &#8635; {{ recurrenceLabels[booking.recurrence] ?? booking.recurrence }}
+            </span>
+            <span
+              v-if="profitChip(booking.id)"
+              :class="[
+                'inline-flex rounded-full px-2 py-0.5 text-[11px] font-semibold',
+                profitChip(booking.id)!.loss ? 'bg-red-50 text-red-700' : 'bg-green-50 text-green-700',
+              ]"
+              title="Estimate: price before VAT − team pay − supplies"
+            >
+              {{ profitChip(booking.id)!.text }}
             </span>
           </p>
 
