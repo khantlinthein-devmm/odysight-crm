@@ -65,7 +65,7 @@ func (r *Repository) ProfitInputs(ctx context.Context, ids []int64) (
 
 	costs := map[int64]BookingCosts{}
 	rows, err = r.pool.Query(ctx,
-		`SELECT booking_id, cleaner_fees, transport::float8, other::float8, other_note
+		`SELECT booking_id, team_fee::float8, cleaner_fees, transport::float8, other::float8, other_note
 		   FROM booking_costs WHERE booking_id = ANY($1)`, ids)
 	if err != nil {
 		return nil, nil, nil, nil, fmt.Errorf("profit costs: %w", err)
@@ -74,7 +74,7 @@ func (r *Repository) ProfitInputs(ctx context.Context, ids []int64) (
 		var id int64
 		var raw []byte
 		var c BookingCosts
-		if err := rows.Scan(&id, &raw, &c.Transport, &c.Other, &c.OtherNote); err != nil {
+		if err := rows.Scan(&id, &c.TeamFee, &raw, &c.Transport, &c.Other, &c.OtherNote); err != nil {
 			rows.Close()
 			return nil, nil, nil, nil, err
 		}
@@ -141,12 +141,12 @@ func (r *Repository) SaveBookingCosts(ctx context.Context, bookingID, userID int
 		return err
 	}
 	_, err = r.pool.Exec(ctx,
-		`INSERT INTO booking_costs (booking_id, cleaner_fees, transport, other, other_note, updated_by, updated_at)
-		 VALUES ($1, $2::jsonb, $3, $4, $5, $6, now())
+		`INSERT INTO booking_costs (booking_id, team_fee, cleaner_fees, transport, other, other_note, updated_by, updated_at)
+		 VALUES ($1, $2, $3::jsonb, $4, $5, $6, $7, now())
 		 ON CONFLICT (booking_id) DO UPDATE SET
-		   cleaner_fees = EXCLUDED.cleaner_fees, transport = EXCLUDED.transport, other = EXCLUDED.other,
-		   other_note = EXCLUDED.other_note, updated_by = EXCLUDED.updated_by, updated_at = now()`,
-		bookingID, string(fees), c.Transport, c.Other, c.OtherNote, userID)
+		   team_fee = EXCLUDED.team_fee, cleaner_fees = EXCLUDED.cleaner_fees, transport = EXCLUDED.transport,
+		   other = EXCLUDED.other, other_note = EXCLUDED.other_note, updated_by = EXCLUDED.updated_by, updated_at = now()`,
+		bookingID, c.TeamFee, string(fees), c.Transport, c.Other, c.OtherNote, userID)
 	var pgErr *pgconn.PgError
 	if errors.As(err, &pgErr) && pgErr.Code == "23503" {
 		return response.NewAPIError(404, "booking not found")

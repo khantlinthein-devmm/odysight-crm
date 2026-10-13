@@ -31,6 +31,19 @@ func TestComputeProfitWithoutPriceOrCosts(t *testing.T) {
 	}
 }
 
+func TestComputeProfitWithTeamFee(t *testing.T) {
+	team := []TeamMember{{1, "Arti", "primary"}, {2, "Som", "crew"}}
+	// Per-cleaner fees are ignored once a team fee is set.
+	costs := BookingCosts{TeamFee: f(2000), CleanerFees: map[int64]float64{1: 999}, Transport: 100}
+	p := computeProfit(1, f(5000), team, costs, 0)
+	if p.Labor != 2000 || p.TeamFee == nil || *p.TeamFee != 2000 || p.Cost != 2100 || *p.Profit != 2900 {
+		t.Fatalf("team fee profit wrong: %+v", p)
+	}
+	if p.MissingFees != 0 || len(p.Team) != 2 || p.Team[0].HasFee {
+		t.Fatalf("team lines wrong: %+v", p.Team)
+	}
+}
+
 func TestSaveCostsRequestParse(t *testing.T) {
 	c, err := SaveCostsRequest{CleanerFees: map[string]float64{"5": 300}, Transport: 100, OtherNote: "  tolls  "}.parse()
 	if err != nil || c.CleanerFees[5] != 300 || c.OtherNote != "tolls" {
@@ -42,6 +55,7 @@ func TestSaveCostsRequestParse(t *testing.T) {
 		{CleanerFees: map[string]float64{"abc": 1}},
 		{CleanerFees: map[string]float64{"0": 1}},
 		{CleanerFees: map[string]float64{"3": -5}},
+		{TeamFee: f(-1)},
 	}
 	for _, b := range bad {
 		if _, err := b.parse(); err == nil {
