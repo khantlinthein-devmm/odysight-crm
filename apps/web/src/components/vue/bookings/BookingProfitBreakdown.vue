@@ -42,16 +42,16 @@ watch(() => [props.bookingId, props.version], load, { immediate: true });
 
       <div class="border-t border-gray-100 px-4 py-2.5">
         <div class="flex justify-between">
-          <span class="text-gray-500">− Cleaner fees</span>
+          <span class="text-gray-500">− Cleaners fee<template v-if="profit.teamFee != null"> (whole team)</template></span>
           <span class="text-gray-900">{{ formatMoney(profit.labor) }}</span>
         </div>
         <ul v-if="profit.team.length" class="mt-1 space-y-0.5 text-xs text-gray-500">
           <li v-for="m in profit.team" :key="m.cleanerId" class="flex justify-between gap-2">
             <span class="truncate">
               {{ m.name }}<span v-if="m.role === 'primary'"> (lead)</span>
-              <span v-if="!m.hasFee" class="font-medium text-amber-700"> · no fee entered</span>
+              <span v-if="!m.hasFee && profit.teamFee == null" class="font-medium text-amber-700"> · no fee entered</span>
             </span>
-            <span v-if="m.hasFee" class="shrink-0">{{ formatMoney(m.fee) }}</span>
+            <span v-if="m.hasFee && profit.teamFee == null" class="shrink-0">{{ formatMoney(m.fee) }}</span>
           </li>
         </ul>
         <p v-else class="mt-1 text-xs text-gray-400">No team assigned yet.</p>

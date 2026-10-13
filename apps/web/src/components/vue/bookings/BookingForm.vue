@@ -413,7 +413,8 @@ watch(
 
 // --- Job costs (office only): cleaner fees, transportation, other ---
 const canSeeProfit = hasPermission(getSessionUser()?.role, "reports.read");
-const costDraft = ref<CostDraft>({ fees: {}, transport: "", other: "", otherNote: "" });
+// One fee for the whole team is the default; per-cleaner fees are optional.
+const costDraft = ref<CostDraft>({ mode: "team", teamFee: "", fees: {}, transport: "", other: "", otherNote: "" });
 // Only send costs when they were loaded or edited, so saving a booking
 // never wipes costs that failed to load.
 const costsTouched = ref(false);
@@ -437,12 +438,18 @@ if (canSeeProfit && props.booking) {
       const fees: Record<number, number | ""> = {};
       for (const line of p.team) if (line.hasFee) fees[line.cleanerId] = line.fee;
       costDraft.value = {
+        mode: p.teamFee != null || Object.keys(fees).length === 0 ? "team" : "each",
+        teamFee: p.teamFee ?? "",
         fees,
         transport: p.transport || "",
         other: p.other || "",
         otherNote: p.otherNote,
       };
-      costsTouched.value = true;
+      // Re-save loaded costs on submit (e.g. to drop fees of removed
+      // cleaners), but never write zeros for a booking that had none.
+      const hasSaved =
+        p.teamFee != null || Object.keys(fees).length > 0 || p.transport > 0 || p.other > 0 || p.otherNote !== "";
+      if (hasSaved) costsTouched.value = true;
     })
     .catch(() => {
       /* leave the editor empty; nothing is sent unless the user types */
@@ -453,11 +460,14 @@ function buildCosts(): BookingCostsInput | undefined {
   if (!canSeeProfit || !costsTouched.value) return undefined;
   const num = (v: number | "" | undefined) => (typeof v === "number" && Number.isFinite(v) && v > 0 ? v : 0);
   const cleanerFees: Record<number, number> = {};
-  for (const m of costTeam.value) {
+  const teamMode = costDraft.value.mode === "team";
+  for (const m of teamMode ? [] : costTeam.value) {
     const v = costDraft.value.fees[m.id];
     if (typeof v === "number" && Number.isFinite(v) && v >= 0) cleanerFees[m.id] = v;
   }
   return {
+    // An empty team fee means "not entered yet", not ฿0.
+    teamFee: teamMode && costDraft.value.teamFee !== "" ? num(costDraft.value.teamFee) : null,
     cleanerFees,
     transport: num(costDraft.value.transport),
     other: num(costDraft.value.other),

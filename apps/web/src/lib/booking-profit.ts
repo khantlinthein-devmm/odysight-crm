@@ -9,11 +9,13 @@ export interface LaborLine {
   hasFee: boolean;
 }
 
-/** price (before VAT) − cleaner fees − transportation − other − supplies used. */
+/** price (before VAT) − cleaners fee − transportation − other − supplies used.
+ *  teamFee set = one cleaners fee for the whole team; otherwise per cleaner. */
 export interface BookingProfit {
   bookingId: number;
   price: number | null;
   labor: number;
+  teamFee: number | null;
   transport: number;
   other: number;
   otherNote: string;
@@ -27,6 +29,8 @@ export interface BookingProfit {
 
 /** Costs typed on the booking form. Fees are keyed by cleaner id. */
 export interface BookingCostsInput {
+  /** One fee for the whole team; null = per-cleaner fees below. */
+  teamFee: number | null;
   cleanerFees: Record<number, number>;
   transport: number;
   other: number;
@@ -35,6 +39,8 @@ export interface BookingCostsInput {
 
 /** What the booking form holds while typing ("" = empty input). */
 export interface CostDraft {
+  mode: "team" | "each";
+  teamFee: number | "";
   fees: Record<number, number | "">;
   transport: number | "";
   other: number | "";
@@ -80,7 +86,10 @@ export function previewProfit(price: number | null, costs: BookingCostsInput): {
   profit: number | null;
   margin: number | null;
 } {
-  const fees = Object.values(costs.cleanerFees).reduce((s, v) => s + (Number(v) || 0), 0);
+  const fees =
+    costs.teamFee != null
+      ? Number(costs.teamFee) || 0
+      : Object.values(costs.cleanerFees).reduce((s, v) => s + (Number(v) || 0), 0);
   const cost = Math.round((fees + (Number(costs.transport) || 0) + (Number(costs.other) || 0)) * 100) / 100;
   if (price == null) return { cost, profit: null, margin: null };
   const profit = Math.round((price - cost) * 100) / 100;

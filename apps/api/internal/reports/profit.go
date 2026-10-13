@@ -12,7 +12,10 @@ import (
 // Booking profit is worked out from costs the office enters on the booking
 // itself (not payroll):
 //
-//	profit = price (before VAT) − cleaner fees − transportation − other − supplies used
+//	profit = price (before VAT) − cleaners fee − transportation − other − supplies used
+//
+// The cleaners fee is either one amount for the whole job team (TeamFee)
+// or a fee per cleaner.
 //
 // Supplies come from usage movements recorded against the booking.
 
@@ -37,6 +40,7 @@ type BookingProfit struct {
 	BookingID   int64       `json:"bookingId"`
 	Price       *float64    `json:"price"`
 	Labor       float64     `json:"labor"`
+	TeamFee     *float64    `json:"teamFee"`
 	Transport   float64     `json:"transport"`
 	Other       float64     `json:"other"`
 	OtherNote   string      `json:"otherNote"`
@@ -57,6 +61,9 @@ type TeamMember struct {
 
 // BookingCosts are the office-entered costs of one booking.
 type BookingCosts struct {
+	// TeamFee, when set, is the cleaners fee for the whole team and
+	// CleanerFees is ignored.
+	TeamFee     *float64
 	CleanerFees map[int64]float64
 	Transport   float64
 	Other       float64
@@ -75,8 +82,17 @@ func computeProfit(bookingID int64, price *float64, team []TeamMember, costs Boo
 		Supplies:  round2(supplies),
 		Team:      []LaborLine{},
 	}
+	if costs.TeamFee != nil {
+		fee := round2(*costs.TeamFee)
+		out.TeamFee = &fee
+		out.Labor = fee
+	}
 	for _, m := range team {
 		line := LaborLine{CleanerID: m.CleanerID, Name: m.Name, Role: m.Role}
+		if out.TeamFee != nil {
+			out.Team = append(out.Team, line)
+			continue
+		}
 		if fee, ok := costs.CleanerFees[m.CleanerID]; ok {
 			line.Fee, line.HasFee = round2(fee), true
 		} else {
@@ -119,6 +135,7 @@ func (s *Service) BookingProfits(ctx context.Context, ids []int64) ([]BookingPro
 // SaveCostsRequest is the body of PUT /reports/booking-costs/{id}. Fees are
 // keyed by cleaner id (JSON object keys are strings).
 type SaveCostsRequest struct {
+	TeamFee     *float64           `json:"teamFee"`
 	CleanerFees map[string]float64 `json:"cleanerFees"`
 	Transport   float64            `json:"transport"`
 	Other       float64            `json:"other"`
@@ -130,6 +147,13 @@ func validCost(v float64) bool { return v >= 0 && v <= maxCost && !math.IsNaN(v)
 func (r SaveCostsRequest) parse() (BookingCosts, error) {
 	c := BookingCosts{CleanerFees: map[int64]float64{}, Transport: r.Transport, Other: r.Other,
 		OtherNote: strings.TrimSpace(r.OtherNote)}
+	if r.TeamFee != nil {
+		if !validCost(*r.TeamFee) {
+			return c, response.NewAPIError(400, "costs must be between 0 and 10,000,000")
+		}
+		fee := *r.TeamFee
+		c.TeamFee = &fee
+	}
 	if !validCost(c.Transport) || !validCost(c.Other) {
 		return c, response.NewAPIError(400, "costs must be between 0 and 10,000,000")
 	}
