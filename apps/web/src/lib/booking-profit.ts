@@ -1,29 +1,44 @@
 import { USE_MOCKS, apiFetch, delay } from "./api";
 
-/** One cleaner's estimated pay for a job. Rate/payType/cost are only sent to
- *  roles that may see pay (payroll.read); others get totals only. */
+/** One team member's fee for the job, as entered on the booking. */
 export interface LaborLine {
   cleanerId: number;
   name: string;
   role: "primary" | "crew";
-  payType?: "hourly" | "daily" | "per_job" | "monthly";
-  rate?: number;
-  hours: number;
-  cost: number;
-  hasRate: boolean;
+  fee: number;
+  hasFee: boolean;
 }
 
-/** Estimate: price (before VAT) − team pay (planned hours × pay rate) − supplies used. */
+/** price (before VAT) − cleaner fees − transportation − other − supplies used. */
 export interface BookingProfit {
   bookingId: number;
   price: number | null;
   labor: number;
+  transport: number;
+  other: number;
+  otherNote: string;
   supplies: number;
   cost: number;
   profit: number | null;
   margin: number | null;
-  missingRates: number;
+  missingFees: number;
   team: LaborLine[];
+}
+
+/** Costs typed on the booking form. Fees are keyed by cleaner id. */
+export interface BookingCostsInput {
+  cleanerFees: Record<number, number>;
+  transport: number;
+  other: number;
+  otherNote: string;
+}
+
+/** What the booking form holds while typing ("" = empty input). */
+export interface CostDraft {
+  fees: Record<number, number | "">;
+  transport: number | "";
+  other: number | "";
+  otherNote: string;
 }
 
 const MAX_IDS = 200;
@@ -46,4 +61,29 @@ export async function getBookingProfits(ids: number[]): Promise<Record<number, B
 export async function getBookingProfit(id: number): Promise<BookingProfit | null> {
   const map = await getBookingProfits([id]);
   return map[id] ?? null;
+}
+
+export async function saveBookingCosts(bookingId: number, costs: BookingCostsInput): Promise<BookingProfit | null> {
+  if (USE_MOCKS) {
+    await delay(150);
+    return null;
+  }
+  return apiFetch<BookingProfit>(`/api/v1/reports/booking-costs/${bookingId}`, {
+    method: "PUT",
+    body: JSON.stringify(costs),
+  });
+}
+
+/** Profit preview while typing (supplies are added server-side later). */
+export function previewProfit(price: number | null, costs: BookingCostsInput): {
+  cost: number;
+  profit: number | null;
+  margin: number | null;
+} {
+  const fees = Object.values(costs.cleanerFees).reduce((s, v) => s + (Number(v) || 0), 0);
+  const cost = Math.round((fees + (Number(costs.transport) || 0) + (Number(costs.other) || 0)) * 100) / 100;
+  if (price == null) return { cost, profit: null, margin: null };
+  const profit = Math.round((price - cost) * 100) / 100;
+  const margin = price > 0 ? Math.round((profit / price) * 10000) / 100 : null;
+  return { cost, profit, margin };
 }

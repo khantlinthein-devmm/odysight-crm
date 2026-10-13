@@ -11,13 +11,6 @@ const profit = ref<BookingProfit | null>(null);
 const loading = ref(false);
 const failed = ref(false);
 
-const payTypeLabels: Record<string, string> = {
-  hourly: "/h",
-  daily: "/day",
-  per_job: "/job",
-  monthly: "/month",
-};
-
 let seq = 0;
 async function load() {
   const mine = ++seq;
@@ -34,10 +27,6 @@ async function load() {
 }
 
 watch(() => [props.bookingId, props.version], load, { immediate: true });
-
-function hours(h: number): string {
-  return `${Number.isInteger(h) ? h : h.toFixed(2).replace(/0+$/, "")}h`;
-}
 </script>
 
 <template>
@@ -53,22 +42,29 @@ function hours(h: number): string {
 
       <div class="border-t border-gray-100 px-4 py-2.5">
         <div class="flex justify-between">
-          <span class="text-gray-500">− Team pay</span>
+          <span class="text-gray-500">− Cleaner fees</span>
           <span class="text-gray-900">{{ formatMoney(profit.labor) }}</span>
         </div>
         <ul v-if="profit.team.length" class="mt-1 space-y-0.5 text-xs text-gray-500">
           <li v-for="m in profit.team" :key="m.cleanerId" class="flex justify-between gap-2">
             <span class="truncate">
               {{ m.name }}<span v-if="m.role === 'primary'"> (lead)</span>
-              <template v-if="m.hasRate && m.rate != null && m.payType">
-                · {{ hours(m.hours) }} × {{ formatMoney(m.rate) }}{{ payTypeLabels[m.payType] }}
-              </template>
-              <a v-else-if="!m.hasRate" href="/payroll" class="font-medium text-amber-700 hover:underline">· no pay rate set</a>
+              <span v-if="!m.hasFee" class="font-medium text-amber-700"> · no fee entered</span>
             </span>
-            <span v-if="m.hasRate && m.rate != null" class="shrink-0">{{ formatMoney(m.cost) }}</span>
+            <span v-if="m.hasFee" class="shrink-0">{{ formatMoney(m.fee) }}</span>
           </li>
         </ul>
         <p v-else class="mt-1 text-xs text-gray-400">No team assigned yet.</p>
+      </div>
+
+      <div class="flex justify-between border-t border-gray-100 px-4 py-2.5">
+        <span class="text-gray-500">− Transportation</span>
+        <span class="text-gray-900">{{ formatMoney(profit.transport) }}</span>
+      </div>
+
+      <div class="flex justify-between gap-3 border-t border-gray-100 px-4 py-2.5">
+        <span class="min-w-0 truncate text-gray-500">− Other fees<template v-if="profit.otherNote"> · {{ profit.otherNote }}</template></span>
+        <span class="shrink-0 text-gray-900">{{ formatMoney(profit.other) }}</span>
       </div>
 
       <div class="flex justify-between border-t border-gray-100 px-4 py-2.5">
@@ -85,10 +81,8 @@ function hours(h: number): string {
         <span v-else class="text-xs text-gray-500">Set a booking price to see profit</span>
       </div>
     </div>
-    <p v-if="profit && profit.missingRates > 0" class="mt-1.5 text-xs text-amber-700">
-      {{ profit.missingRates }} cleaner{{ profit.missingRates === 1 ? " has" : "s have" }} no pay rate, so their pay is counted as {{ formatMoney(0) }} —
-      <a href="/payroll" class="font-medium underline">set pay rates</a>.
+    <p v-if="profit && profit.missingFees > 0" class="mt-1.5 text-xs text-amber-700">
+      {{ profit.missingFees }} cleaner{{ profit.missingFees === 1 ? " has" : "s have" }} no fee entered yet — add it with Edit → Job costs.
     </p>
-    <p v-if="profit" class="mt-1 text-xs text-gray-400">Planned hours × pay rate. Overtime and travel are not included.</p>
   </section>
 </template>

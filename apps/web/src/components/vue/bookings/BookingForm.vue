@@ -7,6 +7,12 @@ import { hasPermission } from "../../../lib/roles";
 import type { Cleaner } from "../../../lib/cleaners";
 import { getCleaners } from "../../../lib/cleaners";
 import TeamPicker from "./TeamPicker.vue";
+import JobCostsEditor from "./JobCostsEditor.vue";
+import {
+  getBookingProfit,
+  type BookingCostsInput,
+  type CostDraft,
+} from "../../../lib/booking-profit";
 import { getSites, type Site } from "../../../lib/sites";
 import { getContracts, type Contract } from "../../../lib/contracts";
 import type {
@@ -30,7 +36,8 @@ const props = defineProps<{
 }>();
 
 const emit = defineEmits<{
-  save: [input: CreateBookingInput];
+  /** costs is set only when the user may see profit and touched the costs. */
+  save: [input: CreateBookingInput, costs?: BookingCostsInput];
   cancel: [];
 }>();
 
@@ -404,6 +411,60 @@ watch(
   },
 );
 
+// --- Job costs (office only): cleaner fees, transportation, other ---
+const canSeeProfit = hasPermission(getSessionUser()?.role, "reports.read");
+const costDraft = ref<CostDraft>({ fees: {}, transport: "", other: "", otherNote: "" });
+// Only send costs when they were loaded or edited, so saving a booking
+// never wipes costs that failed to load.
+const costsTouched = ref(false);
+
+const costTeam = computed(() => {
+  const byId = new Map(cleaners.value.map((c) => [c.id, `${c.firstName} ${c.lastName}`.trim()]));
+  const team: { id: number; name: string; role: "primary" | "crew" }[] = [];
+  if (typeof primaryCleanerId.value === "number") {
+    team.push({ id: primaryCleanerId.value, name: byId.get(primaryCleanerId.value) ?? "Lead", role: "primary" });
+  }
+  for (const id of crewIds.value) team.push({ id, name: byId.get(id) ?? "Crew", role: "crew" });
+  return team;
+});
+
+const jobHours = computed(() => Math.round((Number(form.durationMinutes) / 60) * 100) / 100 || 0);
+
+if (canSeeProfit && props.booking) {
+  getBookingProfit(props.booking.id)
+    .then((p) => {
+      if (!p || costsTouched.value) return;
+      const fees: Record<number, number | ""> = {};
+      for (const line of p.team) if (line.hasFee) fees[line.cleanerId] = line.fee;
+      costDraft.value = {
+        fees,
+        transport: p.transport || "",
+        other: p.other || "",
+        otherNote: p.otherNote,
+      };
+      costsTouched.value = true;
+    })
+    .catch(() => {
+      /* leave the editor empty; nothing is sent unless the user types */
+    });
+}
+
+function buildCosts(): BookingCostsInput | undefined {
+  if (!canSeeProfit || !costsTouched.value) return undefined;
+  const num = (v: number | "" | undefined) => (typeof v === "number" && Number.isFinite(v) && v > 0 ? v : 0);
+  const cleanerFees: Record<number, number> = {};
+  for (const m of costTeam.value) {
+    const v = costDraft.value.fees[m.id];
+    if (typeof v === "number" && Number.isFinite(v) && v >= 0) cleanerFees[m.id] = v;
+  }
+  return {
+    cleanerFees,
+    transport: num(costDraft.value.transport),
+    other: num(costDraft.value.other),
+    otherNote: costDraft.value.otherNote.trim(),
+  };
+}
+
 const submitted = ref(false);
 
 const errors = computed(() => {
@@ -460,7 +521,7 @@ function handleSubmit() {
     cleanerIds,
     isRecurring,
     recurrence: isRecurring ? form.recurrence : "",
-  });
+  }, buildCosts());
 }
 
 const inputClass =
@@ -840,6 +901,16 @@ function inputClassFor(field: keyof CreateBookingInput) {
               :cleaners="cleaners"
               :loading="cleanersLoading"
               :error="submitted ? errors.assignedCleaner || errors.crewIds : ''"
+            />
+          </div>
+
+          <div v-if="canSeeProfit" class="sm:col-span-2">
+            <JobCostsEditor
+              v-model="costDraft"
+              :team="costTeam"
+              :price="priceValue()"
+              :hours="jobHours"
+              @touched="costsTouched = true"
             />
           </div>
 

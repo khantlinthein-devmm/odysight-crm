@@ -3,55 +3,49 @@ package reports
 import (
 	"context"
 	"math"
+	"strconv"
+	"strings"
+
+	"github.com/odysight/crm/pkg/response"
 )
 
-// Booking profit estimates what one job earns after the team's pay and the
-// supplies booked against it:
+// Booking profit is worked out from costs the office enters on the booking
+// itself (not payroll):
 //
-//	profit = price (before VAT) − labor − supplies
+//	profit = price (before VAT) − cleaner fees − transportation − other − supplies used
 //
-// Labor uses each assigned cleaner's pay rate (Payroll → pay rates) and the
-// booking's planned duration, so it is an estimate: overtime, travel and
-// actual check-in hours are not included.
-
-// workDaysPerMonth converts a monthly salary to a day rate for allocation.
-const workDaysPerMonth = 26
+// Supplies come from usage movements recorded against the booking.
 
 // MaxProfitBookings caps one booking-profit request.
 const MaxProfitBookings = 200
 
-// LaborLine is one cleaner's estimated pay for the job. Rate and PayType are
-// only sent to roles that may see pay rates (payroll.read).
+// maxCost guards against typos such as a few extra zeros.
+const maxCost = 10_000_000
+
+// LaborLine is one team member's fee for the job.
 type LaborLine struct {
 	CleanerID int64   `json:"cleanerId"`
 	Name      string  `json:"name"`
 	Role      string  `json:"role"`
-	PayType   string  `json:"payType,omitempty"`
-	Rate      float64 `json:"rate,omitempty"`
-	Hours     float64 `json:"hours"`
-	Cost      float64 `json:"cost"`
-	HasRate   bool    `json:"hasRate"`
+	Fee       float64 `json:"fee"`
+	HasFee    bool    `json:"hasFee"`
 }
 
 // BookingProfit is the estimate for one booking. Price and Profit are nil
 // when the booking has no price yet.
 type BookingProfit struct {
-	BookingID    int64       `json:"bookingId"`
-	Price        *float64    `json:"price"`
-	Labor        float64     `json:"labor"`
-	Supplies     float64     `json:"supplies"`
-	Cost         float64     `json:"cost"`
-	Profit       *float64    `json:"profit"`
-	Margin       *float64    `json:"margin"`
-	MissingRates int         `json:"missingRates"`
-	Team         []LaborLine `json:"team"`
-}
-
-// PayRate mirrors a row of cleaner_pay_rates.
-type PayRate struct {
-	PayType       string
-	Rate          float64
-	StandardHours float64
+	BookingID   int64       `json:"bookingId"`
+	Price       *float64    `json:"price"`
+	Labor       float64     `json:"labor"`
+	Transport   float64     `json:"transport"`
+	Other       float64     `json:"other"`
+	OtherNote   string      `json:"otherNote"`
+	Supplies    float64     `json:"supplies"`
+	Cost        float64     `json:"cost"`
+	Profit      *float64    `json:"profit"`
+	Margin      *float64    `json:"margin"`
+	MissingFees int         `json:"missingFees"`
+	Team        []LaborLine `json:"team"`
 }
 
 // TeamMember is one cleaner assigned to a booking.
@@ -61,45 +55,38 @@ type TeamMember struct {
 	Role      string
 }
 
-// laborCost estimates one cleaner's pay for a job lasting hours.
-func laborCost(rate PayRate, hours float64) float64 {
-	std := rate.StandardHours
-	if std <= 0 {
-		std = 8
-	}
-	switch rate.PayType {
-	case "hourly":
-		return rate.Rate * hours
-	case "daily":
-		return rate.Rate * hours / std
-	case "per_job":
-		return rate.Rate
-	case "monthly":
-		return rate.Rate / workDaysPerMonth * hours / std
-	}
-	return 0
+// BookingCosts are the office-entered costs of one booking.
+type BookingCosts struct {
+	CleanerFees map[int64]float64
+	Transport   float64
+	Other       float64
+	OtherNote   string
 }
 
-// computeProfit builds the estimate for one booking.
-func computeProfit(bookingID int64, price *float64, durationMinutes int, team []TeamMember,
-	rates map[int64]PayRate, supplies float64) BookingProfit {
-	hours := round2(float64(durationMinutes) / 60)
-	out := BookingProfit{BookingID: bookingID, Price: price, Supplies: round2(supplies), Team: []LaborLine{}}
+// computeProfit builds the estimate for one booking. Fees only count for
+// cleaners currently on the team, so removing someone drops their fee.
+func computeProfit(bookingID int64, price *float64, team []TeamMember, costs BookingCosts, supplies float64) BookingProfit {
+	out := BookingProfit{
+		BookingID: bookingID,
+		Price:     price,
+		Transport: round2(costs.Transport),
+		Other:     round2(costs.Other),
+		OtherNote: costs.OtherNote,
+		Supplies:  round2(supplies),
+		Team:      []LaborLine{},
+	}
 	for _, m := range team {
-		line := LaborLine{CleanerID: m.CleanerID, Name: m.Name, Role: m.Role, Hours: hours}
-		if rt, ok := rates[m.CleanerID]; ok {
-			line.HasRate = true
-			line.PayType = rt.PayType
-			line.Rate = rt.Rate
-			line.Cost = round2(laborCost(rt, float64(durationMinutes)/60))
+		line := LaborLine{CleanerID: m.CleanerID, Name: m.Name, Role: m.Role}
+		if fee, ok := costs.CleanerFees[m.CleanerID]; ok {
+			line.Fee, line.HasFee = round2(fee), true
 		} else {
-			out.MissingRates++
+			out.MissingFees++
 		}
-		out.Labor += line.Cost
+		out.Labor += line.Fee
 		out.Team = append(out.Team, line)
 	}
 	out.Labor = round2(out.Labor)
-	out.Cost = round2(out.Labor + out.Supplies)
+	out.Cost = round2(out.Labor + out.Transport + out.Other + out.Supplies)
 	if price != nil {
 		p := round2(*price - out.Cost)
 		out.Profit = &p
@@ -111,37 +98,72 @@ func computeProfit(bookingID int64, price *float64, durationMinutes int, team []
 	return out
 }
 
-// hideRates strips per-cleaner pay details for roles without payroll.read,
-// leaving only the totals.
-func hideRates(p BookingProfit) BookingProfit {
-	team := make([]LaborLine, len(p.Team))
-	for i, l := range p.Team {
-		l.PayType, l.Rate, l.Cost = "", 0, 0
-		team[i] = l
-	}
-	p.Team = team
-	return p
-}
-
 func round2(v float64) float64 { return math.Round(v*100) / 100 }
 
-// BookingProfits estimates profit for each existing booking in ids. Roles
-// without payroll.read get totals only, never individual pay rates.
-func (s *Service) BookingProfits(ctx context.Context, ids []int64, showRates bool) ([]BookingProfit, error) {
+// BookingProfits estimates profit for each existing booking in ids.
+func (s *Service) BookingProfits(ctx context.Context, ids []int64) ([]BookingProfit, error) {
 	if len(ids) == 0 {
 		return []BookingProfit{}, nil
 	}
-	bookings, team, rates, supplies, err := s.repo.ProfitInputs(ctx, ids)
+	bookings, team, costs, supplies, err := s.repo.ProfitInputs(ctx, ids)
 	if err != nil {
 		return nil, err
 	}
 	out := make([]BookingProfit, 0, len(bookings))
 	for _, b := range bookings {
-		p := computeProfit(b.ID, b.Price, b.DurationMinutes, team[b.ID], rates, supplies[b.ID])
-		if !showRates {
-			p = hideRates(p)
-		}
-		out = append(out, p)
+		out = append(out, computeProfit(b.ID, b.Price, team[b.ID], costs[b.ID], supplies[b.ID]))
 	}
 	return out, nil
+}
+
+// SaveCostsRequest is the body of PUT /reports/booking-costs/{id}. Fees are
+// keyed by cleaner id (JSON object keys are strings).
+type SaveCostsRequest struct {
+	CleanerFees map[string]float64 `json:"cleanerFees"`
+	Transport   float64            `json:"transport"`
+	Other       float64            `json:"other"`
+	OtherNote   string             `json:"otherNote"`
+}
+
+func validCost(v float64) bool { return v >= 0 && v <= maxCost && !math.IsNaN(v) }
+
+func (r SaveCostsRequest) parse() (BookingCosts, error) {
+	c := BookingCosts{CleanerFees: map[int64]float64{}, Transport: r.Transport, Other: r.Other,
+		OtherNote: strings.TrimSpace(r.OtherNote)}
+	if !validCost(c.Transport) || !validCost(c.Other) {
+		return c, response.NewAPIError(400, "costs must be between 0 and 10,000,000")
+	}
+	if len([]rune(c.OtherNote)) > 200 {
+		return c, response.NewAPIError(400, "otherNote must be at most 200 characters")
+	}
+	for k, v := range r.CleanerFees {
+		id, err := strconv.ParseInt(k, 10, 64)
+		if err != nil || id < 1 {
+			return c, response.NewAPIError(400, "cleanerFees keys must be cleaner ids")
+		}
+		if !validCost(v) {
+			return c, response.NewAPIError(400, "cleaner fees must be between 0 and 10,000,000")
+		}
+		c.CleanerFees[id] = v
+	}
+	return c, nil
+}
+
+// SaveBookingCosts stores the costs and returns the fresh estimate.
+func (s *Service) SaveBookingCosts(ctx context.Context, bookingID, userID int64, req SaveCostsRequest) (BookingProfit, error) {
+	costs, err := req.parse()
+	if err != nil {
+		return BookingProfit{}, err
+	}
+	if err := s.repo.SaveBookingCosts(ctx, bookingID, userID, costs); err != nil {
+		return BookingProfit{}, err
+	}
+	out, err := s.BookingProfits(ctx, []int64{bookingID})
+	if err != nil {
+		return BookingProfit{}, err
+	}
+	if len(out) == 0 {
+		return BookingProfit{}, response.NewAPIError(404, "booking not found")
+	}
+	return out[0], nil
 }
