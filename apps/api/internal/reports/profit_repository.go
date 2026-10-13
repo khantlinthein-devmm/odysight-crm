@@ -2,29 +2,34 @@ package reports
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
+	"strconv"
+
+	"github.com/jackc/pgx/v5/pgconn"
+
+	"github.com/odysight/crm/pkg/response"
 )
 
 type profitBooking struct {
-	ID              int64
-	Price           *float64
-	DurationMinutes int
+	ID    int64
+	Price *float64
 }
 
 // ProfitInputs loads everything the booking-profit estimate needs for ids:
-// price and duration, the assigned team, every pay rate, and supply usage
+// price, the assigned team, the office-entered costs and supply usage
 // recorded against each booking.
 func (r *Repository) ProfitInputs(ctx context.Context, ids []int64) (
-	[]profitBooking, map[int64][]TeamMember, map[int64]PayRate, map[int64]float64, error) {
+	[]profitBooking, map[int64][]TeamMember, map[int64]BookingCosts, map[int64]float64, error) {
 	bookings := []profitBooking{}
-	rows, err := r.pool.Query(ctx,
-		`SELECT id, price::float8, duration_minutes FROM bookings WHERE id = ANY($1) ORDER BY id`, ids)
+	rows, err := r.pool.Query(ctx, `SELECT id, price::float8 FROM bookings WHERE id = ANY($1) ORDER BY id`, ids)
 	if err != nil {
 		return nil, nil, nil, nil, fmt.Errorf("profit bookings: %w", err)
 	}
 	for rows.Next() {
 		var b profitBooking
-		if err := rows.Scan(&b.ID, &b.Price, &b.DurationMinutes); err != nil {
+		if err := rows.Scan(&b.ID, &b.Price); err != nil {
 			rows.Close()
 			return nil, nil, nil, nil, err
 		}
@@ -58,20 +63,28 @@ func (r *Repository) ProfitInputs(ctx context.Context, ids []int64) (
 		return nil, nil, nil, nil, err
 	}
 
-	rates := map[int64]PayRate{}
+	costs := map[int64]BookingCosts{}
 	rows, err = r.pool.Query(ctx,
-		`SELECT cleaner_id, pay_type, rate::float8, standard_hours::float8 FROM cleaner_pay_rates`)
+		`SELECT booking_id, cleaner_fees, transport::float8, other::float8, other_note
+		   FROM booking_costs WHERE booking_id = ANY($1)`, ids)
 	if err != nil {
-		return nil, nil, nil, nil, fmt.Errorf("profit pay rates: %w", err)
+		return nil, nil, nil, nil, fmt.Errorf("profit costs: %w", err)
 	}
 	for rows.Next() {
 		var id int64
-		var rt PayRate
-		if err := rows.Scan(&id, &rt.PayType, &rt.Rate, &rt.StandardHours); err != nil {
+		var raw []byte
+		var c BookingCosts
+		if err := rows.Scan(&id, &raw, &c.Transport, &c.Other, &c.OtherNote); err != nil {
 			rows.Close()
 			return nil, nil, nil, nil, err
 		}
-		rates[id] = rt
+		fees, err := decodeFees(raw)
+		if err != nil {
+			rows.Close()
+			return nil, nil, nil, nil, fmt.Errorf("booking %d cleaner fees: %w", id, err)
+		}
+		c.CleanerFees = fees
+		costs[id] = c
 	}
 	rows.Close()
 	if err := rows.Err(); err != nil {
@@ -98,5 +111,48 @@ func (r *Repository) ProfitInputs(ctx context.Context, ids []int64) (
 		supplies[id] = cost
 	}
 	rows.Close()
-	return bookings, team, rates, supplies, rows.Err()
+	return bookings, team, costs, supplies, rows.Err()
+}
+
+func decodeFees(raw []byte) (map[int64]float64, error) {
+	byKey := map[string]float64{}
+	if len(raw) > 0 {
+		if err := json.Unmarshal(raw, &byKey); err != nil {
+			return nil, err
+		}
+	}
+	out := make(map[int64]float64, len(byKey))
+	for k, v := range byKey {
+		if id, err := strconv.ParseInt(k, 10, 64); err == nil {
+			out[id] = v
+		}
+	}
+	return out, nil
+}
+
+// SaveBookingCosts upserts the office-entered costs of one booking.
+func (r *Repository) SaveBookingCosts(ctx context.Context, bookingID, userID int64, c BookingCosts) error {
+	byKey := make(map[string]float64, len(c.CleanerFees))
+	for id, fee := range c.CleanerFees {
+		byKey[strconv.FormatInt(id, 10)] = fee
+	}
+	fees, err := json.Marshal(byKey)
+	if err != nil {
+		return err
+	}
+	_, err = r.pool.Exec(ctx,
+		`INSERT INTO booking_costs (booking_id, cleaner_fees, transport, other, other_note, updated_by, updated_at)
+		 VALUES ($1, $2::jsonb, $3, $4, $5, $6, now())
+		 ON CONFLICT (booking_id) DO UPDATE SET
+		   cleaner_fees = EXCLUDED.cleaner_fees, transport = EXCLUDED.transport, other = EXCLUDED.other,
+		   other_note = EXCLUDED.other_note, updated_by = EXCLUDED.updated_by, updated_at = now()`,
+		bookingID, string(fees), c.Transport, c.Other, c.OtherNote, userID)
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) && pgErr.Code == "23503" {
+		return response.NewAPIError(404, "booking not found")
+	}
+	if err != nil {
+		return fmt.Errorf("save booking %d costs: %w", bookingID, err)
+	}
+	return nil
 }

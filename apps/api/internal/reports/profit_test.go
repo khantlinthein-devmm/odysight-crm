@@ -4,59 +4,58 @@ import "testing"
 
 func f(v float64) *float64 { return &v }
 
-func TestLaborCostByPayType(t *testing.T) {
-	cases := []struct {
-		rate  PayRate
-		hours float64
-		want  float64
-	}{
-		{PayRate{"hourly", 150, 8}, 4, 600},
-		{PayRate{"daily", 800, 8}, 4, 400},
-		{PayRate{"per_job", 500, 8}, 4, 500},
-		{PayRate{"monthly", 15600, 8}, 8, 600},
-		{PayRate{"daily", 800, 0}, 8, 800}, // missing standard hours falls back to 8
-		{PayRate{"unknown", 100, 8}, 4, 0},
-	}
-	for _, c := range cases {
-		if got := round2(laborCost(c.rate, c.hours)); got != c.want {
-			t.Errorf("%+v %vh = %v, want %v", c.rate, c.hours, got, c.want)
-		}
-	}
-}
-
 func TestComputeProfit(t *testing.T) {
 	team := []TeamMember{{1, "Arti", "primary"}, {2, "Zaw", "crew"}, {3, "Mya", "crew"}}
-	rates := map[int64]PayRate{1: {"hourly", 150, 8}, 2: {"hourly", 100, 8}}
-	p := computeProfit(9, f(3000), 240, team, rates, 180)
-	if p.Labor != 1000 || p.Supplies != 180 || p.Cost != 1180 {
-		t.Fatalf("labor/supplies/cost = %v/%v/%v", p.Labor, p.Supplies, p.Cost)
+	costs := BookingCosts{CleanerFees: map[int64]float64{1: 600, 2: 400, 9: 999}, Transport: 150, Other: 70, OtherNote: "parking"}
+	p := computeProfit(9, f(3000), team, costs, 180)
+	// Fee 999 belongs to cleaner 9, who is not on the team: ignored.
+	if p.Labor != 1000 || p.Transport != 150 || p.Other != 70 || p.Supplies != 180 || p.Cost != 1400 {
+		t.Fatalf("labor/transport/other/supplies/cost = %v/%v/%v/%v/%v", p.Labor, p.Transport, p.Other, p.Supplies, p.Cost)
 	}
-	if p.Profit == nil || *p.Profit != 1820 || p.Margin == nil || *p.Margin != 60.67 {
+	if p.Profit == nil || *p.Profit != 1600 || p.Margin == nil || *p.Margin != 53.33 {
 		t.Fatalf("profit/margin = %v/%v", p.Profit, p.Margin)
 	}
-	if p.MissingRates != 1 || p.Team[2].HasRate || p.Team[0].Cost != 600 || p.Team[0].Hours != 4 {
+	if p.MissingFees != 1 || p.Team[2].HasFee || p.Team[0].Fee != 600 || p.OtherNote != "parking" {
 		t.Fatalf("team lines wrong: %+v", p.Team)
 	}
 }
 
-func TestComputeProfitWithoutPriceOrTeam(t *testing.T) {
-	p := computeProfit(1, nil, 120, nil, nil, 50)
+func TestComputeProfitWithoutPriceOrCosts(t *testing.T) {
+	p := computeProfit(1, nil, nil, BookingCosts{}, 50)
 	if p.Profit != nil || p.Margin != nil || p.Cost != 50 || len(p.Team) != 0 {
 		t.Fatalf("unexpected: %+v", p)
 	}
-	loss := computeProfit(2, f(500), 120, []TeamMember{{1, "A", "primary"}}, map[int64]PayRate{1: {"hourly", 300, 8}}, 0)
+	loss := computeProfit(2, f(500), []TeamMember{{1, "A", "primary"}}, BookingCosts{CleanerFees: map[int64]float64{1: 600}}, 0)
 	if *loss.Profit != -100 || *loss.Margin != -20 {
 		t.Fatalf("loss = %v / %v", *loss.Profit, *loss.Margin)
 	}
 }
 
-func TestHideRatesKeepsTotals(t *testing.T) {
-	p := computeProfit(1, f(1000), 60, []TeamMember{{1, "A", "primary"}}, map[int64]PayRate{1: {"hourly", 200, 8}}, 0)
-	h := hideRates(p)
-	if h.Team[0].Rate != 0 || h.Team[0].Cost != 0 || h.Team[0].PayType != "" {
-		t.Fatalf("rates leaked: %+v", h.Team[0])
+func TestSaveCostsRequestParse(t *testing.T) {
+	c, err := SaveCostsRequest{CleanerFees: map[string]float64{"5": 300}, Transport: 100, OtherNote: "  tolls  "}.parse()
+	if err != nil || c.CleanerFees[5] != 300 || c.OtherNote != "tolls" {
+		t.Fatalf("parse: %+v %v", c, err)
 	}
-	if h.Labor != 200 || *h.Profit != 800 || p.Team[0].Rate != 200 {
-		t.Fatal("totals must stay and the original must not be mutated")
+	bad := []SaveCostsRequest{
+		{Transport: -1},
+		{Other: maxCost + 1},
+		{CleanerFees: map[string]float64{"abc": 1}},
+		{CleanerFees: map[string]float64{"0": 1}},
+		{CleanerFees: map[string]float64{"3": -5}},
+	}
+	for _, b := range bad {
+		if _, err := b.parse(); err == nil {
+			t.Errorf("%+v must be rejected", b)
+		}
+	}
+}
+
+func TestDecodeFees(t *testing.T) {
+	m, err := decodeFees([]byte(`{"1": 250.5, "x": 9}`))
+	if err != nil || m[1] != 250.5 || len(m) != 1 {
+		t.Fatalf("decode: %v %v", m, err)
+	}
+	if m, err := decodeFees(nil); err != nil || len(m) != 0 {
+		t.Fatal("empty fees must decode to an empty map")
 	}
 }

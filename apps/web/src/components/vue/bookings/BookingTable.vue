@@ -25,7 +25,12 @@ import { getCustomer } from "../../../lib/customers";
 import ConfirmDialog from "../ui/ConfirmDialog.vue";
 import BookingDetailPanel from "./BookingDetailPanel.vue";
 import BookingCalendar from "./BookingCalendar.vue";
-import { getBookingProfits, type BookingProfit } from "../../../lib/booking-profit";
+import {
+  getBookingProfits,
+  saveBookingCosts,
+  type BookingCostsInput,
+  type BookingProfit,
+} from "../../../lib/booking-profit";
 
 const role = getSessionUser()?.role;
 const canCreate = computed(() => hasPermission(role, "bookings.create"));
@@ -274,10 +279,12 @@ function openCreate() {
 // Profit estimates for the cards on screen. The key covers everything that
 // moves the estimate, so an edit (price, duration, team) refetches it.
 const profits = ref<Record<number, BookingProfit>>({});
+// Bumped after job costs are saved (they are not part of the booking row).
+const costsVersion = ref(0);
 const profitKey = computed(() =>
   pagedBookings.value
     .map((b) => `${b.id}:${b.price}:${b.durationMinutes}:${(b.cleaners ?? []).map((c) => c.id).join(".")}`)
-    .join(","),
+    .join(",") + `#${costsVersion.value}`,
 );
 let profitSeq = 0;
 watch(profitKey, async () => {
@@ -377,12 +384,27 @@ async function openNewFromLink() {
   showForm.value = true;
 }
 
-async function handleSave(input: CreateBookingInput) {
+// Job costs live in their own table; saved right after the booking itself.
+async function saveCosts(bookingId: number, costs?: BookingCostsInput) {
+  if (!costs) return;
+  try {
+    await saveBookingCosts(bookingId, costs);
+    costsVersion.value++;
+  } catch (err) {
+    showToast(
+      `Booking saved, but the job costs were not: ${err instanceof Error ? err.message : "unknown error"}`,
+      "error",
+    );
+  }
+}
+
+async function handleSave(input: CreateBookingInput, costs?: BookingCostsInput) {
   saving.value = true;
   try {
     if (editingBooking.value) {
       try {
         const updated = await updateBooking(editingBooking.value.id, input);
+        await saveCosts(updated.id, costs);
         bookings.value = bookings.value.map((b) =>
           b.id === updated.id ? updated : b,
         );
@@ -403,6 +425,7 @@ async function handleSave(input: CreateBookingInput) {
       }
     } else {
       const created = await createBooking(input);
+      await saveCosts(created.id, costs);
       bookings.value = [created, ...bookings.value];
       calendarRefresh.value++;
       const q = fromQuote.value;
