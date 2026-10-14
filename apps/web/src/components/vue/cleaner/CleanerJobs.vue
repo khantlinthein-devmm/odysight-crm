@@ -9,6 +9,7 @@ import {
 } from "../../../lib/bookings";
 import { checkIn, checkOut, getAttendance } from "../../../lib/attendance";
 import { getMyCleanerProfile } from "../../../lib/cleaners";
+import { checklistState, getChecklistStatuses, type ChecklistStatus } from "../../../lib/checklists";
 import { getSessionUser } from "../../../lib/auth";
 import { isOfflineQueued } from "../../../lib/offline";
 import { showToast } from "../../../lib/toast";
@@ -31,6 +32,9 @@ const loading = ref(true);
 const tab = ref<Tab>("today");
 const selected = ref<Booking | null>(null);
 const busyId = ref<number | null>(null);
+
+// Checklist state per booking, for the badge on each job card.
+const checklists = ref<Record<number, ChecklistStatus>>({});
 
 const profileId = ref<number | null>(null);
 const checkedIn = ref(false);
@@ -57,11 +61,34 @@ async function load() {
     ]);
     mine.value = own;
     pool.value = open;
+    void loadChecklists(own);
   } catch (err) {
     showToast(errMsg(err, t("cj.loadFailed")), "error");
   } finally {
     loading.value = false;
   }
+}
+
+async function loadChecklists(jobs: Booking[]) {
+  try {
+    const rows = await getChecklistStatuses(jobs.filter((b) => b.status !== "cancelled").map((b) => b.id));
+    checklists.value = Object.fromEntries(rows.map((r) => [r.bookingId, r]));
+  } catch {
+    /* badges are a hint; the checklist page still works */
+  }
+}
+
+const checklistBadge: Record<string, { label: MessageKey; tone: string }> = {
+  pending: { label: "cl.badgeTodo", tone: "bg-gray-100 text-gray-700" },
+  in_progress: { label: "cl.badgeTodo", tone: "bg-gray-100 text-gray-700" },
+  submitted: { label: "cl.badgeSubmitted", tone: "bg-amber-50 text-amber-800" },
+  approved: { label: "cl.badgeApproved", tone: "bg-green-50 text-green-700" },
+  rework: { label: "cl.badgeRework", tone: "bg-red-100 text-red-700" },
+};
+
+function badgeFor(b: Booking) {
+  const c = checklists.value[b.id];
+  return c ? { ...checklistBadge[checklistState(c)]!, c } : null;
 }
 
 function isOpenJob(b: Booking): boolean {
@@ -395,6 +422,10 @@ onMounted(async () => {
               </span>
             </span>
             <span class="mt-0.5 block text-xs text-gray-500">{{ dayLabel(b.scheduledFor) }} · {{ duration(b.durationMinutes) }}</span>
+            <span
+              v-if="badgeFor(b)"
+              :class="['mt-1 inline-block rounded-full px-2 py-0.5 text-[11px] font-semibold', badgeFor(b)!.tone]"
+            >📋 {{ t(badgeFor(b)!.label) }} · {{ badgeFor(b)!.c.itemsDone }}/{{ badgeFor(b)!.c.itemsTotal }}</span>
             <span class="mt-1.5 flex items-center gap-1.5 text-sm text-gray-700">
               <svg class="h-4 w-4 shrink-0 text-rose-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M17.657 16.657L13.414 20.9a2 2 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" /><path stroke-linecap="round" stroke-linejoin="round" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
               <span class="truncate">{{ b.address || b.customerName }}</span>
@@ -531,11 +562,18 @@ onMounted(async () => {
               rel="noopener"
               class="field-tap flex items-center justify-center rounded-2xl bg-gray-900 py-3.5 text-sm font-bold text-white active:scale-95"
             >{{ t("jobs.navigate") }}</a>
+            <p
+              v-if="!isOpenJob(selected) && checklists[selected.id]?.reviewStatus === 'rework'"
+              class="col-span-2 whitespace-pre-line rounded-2xl bg-red-50 px-4 py-3 text-sm text-red-800 ring-1 ring-red-200"
+            ><strong>{{ t("cl.rework") }}</strong><br />{{ checklists[selected.id]!.reviewNote }}</p>
             <a
               v-if="!isOpenJob(selected)"
               :href="`/checklists?booking=${selected.id}`"
-              class="field-tap flex items-center justify-center rounded-2xl bg-gray-100 py-3.5 text-sm font-bold text-gray-800 active:scale-95"
-            >{{ t("jobs.checklist") }}</a>
+              :class="[
+                'field-tap flex items-center justify-center rounded-2xl py-3.5 text-sm font-bold active:scale-95',
+                checklists[selected.id]?.reviewStatus === 'rework' ? 'bg-red-600 text-white' : 'bg-gray-100 text-gray-800',
+              ]"
+            >📋 {{ t("jobs.checklist") }}</a>
             <a
               href="/chat"
               :class="[

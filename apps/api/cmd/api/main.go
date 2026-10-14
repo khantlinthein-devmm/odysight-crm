@@ -221,7 +221,7 @@ func run() error {
 	quoteHandler := quotes.NewHandler(quoteService)
 
 	checklistRepo := checklists.NewRepository(pool)
-	checklistService := checklists.NewService(checklistRepo)
+	checklistService := checklists.NewService(checklistRepo).WithNotifier(notifService)
 	// Push services want a contact for the sender; the app's own origin is it.
 	pushSubject := "mailto:admin@localhost"
 	for _, o := range cfg.CORSOrigins {

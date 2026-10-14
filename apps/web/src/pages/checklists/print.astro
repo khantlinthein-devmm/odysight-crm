@@ -1,0 +1,32 @@
+---
+import "../../styles/global.css";
+import ChecklistPrint from "../../components/vue/commercial/ChecklistPrint.vue";
+// Printable checklist report (Save as PDF from the print dialog). Rendered by
+// the browser rather than the API's gofpdf, which cannot shape Myanmar script.
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="icon" type="image/png" href="/logo/logo.png" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&family=Noto+Sans+Thai:wght@400;600&family=Noto+Sans+Myanmar:wght@400;600&display=swap"
+      rel="stylesheet"
+    />
+    <title>Checklist report · Smile Clean</title>
+    <style is:global>
+      @page { size: A4; margin: 12mm; }
+      @media print {
+        html, body { background: #fff !important; }
+        * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+      }
+    </style>
+  </head>
+  <body class="bg-gray-100">
+    <ChecklistPrint client:only="vue" />
+  </body>
+</html>
