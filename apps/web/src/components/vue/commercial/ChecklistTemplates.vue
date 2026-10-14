@@ -9,6 +9,7 @@ import {
 } from "../../../lib/checklists";
 import { activeServices, getWorkspaceSettings, serviceLabel } from "../../../lib/settings";
 import { showToast } from "../../../lib/toast";
+import AppIcon, { type IconName } from "../ui/AppIcon.vue";
 
 // Office template editor: each item is a tick, a 1-5 score or pass/fail,
 // optionally needing an after photo. Edits only affect checklists created
@@ -23,8 +24,17 @@ const services = ref<{ id: string; name: string }[]>([]);
 const draft = ref<Draft | null>(null);
 const saving = ref(false);
 const bulk = ref("");
+const showBulk = ref(false);
 
-const typeLabels: Record<ItemType, string> = { check: "Tick", score: "Score 1–5", pass_fail: "Pass / Fail" };
+const types: { value: ItemType; label: string; icon: IconName }[] = [
+  { value: "check", label: "Tick", icon: "check" },
+  { value: "score", label: "Score 1–5", icon: "star" },
+  { value: "pass_fail", label: "Pass / Fail", icon: "badge" },
+];
+
+function countOf(t: ChecklistTemplate, type: ItemType): number {
+  return t.items.filter((i) => (i.itemType ?? "check") === type).length;
+}
 
 async function load() {
   loading.value = true;
@@ -40,6 +50,7 @@ async function load() {
 function startNew() {
   draft.value = { id: null, name: "", serviceType: "", isActive: true, items: [{ label: "", itemType: "check", requirePhoto: false }] };
   bulk.value = "";
+  showBulk.value = false;
 }
 
 function edit(t: ChecklistTemplate) {
@@ -48,6 +59,7 @@ function edit(t: ChecklistTemplate) {
     items: t.items.map((i) => ({ label: i.label, itemType: i.itemType ?? "check", requirePhoto: !!i.requirePhoto })),
   };
   bulk.value = "";
+  showBulk.value = false;
 }
 
 function addItem() {
@@ -62,6 +74,7 @@ function addBulk() {
     ...lines.map((label) => ({ label, itemType: "check" as ItemType, requirePhoto: false })),
   ];
   bulk.value = "";
+  showBulk.value = false;
 }
 
 function move(i: number, dir: -1 | 1) {
@@ -105,85 +118,145 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="px-6 py-4">
-    <div v-if="!draft">
-      <div class="flex items-center justify-between">
-        <p class="text-sm text-gray-500">The template matching a booking's service is sent to the crew when they open the job.</p>
-        <button type="button" class="rounded-lg bg-navy-600 px-4 py-2 text-sm font-medium text-white" @click="startNew">+ New template</button>
+  <div>
+    <!-- Template gallery -->
+    <div v-if="!draft" class="space-y-4">
+      <div class="flex flex-wrap items-center justify-between gap-3 rounded-3xl bg-white p-4 shadow-sm ring-1 ring-gray-100 sm:p-5">
+        <p class="max-w-xl text-sm text-gray-500">The template that matches a booking's service is sent to the crew when they open the job.</p>
+        <button type="button" class="inline-flex items-center gap-2 rounded-2xl bg-navy-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-navy-700" @click="startNew">
+          <AppIcon name="plus" :size="17" /> New template
+        </button>
       </div>
-      <div v-if="loading" class="py-8 text-center text-sm text-gray-500">Loading…</div>
-      <ul v-else class="mt-4 divide-y divide-gray-100 rounded-lg border border-gray-200">
-        <li v-for="t in templates" :key="t.id" class="flex flex-wrap items-center gap-3 px-4 py-3">
-          <div class="min-w-0 flex-1">
-            <p class="text-sm font-medium text-gray-900">{{ t.name }}
-              <span v-if="!t.isActive" class="ml-1 rounded-full bg-gray-100 px-2 py-0.5 text-[11px] font-semibold text-gray-500">inactive</span>
-            </p>
-            <p class="text-xs text-gray-500">
-              {{ t.serviceType ? serviceLabel(t.serviceType) : "Any service (general)" }} · {{ t.items.length }} items
-              <template v-if="t.items.some((i) => i.itemType === 'score')"> · {{ t.items.filter((i) => i.itemType === "score").length }} scored</template>
-              <template v-if="t.items.some((i) => i.requirePhoto)"> · {{ t.items.filter((i) => i.requirePhoto).length }} need photo</template>
-            </p>
+
+      <div v-if="loading" class="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+        <div v-for="i in 3" :key="i" class="h-40 animate-pulse rounded-3xl bg-white ring-1 ring-gray-100"></div>
+      </div>
+      <div v-else-if="templates.length === 0" class="flex flex-col items-center rounded-3xl bg-white px-6 py-14 text-center shadow-sm ring-1 ring-gray-100">
+        <span class="flex h-14 w-14 items-center justify-center rounded-2xl bg-navy-50 text-navy-500"><AppIcon name="stack" :size="28" /></span>
+        <p class="mt-3 text-sm text-gray-500">No templates yet.</p>
+      </div>
+      <div v-else class="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+        <button
+          v-for="t in templates"
+          :key="t.id"
+          type="button"
+          :class="['group flex flex-col rounded-3xl bg-white p-5 text-left shadow-sm ring-1 ring-gray-100 transition hover:-translate-y-0.5 hover:shadow-md', t.isActive ? '' : 'opacity-60']"
+          @click="edit(t)"
+        >
+          <div class="flex items-start justify-between gap-3">
+            <span class="flex h-11 w-11 items-center justify-center rounded-2xl bg-gradient-to-br from-navy-600 to-blue-400 text-white shadow-sm">
+              <AppIcon name="clipboard" :size="22" />
+            </span>
+            <span :class="['rounded-full px-2.5 py-1 text-[11px] font-bold', t.isActive ? 'bg-emerald-50 text-emerald-700' : 'bg-gray-100 text-gray-500']">{{ t.isActive ? "Active" : "Inactive" }}</span>
           </div>
-          <button type="button" class="text-sm font-medium text-navy-600 hover:underline" @click="edit(t)">Edit</button>
-        </li>
-        <li v-if="templates.length === 0" class="px-4 py-6 text-center text-sm text-gray-500">No templates yet.</li>
-      </ul>
+          <p class="mt-4 font-semibold text-gray-900">{{ t.name }}</p>
+          <p class="text-xs text-gray-500">{{ t.serviceType ? serviceLabel(t.serviceType) : "Any service (general)" }}</p>
+          <div class="mt-4 flex flex-wrap gap-1.5">
+            <span class="inline-flex items-center gap-1 rounded-full bg-gray-50 px-2.5 py-1 text-xs font-semibold text-gray-600 ring-1 ring-gray-100">{{ t.items.length }} items</span>
+            <span v-if="countOf(t, 'score')" class="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2.5 py-1 text-xs font-semibold text-amber-700"><AppIcon name="star" :size="12" /> {{ countOf(t, "score") }}</span>
+            <span v-if="countOf(t, 'pass_fail')" class="inline-flex items-center gap-1 rounded-full bg-blue-50 px-2.5 py-1 text-xs font-semibold text-blue-700"><AppIcon name="badge" :size="12" /> {{ countOf(t, "pass_fail") }}</span>
+            <span v-if="t.items.some((i) => i.requirePhoto)" class="inline-flex items-center gap-1 rounded-full bg-navy-50 px-2.5 py-1 text-xs font-semibold text-navy-700"><AppIcon name="camera" :size="12" /> {{ t.items.filter((i) => i.requirePhoto).length }}</span>
+          </div>
+          <span class="mt-4 inline-flex items-center gap-1 text-sm font-semibold text-navy-600">
+            Edit <AppIcon name="chevronRight" :size="15" class="transition group-hover:translate-x-0.5" />
+          </span>
+        </button>
+      </div>
     </div>
 
+    <!-- Editor -->
     <div v-else class="space-y-4">
-      <div class="grid gap-3 sm:grid-cols-3">
-        <label class="block">
-          <span class="mb-1 block text-xs font-medium text-gray-600">Template name</span>
-          <input v-model="draft.name" type="text" placeholder="e.g. Restaurant kitchen night clean" class="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm" />
-        </label>
-        <label class="block">
-          <span class="mb-1 block text-xs font-medium text-gray-600">Service (auto-selected for these bookings)</span>
-          <select v-model="draft.serviceType" class="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm">
-            <option value="">Any service (general)</option>
-            <option v-for="sv in services" :key="sv.id" :value="sv.id">{{ sv.name }}</option>
-            <option v-if="draft.serviceType && !services.some((s) => s.id === draft!.serviceType)" :value="draft.serviceType">{{ serviceLabel(draft.serviceType) }}</option>
-          </select>
-        </label>
-        <label class="flex items-end gap-2 pb-2 text-sm text-gray-700">
-          <input v-model="draft.isActive" type="checkbox" class="h-4 w-4 accent-navy-600" /> Active
-        </label>
+      <section class="rounded-3xl bg-white p-5 shadow-sm ring-1 ring-gray-100">
+        <button type="button" class="inline-flex items-center gap-1.5 text-sm font-semibold text-gray-500 hover:text-navy-600" @click="draft = null">
+          <AppIcon name="arrowLeft" :size="16" /> All templates
+        </button>
+        <div class="mt-4 grid gap-3 sm:grid-cols-[1fr_1fr_auto] sm:items-end">
+          <label class="block">
+            <span class="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-gray-500">Template name</span>
+            <input v-model="draft.name" type="text" placeholder="e.g. Restaurant kitchen night clean" class="w-full rounded-2xl border-0 bg-gray-50 px-3 py-2.5 text-sm ring-1 ring-gray-200 focus:ring-2 focus:ring-navy-500" />
+          </label>
+          <label class="block">
+            <span class="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-gray-500">Used for service</span>
+            <select v-model="draft.serviceType" class="w-full text-sm">
+              <option value="">Any service (general)</option>
+              <option v-for="sv in services" :key="sv.id" :value="sv.id">{{ sv.name }}</option>
+              <option v-if="draft.serviceType && !services.some((s) => s.id === draft!.serviceType)" :value="draft.serviceType">{{ serviceLabel(draft.serviceType) }}</option>
+            </select>
+          </label>
+          <button
+            type="button"
+            role="switch"
+            :aria-checked="draft.isActive"
+            class="flex items-center gap-2.5 rounded-2xl px-3 py-2.5 text-sm font-semibold text-gray-700 ring-1 ring-gray-200"
+            @click="draft.isActive = !draft.isActive"
+          >
+            <span :class="['relative h-6 w-11 rounded-full transition', draft.isActive ? 'bg-emerald-500' : 'bg-gray-300']">
+              <span :class="['absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-all', draft.isActive ? 'left-[22px]' : 'left-0.5']"></span>
+            </span>
+            {{ draft.isActive ? "Active" : "Inactive" }}
+          </button>
+        </div>
+      </section>
+
+      <ol class="space-y-2.5">
+        <li v-for="(it, i) in draft.items" :key="i" class="rounded-3xl bg-white p-4 shadow-sm ring-1 ring-gray-100">
+          <div class="flex items-start gap-3">
+            <span class="mt-1.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-xl bg-navy-50 text-xs font-bold text-navy-700">{{ i + 1 }}</span>
+            <div class="min-w-0 flex-1 space-y-3">
+              <input v-model="it.label" type="text" class="w-full rounded-2xl border-0 bg-gray-50 px-3 py-2.5 text-sm ring-1 ring-gray-200 focus:ring-2 focus:ring-navy-500" placeholder="ကြမ်းပြင် တိုက်ပြီး / Floors swept and mopped" />
+              <div class="flex flex-wrap items-center gap-2">
+                <div class="inline-flex rounded-2xl bg-gray-50 p-1 ring-1 ring-gray-200" role="radiogroup" aria-label="Answer type">
+                  <button
+                    v-for="ty in types"
+                    :key="ty.value"
+                    type="button"
+                    role="radio"
+                    :aria-checked="it.itemType === ty.value"
+                    :class="['inline-flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-semibold transition', it.itemType === ty.value ? 'bg-white text-navy-700 shadow-sm ring-1 ring-gray-200' : 'text-gray-500 hover:text-gray-700']"
+                    @click="it.itemType = ty.value"
+                  >
+                    <AppIcon :name="ty.icon" :size="14" :class="ty.value === 'score' && it.itemType === ty.value ? 'text-amber-400' : ''" />
+                    {{ ty.label }}
+                  </button>
+                </div>
+                <button
+                  type="button"
+                  :aria-pressed="it.requirePhoto"
+                  :class="['inline-flex items-center gap-1.5 rounded-2xl px-3 py-2 text-xs font-semibold ring-1 transition', it.requirePhoto ? 'bg-navy-600 text-white ring-navy-600' : 'bg-white text-gray-500 ring-gray-200 hover:text-gray-700']"
+                  @click="it.requirePhoto = !it.requirePhoto"
+                >
+                  <AppIcon name="camera" :size="14" /> After photo required
+                </button>
+              </div>
+            </div>
+            <div class="flex shrink-0 flex-col gap-1">
+              <button type="button" class="flex h-8 w-8 items-center justify-center rounded-xl text-gray-400 hover:bg-gray-50 hover:text-gray-700 disabled:opacity-30" :disabled="i === 0" aria-label="Move up" @click="move(i, -1)"><AppIcon name="chevronUp" :size="16" /></button>
+              <button type="button" class="flex h-8 w-8 items-center justify-center rounded-xl text-gray-400 hover:bg-gray-50 hover:text-gray-700 disabled:opacity-30" :disabled="i === draft.items.length - 1" aria-label="Move down" @click="move(i, 1)"><AppIcon name="chevronDown" :size="16" /></button>
+              <button type="button" class="flex h-8 w-8 items-center justify-center rounded-xl text-gray-400 hover:bg-red-50 hover:text-red-600" aria-label="Remove" @click="draft.items.splice(i, 1)"><AppIcon name="trash" :size="16" /></button>
+            </div>
+          </div>
+        </li>
+      </ol>
+
+      <div class="flex flex-wrap gap-2">
+        <button type="button" class="inline-flex items-center gap-2 rounded-2xl border-2 border-dashed border-gray-200 px-4 py-2.5 text-sm font-semibold text-gray-600 hover:border-navy-300 hover:text-navy-600" @click="addItem">
+          <AppIcon name="plus" :size="16" /> Add item
+        </button>
+        <button type="button" class="inline-flex items-center gap-2 rounded-2xl px-4 py-2.5 text-sm font-semibold text-gray-500 hover:text-navy-600" @click="showBulk = !showBulk">
+          <AppIcon name="clipboard" :size="16" /> Paste many items
+        </button>
+      </div>
+      <div v-if="showBulk" class="rounded-3xl bg-white p-4 shadow-sm ring-1 ring-gray-100">
+        <textarea v-model="bulk" rows="4" placeholder="One item per line" class="w-full rounded-2xl border-0 bg-gray-50 px-3 py-2.5 text-sm ring-1 ring-gray-200 focus:ring-2 focus:ring-navy-500"></textarea>
+        <button type="button" class="mt-2 rounded-xl bg-navy-600 px-3 py-1.5 text-sm font-semibold text-white" @click="addBulk">Add lines</button>
       </div>
 
-      <div class="overflow-x-auto rounded-lg border border-gray-200">
-        <table class="w-full text-sm">
-          <thead class="bg-gray-50 text-left text-xs font-medium text-gray-500">
-            <tr><th class="px-3 py-2">Item</th><th class="px-3 py-2">Answer</th><th class="px-3 py-2">After photo</th><th class="px-3 py-2"></th></tr>
-          </thead>
-          <tbody class="divide-y divide-gray-100">
-            <tr v-for="(it, i) in draft.items" :key="i">
-              <td class="px-3 py-2"><input v-model="it.label" type="text" class="w-full min-w-48 rounded border border-gray-200 px-2 py-1.5" placeholder="กวาดและถูพื้น / Floors swept and mopped" /></td>
-              <td class="px-3 py-2">
-                <select v-model="it.itemType" class="rounded border border-gray-200 px-2 py-1.5">
-                  <option v-for="(lbl, val) in typeLabels" :key="val" :value="val">{{ lbl }}</option>
-                </select>
-              </td>
-              <td class="px-3 py-2"><label class="inline-flex items-center gap-1.5"><input v-model="it.requirePhoto" type="checkbox" class="h-4 w-4 accent-navy-600" /> Required</label></td>
-              <td class="whitespace-nowrap px-3 py-2 text-right">
-                <button type="button" class="px-1 text-gray-500 disabled:opacity-30" :disabled="i === 0" aria-label="Move up" @click="move(i, -1)">↑</button>
-                <button type="button" class="px-1 text-gray-500 disabled:opacity-30" :disabled="i === draft.items.length - 1" aria-label="Move down" @click="move(i, 1)">↓</button>
-                <button type="button" class="px-1 text-red-500" aria-label="Remove" @click="draft.items.splice(i, 1)">✕</button>
-              </td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-      <div class="flex flex-col gap-2 sm:flex-row sm:items-start">
-        <button type="button" class="text-sm font-medium text-navy-600 hover:underline" @click="addItem">+ Add item</button>
-        <details class="text-sm sm:ml-4">
-          <summary class="cursor-pointer text-gray-500">Paste many items</summary>
-          <textarea v-model="bulk" rows="4" placeholder="One item per line" class="mt-2 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm sm:w-96"></textarea>
-          <button type="button" class="mt-1 text-sm font-medium text-navy-600 hover:underline" @click="addBulk">Add lines</button>
-        </details>
-      </div>
-      <p v-if="draft.id != null" class="text-xs text-gray-500">Changes apply to checklists created from now on. Checklists already sent keep their items.</p>
-      <div class="flex gap-2">
-        <button type="button" :disabled="saving" class="rounded-lg bg-green-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-50" @click="save">{{ saving ? "Saving…" : "Save template" }}</button>
-        <button type="button" class="rounded-lg border border-gray-200 px-4 py-2 text-sm text-gray-700" @click="draft = null">Cancel</button>
+      <div class="flex flex-wrap items-center gap-3 rounded-3xl bg-white p-4 shadow-sm ring-1 ring-gray-100">
+        <button type="button" :disabled="saving" class="inline-flex items-center gap-2 rounded-2xl bg-emerald-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm shadow-emerald-600/30 hover:bg-emerald-700 disabled:opacity-50" @click="save">
+          <AppIcon name="check" :size="17" :stroke="2.5" /> {{ saving ? "Saving…" : "Save template" }}
+        </button>
+        <button type="button" class="rounded-2xl px-4 py-2.5 text-sm font-semibold text-gray-600 ring-1 ring-gray-200 hover:bg-gray-50" @click="draft = null">Cancel</button>
+        <p v-if="draft.id != null" class="text-xs text-gray-500">Changes apply to checklists created from now on. Checklists already sent keep their items.</p>
       </div>
     </div>
   </div>

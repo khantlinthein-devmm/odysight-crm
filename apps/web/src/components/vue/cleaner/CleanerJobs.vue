@@ -16,6 +16,7 @@ import { showToast } from "../../../lib/toast";
 import { dateLocale, t, tStatus, type MessageKey } from "../../../lib/i18n";
 import { getPosition } from "../../../lib/geo";
 import { getWorkspaceSettings, serviceLabel } from "../../../lib/settings";
+import AppIcon from "../ui/AppIcon.vue";
 import LanguageSwitcher from "../ui/LanguageSwitcher.vue";
 
 // The cleaners' field app: their jobs, where to go and what to do. It never
@@ -424,8 +425,8 @@ onMounted(async () => {
             <span class="mt-0.5 block text-xs text-gray-500">{{ dayLabel(b.scheduledFor) }} · {{ duration(b.durationMinutes) }}</span>
             <span
               v-if="badgeFor(b)"
-              :class="['mt-1 inline-block rounded-full px-2 py-0.5 text-[11px] font-semibold', badgeFor(b)!.tone]"
-            >📋 {{ t(badgeFor(b)!.label) }} · {{ badgeFor(b)!.c.itemsDone }}/{{ badgeFor(b)!.c.itemsTotal }}</span>
+              :class="['mt-1.5 inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold', badgeFor(b)!.tone]"
+            ><AppIcon name="clipboard" :size="13" /> {{ t(badgeFor(b)!.label) }} · {{ badgeFor(b)!.c.itemsDone }}/{{ badgeFor(b)!.c.itemsTotal }}</span>
             <span class="mt-1.5 flex items-center gap-1.5 text-sm text-gray-700">
               <svg class="h-4 w-4 shrink-0 text-rose-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M17.657 16.657L13.414 20.9a2 2 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" /><path stroke-linecap="round" stroke-linejoin="round" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
               <span class="truncate">{{ b.address || b.customerName }}</span>
@@ -565,22 +566,22 @@ onMounted(async () => {
             <p
               v-if="!isOpenJob(selected) && checklists[selected.id]?.reviewStatus === 'rework'"
               class="col-span-2 whitespace-pre-line rounded-2xl bg-red-50 px-4 py-3 text-sm text-red-800 ring-1 ring-red-200"
-            ><strong>{{ t("cl.rework") }}</strong><br />{{ checklists[selected.id]!.reviewNote }}</p>
+            ><span class="flex items-center gap-1.5 font-bold"><AppIcon name="undo" :size="16" />{{ t("cl.rework") }}</span>{{ checklists[selected.id]!.reviewNote }}</p>
             <a
               v-if="!isOpenJob(selected)"
               :href="`/checklists?booking=${selected.id}`"
               :class="[
-                'field-tap flex items-center justify-center rounded-2xl py-3.5 text-sm font-bold active:scale-95',
+                'field-tap flex items-center justify-center gap-2 rounded-2xl py-3.5 text-sm font-bold active:scale-95',
                 checklists[selected.id]?.reviewStatus === 'rework' ? 'bg-red-600 text-white' : 'bg-gray-100 text-gray-800',
               ]"
-            >📋 {{ t("jobs.checklist") }}</a>
+            ><AppIcon name="clipboard" :size="18" /> {{ t("jobs.checklist") }}</a>
             <a
               href="/chat"
               :class="[
                 'field-tap flex items-center justify-center gap-2 rounded-2xl bg-emerald-50 py-3.5 text-sm font-bold text-emerald-700 ring-1 ring-emerald-200 active:scale-95',
                 isOpenJob(selected) ? '' : 'col-span-2',
               ]"
-            >💬 {{ t("cj.messageTeam") }}</a>
+            ><AppIcon name="chat" :size="18" /> {{ t("cj.messageTeam") }}</a>
           </div>
         </div>
       </div>
