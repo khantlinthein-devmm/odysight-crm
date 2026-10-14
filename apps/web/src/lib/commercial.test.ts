@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { hasPermission } from "./roles";
 import { createQuote } from "./quotes";
 import { createSite } from "./sites";
-import { completeChecklistItem, uploadItemPhoto } from "./checklists";
+import { answerChecklistItem, completeChecklistItem, submitProblems, uploadItemPhoto } from "./checklists";
 import { getCommercialReport } from "./reports";
 
 describe("commercial domain (mocks)", () => {
@@ -24,8 +24,19 @@ describe("commercial domain (mocks)", () => {
   });
 
   it("completes checklist items toward completion", async () => {
-    const c = await completeChecklistItem(2, true, "Nok");
+    const c = await completeChecklistItem(2, true);
     expect(["in_progress", "completed"]).toContain(c.status);
+  });
+
+  it("scores items and flags what blocks a submit", async () => {
+    let c = await answerChecklistItem(4, { isCompleted: true, score: 4 });
+    expect(c.items.find((i) => i.id === 4)).toMatchObject({ score: 4, isCompleted: true });
+    c = await answerChecklistItem(3, { isCompleted: true, result: "fail" });
+    // Item 3 failed without a note and still needs its after photo.
+    expect(submitProblems(c).map((i) => i.id)).toEqual([3]);
+    c = await answerChecklistItem(3, { isCompleted: true, notes: "bins full" });
+    c = await uploadItemPhoto(3, "after", new File(["x"], "after.jpg", { type: "image/jpeg" }));
+    expect(submitProblems(c)).toEqual([]);
   });
 
   it("attaches before/after photos and loads the commercial report", async () => {

@@ -367,7 +367,9 @@ async function defaultSender(entry: OutboxEntry): Promise<unknown> {
         method: "PATCH",
         body: JSON.stringify({
           isCompleted: entry.payload.isCompleted,
-          completedBy: entry.payload.completedBy,
+          score: entry.payload.score,
+          result: entry.payload.result,
+          notes: entry.payload.notes,
         }),
       });
     case "checklist.photo": {

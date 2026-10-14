@@ -6,6 +6,7 @@ import (
 	"mime/multipart"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -103,4 +104,22 @@ func (s *PhotoStore) Open(name string) (*os.File, string, error) {
 		return nil, "", fmt.Errorf("photo not found")
 	}
 	return f, contentType, nil
+}
+
+// PhotoItemID reads the checklist item id back out of a stored photo name
+// ("item<id>_<kind>_<nanos>.<ext>"), so downloads can be scoped to the job.
+func PhotoItemID(name string) (int64, bool) {
+	rest, ok := strings.CutPrefix(filepath.Base(name), "item")
+	if !ok {
+		return 0, false
+	}
+	digits, _, ok := strings.Cut(rest, "_")
+	if !ok {
+		return 0, false
+	}
+	id, err := strconv.ParseInt(digits, 10, 64)
+	if err != nil || id < 1 {
+		return 0, false
+	}
+	return id, true
 }

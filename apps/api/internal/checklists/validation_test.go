@@ -3,7 +3,7 @@ package checklists
 import "testing"
 
 func TestChecklistCreateValidation(t *testing.T) {
-	req := CreateChecklistRequest{BookingID: 9, Items: []string{"Lobby swept", "Bins emptied"}}
+	req := CreateChecklistRequest{BookingID: 9, Items: []TemplateItemInput{{Label: "Lobby swept"}, {Label: "Bins emptied"}}}
 	if err := req.Validate(); err != nil {
 		t.Fatalf("adhoc checklist rejected: %v", err)
 	}
@@ -31,7 +31,7 @@ func TestChecklistCompletionAndConfirmation(t *testing.T) {
 	if err := req.Validate(); err == nil {
 		t.Fatal("blank signature must be rejected")
 	}
-	tpl := CreateTemplateRequest{Name: "Factory Deep Cleaning", Items: []string{"Production area cleaned", "Floor cleaned"}}
+	tpl := CreateTemplateRequest{Name: "Factory Deep Cleaning", Items: []TemplateItemInput{{Label: "Production area cleaned"}, {Label: "Floor cleaned"}}}
 	if err := tpl.Validate(); err != nil {
 		t.Fatalf("factory template rejected: %v", err)
 	}
