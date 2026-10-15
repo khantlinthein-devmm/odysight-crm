@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/go-chi/chi/v5"
 
@@ -126,6 +127,19 @@ func (h *Handler) Update(w http.ResponseWriter, r *http.Request) {
 		if err := checkCleanerUpdate(current, c, req); err != nil {
 			response.HandleError(w, r, err)
 			return
+		}
+		// A crew may only close the job once its checklist (proof of work)
+		// is submitted. The office can still complete it as an override.
+		if req.Status != nil && Status(strings.TrimSpace(*req.Status)) == StatusCompleted {
+			missing, err := h.service.repo.ChecklistMissing(r.Context(), id)
+			if err != nil {
+				response.HandleError(w, r, err)
+				return
+			}
+			if missing {
+				response.HandleError(w, r, response.NewAPIError(409, ErrChecklistFirst))
+				return
+			}
 		}
 	}
 

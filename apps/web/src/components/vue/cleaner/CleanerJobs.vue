@@ -12,6 +12,7 @@ import { getMyCleanerProfile } from "../../../lib/cleaners";
 import { checklistState, getChecklistStatuses, type ChecklistStatus } from "../../../lib/checklists";
 import { getSessionUser } from "../../../lib/auth";
 import { isOfflineQueued } from "../../../lib/offline";
+import { ApiError } from "../../../lib/api";
 import { showToast } from "../../../lib/toast";
 import { dateLocale, t, tStatus, type MessageKey } from "../../../lib/i18n";
 import { getPosition } from "../../../lib/geo";
@@ -191,6 +192,13 @@ function replace(updated: Booking) {
 }
 
 async function setStatus(b: Booking, status: "in_progress" | "completed") {
+  // Proof of work first: a job with an unsubmitted checklist opens it instead.
+  const cl = checklists.value[b.id];
+  if (status === "completed" && cl && !cl.submitted && cl.reviewStatus !== "approved") {
+    showToast(t("cj.checklistFirst"), "error");
+    window.location.href = `/checklists?booking=${b.id}`;
+    return;
+  }
   busyId.value = b.id;
   try {
     replace(await updateBooking(b.id, { status }));
@@ -199,6 +207,10 @@ async function setStatus(b: Booking, status: "in_progress" | "completed") {
     if (isOfflineQueued(err)) {
       replace({ ...b, status });
       showToast(t("jobs.offlineComplete"), "success");
+    } else if (status === "completed" && err instanceof ApiError && err.status === 409) {
+      // The server requires the checklist (e.g. none was opened yet).
+      showToast(t("cj.checklistFirst"), "error");
+      window.location.href = `/checklists?booking=${b.id}`;
     } else {
       showToast(errMsg(err, t(status === "completed" ? "jobs.completeFailed" : "cj.startFailed")), "error");
     }

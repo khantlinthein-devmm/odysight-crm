@@ -12,6 +12,10 @@ import (
 // must only see and touch their own jobs (plus the unassigned pool they can
 // accept from). These helpers narrow those requests; staff are unaffected.
 
+// ErrChecklistFirst is the message a cleaner gets when closing a job whose
+// checklist is not submitted (the app shows its own translation for code 409).
+const ErrChecklistFirst = "submit the job checklist before marking the job completed"
+
 // cleanerFor resolves the caller's cleaner profile. ok is false when the
 // login has no linked profile.
 func (s *Service) cleanerFor(ctx context.Context, userID int64) (CleanerIdentity, bool, error) {

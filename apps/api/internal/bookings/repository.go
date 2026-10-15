@@ -562,6 +562,28 @@ func (r *Repository) Delete(ctx context.Context, id int64) error {
 }
 
 // CleanerIdentity is the cleaner profile resolved for a login user.
+// ChecklistMissing reports whether a job still owes its checklist: it has one
+// that was not submitted yet, or it has none but a checklist template applies
+// to its service (so the crew should have filled one in). Read straight from
+// the checklist tables so bookings stays self-contained.
+func (r *Repository) ChecklistMissing(ctx context.Context, bookingID int64) (bool, error) {
+	var missing bool
+	err := r.pool.QueryRow(ctx, `
+		SELECT CASE
+		  WHEN EXISTS (SELECT 1 FROM booking_checklists c WHERE c.booking_id = $1
+		               AND (c.submitted_at IS NOT NULL OR c.review_status = 'approved')) THEN false
+		  WHEN EXISTS (SELECT 1 FROM booking_checklists c WHERE c.booking_id = $1) THEN true
+		  ELSE EXISTS (
+		    SELECT 1 FROM checklist_templates t JOIN bookings b ON b.id = $1
+		    WHERE t.is_active AND (t.service_type = b.service_type OR t.service_type = '')
+		      AND EXISTS (SELECT 1 FROM checklist_template_items i WHERE i.template_id = t.id))
+		END`, bookingID).Scan(&missing)
+	if err != nil {
+		return false, fmt.Errorf("check checklist for booking %d: %w", bookingID, err)
+	}
+	return missing, nil
+}
+
 type CleanerIdentity struct {
 	ID   int64
 	Name string

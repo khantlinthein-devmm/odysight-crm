@@ -126,6 +126,8 @@ type Summary struct {
 	AvgScore      *float64
 	FailCount     int
 	PhotoCount    int
+	// Overdue: the job is completed but its checklist was never submitted.
+	Overdue bool
 }
 
 // ListFilter narrows the office checklist list.

@@ -235,6 +235,8 @@ func run() error {
 	chatEvents := chat.NewBroker(pool)
 	go chatEvents.Run(ctx)
 	chatService := chat.NewService(chatRepo, chatFiles, pushSubject, chatEvents)
+	// Checklists sent back for rework reach the crew through chat's push subscriptions.
+	checklistService.WithPusher(chatService)
 	go chat.NewCleaner(chatRepo, chatFiles).Run(ctx)
 	checklistHandler := checklists.NewHandler(checklistService, checklists.NewPhotoStore(cfg.UploadDir, cfg.MaxUploadMB))
 

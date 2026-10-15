@@ -2,6 +2,7 @@ package checklists
 
 import (
 	"context"
+	"log/slog"
 	"errors"
 	"fmt"
 	"html"
@@ -19,9 +20,16 @@ type OfficeNotifier interface {
 	NotifyOffice(ctx context.Context, eventType, subject, bodyHTML string)
 }
 
+// CrewPusher sends a push notification to a user's devices (the chat module
+// owns the subscriptions).
+type CrewPusher interface {
+	PushToUser(userID int64, title, body, url, tag string)
+}
+
 type Service struct {
 	repo     *Repository
 	notifier OfficeNotifier
+	pusher   CrewPusher
 }
 
 func NewService(repo *Repository) *Service {
@@ -33,20 +41,35 @@ func (s *Service) WithNotifier(n OfficeNotifier) *Service {
 	return s
 }
 
+func (s *Service) WithPusher(p CrewPusher) *Service {
+	s.pusher = p
+	return s
+}
+
 // Caller is who is acting. Cleaners only reach checklists of jobs they work,
 // cannot pick templates and cannot review.
 type Caller struct {
 	UserID  int64
 	Cleaner bool
+	// CanManage: may create checklists (cleaners and office staff with
+	// checklists.manage; read-only roles such as accountants may not).
+	CanManage bool
 }
 
 func CallerFrom(ctx context.Context) Caller {
 	id, _ := auth.IdentityFromContext(ctx)
-	return Caller{UserID: id.UserID, Cleaner: id.Role == auth.RoleCleaner}
+	return Caller{
+		UserID:    id.UserID,
+		Cleaner:   id.Role == auth.RoleCleaner,
+		CanManage: auth.HasPermission(id.Role, auth.PermChecklistsManage),
+	}
 }
 
 var (
 	errNotYourJob   = response.NewAPIError(403, "you can only open checklists of jobs assigned to you")
+	// 404 with its own message so the app can say "add a template" instead of
+	// a generic "not found".
+	errNoTemplateForService = response.NewAPIError(404, "no checklist template for this service yet")
 	errStaffOnly    = response.NewAPIError(403, "only office staff can do this")
 	errLocked       = response.NewAPIError(409, "this checklist was submitted; the office must send it back before it can change")
 	errNotSubmitted = response.NewAPIError(409, "this checklist has not been submitted yet")
@@ -110,13 +133,16 @@ func (s *Service) GetByBooking(ctx context.Context, c Caller, bookingID int64) (
 		return Checklist{}, err
 	}
 	cl, err := s.repo.GetByBooking(ctx, bookingID)
-	if errors.Is(err, ErrNotFound) && c.Cleaner {
+	// Opening a job that has no checklist yet creates it from the booking's
+	// template, for the crew and for office staff who manage checklists, so
+	// nobody has to press "create" first.
+	if errors.Is(err, ErrNotFound) && (c.Cleaner || c.CanManage) {
 		cl, err = s.createFromTemplate(ctx, bookingID, nil)
 		if errors.Is(err, ErrAlreadyExists) {
 			cl, err = s.repo.GetByBooking(ctx, bookingID)
 		}
 		if errors.Is(err, ErrNoTemplate) {
-			err = ErrNotFound
+			return Checklist{}, errNoTemplateForService
 		}
 	}
 	if err != nil {
@@ -375,7 +401,28 @@ func (s *Service) Review(ctx context.Context, c Caller, bookingID int64, req Rev
 	if err != nil {
 		return Checklist{}, mapRepoError(err)
 	}
+	if req.Decision == ReviewRework {
+		s.pushRework(ctx, bookingID, req.Note)
+	}
 	return cl, nil
+}
+
+// pushRework tells the crew on their phones that the office sent the
+// checklist back, with the office's note; tapping opens the checklist.
+func (s *Service) pushRework(ctx context.Context, bookingID int64, note string) {
+	if s.pusher == nil {
+		return
+	}
+	users, err := s.repo.CrewUserIDs(ctx, bookingID)
+	if err != nil {
+		slog.Warn("checklist rework push: crew lookup failed", "booking", bookingID, "error", err)
+		return
+	}
+	url := fmt.Sprintf("/checklists?booking=%d", bookingID)
+	tag := fmt.Sprintf("checklist-%d", bookingID)
+	for _, uid := range users {
+		s.pusher.PushToUser(uid, "Checklist sent back · ပြန်ပြင်ရန်", note, url, tag)
+	}
 }
 
 // AttachPhoto records an uploaded photo URL after the file is stored.

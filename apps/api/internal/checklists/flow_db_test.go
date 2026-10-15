@@ -70,10 +70,11 @@ func TestChecklistFlowDB(t *testing.T) {
 		_, _ = pool.Exec(ctx, `DELETE FROM users WHERE email LIKE $1`, "%"+tag+"@t")
 	})
 
-	svc := NewService(NewRepository(pool))
+	pushes := &fakePusher{}
+	svc := NewService(NewRepository(pool)).WithPusher(pushes)
 	a := Caller{UserID: userA, Cleaner: true}
 	b := Caller{UserID: userB, Cleaner: true}
-	office := Caller{UserID: admin}
+	office := Caller{UserID: admin, CanManage: true}
 
 	// Office template with all three item types; condo bookings pick it.
 	tpl, err := svc.CreateTemplate(ctx, office, CreateTemplateRequest{Name: "tpl" + tag, ServiceType: "svc" + tag, Items: []TemplateItemInput{
@@ -86,9 +87,22 @@ func TestChecklistFlowDB(t *testing.T) {
 		t.Fatalf("cleaner created a template: %v", err)
 	}
 
+	// A completed job with no checklist but an applying template is "missing".
+	if _, err := pool.Exec(ctx, `UPDATE bookings SET status = 'completed' WHERE id = $1`, legacy); err != nil {
+		t.Fatal(err)
+	}
+	missing, _, err := svc.List(ctx, office, ListFilter{State: StateMissing, Search: tag, Limit: 10})
+	if err != nil || len(missing) != 1 || missing[0].BookingID != legacy || missing[0].ID != 0 || !missing[0].Overdue {
+		t.Fatalf("missing list: %+v %v", missing, err)
+	}
+	if all, _, _ := svc.List(ctx, office, ListFilter{Search: tag, Limit: 10}); len(all) != 0 {
+		t.Fatalf("All shows only jobs that have a checklist: %+v", all)
+	}
+
 	// Office does not auto-create; the assigned cleaner does on open.
-	if _, err := svc.GetByBooking(ctx, office, booking); apiStatus(err) != 404 {
-		t.Fatalf("office open should 404 before the cleaner opens: %v", err)
+	// A read-only office role (no checklists.manage) does not create one.
+	if _, err := svc.GetByBooking(ctx, Caller{UserID: admin}, booking); apiStatus(err) != 404 {
+		t.Fatalf("read-only office open should 404: %v", err)
 	}
 	if _, err := svc.GetByBooking(ctx, b, booking); apiStatus(err) != 403 {
 		t.Fatalf("other cleaner opened the job: %v", err)
@@ -101,6 +115,26 @@ func TestChecklistFlowDB(t *testing.T) {
 	if kitchen.ItemType != ItemScore || !bins.RequirePhoto {
 		t.Fatalf("item settings not copied: %+v %+v", kitchen, bins)
 	}
+	// Office staff who manage checklists get one created on open too.
+	var officeBooking int64
+	if err := pool.QueryRow(ctx, `INSERT INTO bookings (booking_number, customer_name, service_type, scheduled_for) VALUES ($1, 'Office Open', $2, now()) RETURNING id`, "O"+tag, "svc"+tag).Scan(&officeBooking); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _, _ = pool.Exec(ctx, `DELETE FROM bookings WHERE id = $1`, officeBooking) })
+	if oc, err := svc.GetByBooking(ctx, office, officeBooking); err != nil || len(oc.Items) != 3 {
+		t.Fatalf("office open should create from the template: %+v %v", oc, err)
+	}
+	var noTplBooking int64
+	if err := pool.QueryRow(ctx, `INSERT INTO bookings (booking_number, customer_name, service_type, scheduled_for) VALUES ($1, 'No Template', $2, now()) RETURNING id`, "N"+tag, "none"+tag).Scan(&noTplBooking); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _, _ = pool.Exec(ctx, `DELETE FROM bookings WHERE id = $1`, noTplBooking) })
+	var general int
+	_ = pool.QueryRow(ctx, `SELECT COUNT(*) FROM checklist_templates WHERE is_active AND service_type = ''`).Scan(&general)
+	if _, err := svc.GetByBooking(ctx, office, noTplBooking); general == 0 && (apiStatus(err) != 404 || err.Error() != errNoTemplateForService.Error()) {
+		t.Fatalf("no template should say so: %v", err)
+	}
+
 	// Legacy name-assigned job, email-linked profile.
 	if _, err := svc.GetByBooking(ctx, b, legacy); err != nil {
 		t.Fatalf("legacy assigned cleaner denied: %v", err)
@@ -163,6 +197,9 @@ func TestChecklistFlowDB(t *testing.T) {
 	if err != nil || cl.Locked() || cl.ReviewStatus != ReviewRework {
 		t.Fatalf("rework: %+v %v", cl, err)
 	}
+	if len(pushes.sent) != 1 || pushes.sent[0].user != userA || pushes.sent[0].body != "Kitchen sink still dirty" {
+		t.Fatalf("rework should push the crew (only Aye Aye): %+v", pushes.sent)
+	}
 	if rows, _, _ := svc.List(ctx, office, ListFilter{State: "rework", Search: tag, Limit: 10}); len(rows) != 1 {
 		t.Fatalf("rework filter: %+v", rows)
 	}
@@ -192,4 +229,16 @@ func TestChecklistFlowDB(t *testing.T) {
 	if err != nil || tpl2.IsActive || len(tpl2.Items) != 1 {
 		t.Fatalf("update template: %+v %v", tpl2, err)
 	}
+}
+
+type sentPush struct {
+	user      int64
+	title     string
+	body, url string
+}
+
+type fakePusher struct{ sent []sentPush }
+
+func (f *fakePusher) PushToUser(userID int64, title, body, url, _ string) {
+	f.sent = append(f.sent, sentPush{user: userID, title: title, body: body, url: url})
 }

@@ -89,6 +89,7 @@ type SummaryDTO struct {
 	AvgScore      *float64 `json:"avgScore"`
 	FailCount     int      `json:"failCount"`
 	PhotoCount    int      `json:"photoCount"`
+	Overdue       bool     `json:"overdue"`
 }
 
 type StatusDTO struct {
@@ -155,7 +156,7 @@ func toSummaryDTO(s Summary) SummaryDTO {
 		ID: s.ID, BookingID: s.BookingID, BookingNumber: s.BookingNumber, CustomerName: s.CustomerName,
 		ServiceType: s.ServiceType, ScheduledFor: s.ScheduledFor.Format(timeLayout), Cleaners: s.Cleaners,
 		Status: string(s.Status), SubmittedAt: fmtTime(s.SubmittedAt), ReviewStatus: s.ReviewStatus,
-		ItemsTotal: s.ItemsTotal, ItemsDone: s.ItemsDone, AvgScore: s.AvgScore, FailCount: s.FailCount, PhotoCount: s.PhotoCount,
+		ItemsTotal: s.ItemsTotal, ItemsDone: s.ItemsDone, AvgScore: s.AvgScore, FailCount: s.FailCount, PhotoCount: s.PhotoCount, Overdue: s.Overdue,
 	}
 }
 

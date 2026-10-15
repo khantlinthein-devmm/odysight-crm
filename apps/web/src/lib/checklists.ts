@@ -1,5 +1,6 @@
 import { ApiError, USE_MOCKS, apiFetch, delay, getApiBaseUrl, toQuery } from "./api";
 import { OfflineQueued, enqueue, isOnline } from "./offline";
+import { compressPhoto } from "./image";
 
 /** How a cleaner answers an item: tick, 1-5 score, or pass / fail / n/a. */
 export type ItemType = "check" | "score" | "pass_fail";
@@ -73,6 +74,8 @@ export interface ChecklistSummary {
   avgScore?: number | null;
   failCount: number;
   photoCount: number;
+  /** Job completed but its checklist was never submitted (id 0 = none exists). */
+  overdue?: boolean;
 }
 
 /** Compact state for a job card badge. */
@@ -86,7 +89,7 @@ export interface ChecklistStatus {
   itemsDone: number;
 }
 
-export type ChecklistState = "pending" | "in_progress" | "submitted" | "approved" | "rework";
+export type ChecklistState = "missing" | "pending" | "in_progress" | "submitted" | "approved" | "rework";
 
 /** The one state a checklist is in, for badges and filters. */
 export function checklistState(c: {
@@ -94,7 +97,9 @@ export function checklistState(c: {
   submittedAt?: string | null;
   submitted?: boolean;
   reviewStatus: ReviewStatus;
+  overdue?: boolean;
 }): ChecklistState {
+  if (c.overdue) return "missing";
   if (c.reviewStatus === "approved") return "approved";
   if (c.reviewStatus === "rework") return "rework";
   if (c.submittedAt || c.submitted) return "submitted";
@@ -103,6 +108,7 @@ export function checklistState(c: {
 
 /** Office-facing label and colour per state. */
 export const CHECKLIST_STATE_BADGE: Record<ChecklistState, { label: string; tone: string }> = {
+  missing: { label: "Missing checklist", tone: "bg-red-100 text-red-700" },
   pending: { label: "Not started", tone: "bg-gray-100 text-gray-700" },
   in_progress: { label: "In progress", tone: "bg-blue-50 text-blue-700" },
   submitted: { label: "Waiting review", tone: "bg-amber-50 text-amber-800" },
@@ -268,7 +274,10 @@ export async function completeChecklistItem(itemId: number, isCompleted: boolean
   return answerChecklistItem(itemId, { isCompleted });
 }
 
-export async function uploadItemPhoto(itemId: number, kind: "before" | "after", file: File): Promise<Checklist> {
+export async function uploadItemPhoto(itemId: number, kind: "before" | "after", original: File): Promise<Checklist> {
+  // Phone photos are 3-8 MB: shrink before upload or queueing (falls back
+  // to the original when the browser cannot re-encode it).
+  const file = await compressPhoto(original);
   if (USE_MOCKS) {
     await delay(300);
     for (const c of mockChecklists) {

@@ -96,6 +96,8 @@ const en = {
   "cl.done": "done",
   "cl.locked": "Submitted checklists can't be changed.",
   "cl.noChecklist": "No checklist for this job yet. Ask the office to add a template.",
+  "cl.noTemplateTitle": "No checklist for this service yet",
+  "cl.noTemplateCleaner": "The office has not set up a checklist for this service. Please tell the office.",
   "cl.badgeTodo": "Checklist to do",
   "cl.badgeRework": "Checklist: fix",
   "cl.badgeSubmitted": "Checklist sent",
@@ -167,6 +169,7 @@ const en = {
   "cj.openHint": "First to accept gets the job.",
   "cj.refresh": "Refresh",
   "cj.loadFailed": "Could not load jobs",
+  "cj.checklistFirst": "Submit the job checklist first. Opening it now…",
 };
 
 export type MessageKey = keyof typeof en;
@@ -254,6 +257,8 @@ const th: Record<MessageKey, string> = {
   "cl.done": "เสร็จ",
   "cl.locked": "เช็กลิสต์ที่ส่งแล้วแก้ไขไม่ได้",
   "cl.noChecklist": "งานนี้ยังไม่มีเช็กลิสต์ กรุณาแจ้งออฟฟิศให้เพิ่มแม่แบบ",
+  "cl.noTemplateTitle": "บริการนี้ยังไม่มีเช็กลิสต์",
+  "cl.noTemplateCleaner": "ออฟฟิศยังไม่ได้ตั้งเช็กลิสต์สำหรับบริการนี้ กรุณาแจ้งออฟฟิศ",
   "cl.badgeTodo": "ต้องทำเช็กลิสต์",
   "cl.badgeRework": "เช็กลิสต์: ต้องแก้",
   "cl.badgeSubmitted": "ส่งเช็กลิสต์แล้ว",
@@ -325,6 +330,7 @@ const th: Record<MessageKey, string> = {
   "cj.openHint": "ใครกดรับก่อนได้งาน",
   "cj.refresh": "รีเฟรช",
   "cj.loadFailed": "โหลดงานไม่สำเร็จ",
+  "cj.checklistFirst": "กรุณาส่งเช็กลิสต์ของงานก่อน กำลังเปิดเช็กลิสต์…",
 };
 
 const my: Record<MessageKey, string> = {
@@ -410,6 +416,8 @@ const my: Record<MessageKey, string> = {
   "cl.done": "ပြီး",
   "cl.locked": "တင်ပြီးသော စစ်ဆေးစာရင်းကို ပြင်၍မရပါ။",
   "cl.noChecklist": "ဒီအလုပ်အတွက် စစ်ဆေးစာရင်း မရှိသေးပါ။ ရုံးကို ပုံစံထည့်ခိုင်းပါ။",
+  "cl.noTemplateTitle": "ဒီဝန်ဆောင်မှုအတွက် စစ်ဆေးစာရင်း မရှိသေးပါ",
+  "cl.noTemplateCleaner": "ရုံးက ဒီဝန်ဆောင်မှုအတွက် စစ်ဆေးစာရင်း မသတ်မှတ်ရသေးပါ။ ရုံးကို အကြောင်းကြားပါ။",
   "cl.badgeTodo": "စစ်ဆေးစာရင်း လုပ်ရန်",
   "cl.badgeRework": "စစ်ဆေးစာရင်း: ပြင်ရန်",
   "cl.badgeSubmitted": "စစ်ဆေးစာရင်း တင်ပြီး",
@@ -481,6 +489,7 @@ const my: Record<MessageKey, string> = {
   "cj.openHint": "အရင်လက်ခံသူ အလုပ်ရပါမည်",
   "cj.refresh": "ပြန်ဖွင့်ရန်",
   "cj.loadFailed": "အလုပ်များ ဖွင့်၍မရပါ",
+  "cj.checklistFirst": "အလုပ်၏ စစ်ဆေးစာရင်းကို အရင်တင်ပါ။ ယခု ဖွင့်ပေးနေပါသည်…",
 };
 
 const dictionaries: Record<Lang, Record<MessageKey, string>> = { en, th, my };

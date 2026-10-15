@@ -476,6 +476,34 @@ func (r *Repository) CleanerAssigned(ctx context.Context, userID, bookingID int6
 	return ok, nil
 }
 
+// CrewUserIDs returns the login ids of the cleaners on a booking: its crew
+// (by user link, or by email for profiles not yet linked) or, for legacy rows
+// without a crew, the cleaner named in assigned_cleaner.
+func (r *Repository) CrewUserIDs(ctx context.Context, bookingID int64) ([]int64, error) {
+	rows, err := r.pool.Query(ctx, `
+		SELECT DISTINCT u.id
+		FROM bookings b
+		JOIN cleaners cl ON (
+		      EXISTS (SELECT 1 FROM booking_cleaners bc WHERE bc.booking_id = b.id AND bc.cleaner_id = cl.id)
+		   OR (NOT EXISTS (SELECT 1 FROM booking_cleaners bc WHERE bc.booking_id = b.id)
+		       AND lower(trim(COALESCE(b.assigned_cleaner, ''))) = lower(trim(cl.first_name || ' ' || cl.last_name))))
+		JOIN users u ON u.id = cl.user_id OR (cl.user_id IS NULL AND lower(u.email) = lower(cl.email))
+		WHERE b.id = $1`, bookingID)
+	if err != nil {
+		return nil, fmt.Errorf("crew users for booking %d: %w", bookingID, err)
+	}
+	defer rows.Close()
+	ids := []int64{}
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	return ids, rows.Err()
+}
+
 // StatusRow is a compact checklist state for job cards.
 type StatusRow struct {
 	BookingID    int64
@@ -519,6 +547,20 @@ func (r *Repository) Statuses(ctx context.Context, bookingIDs []int64, cleanerUs
 
 // Office list
 
+// StateMissing lists completed jobs that still owe their checklist.
+const StateMissing = "missing"
+
+// overdueSQL is true for a job (b, joined checklist c) whose checklist is not
+// submitted: it has an unsubmitted one, or none although a template applies
+// to its service. Combined with b.status = 'completed' it means the crew
+// closed the job without proof of work.
+const overdueSQL = `(
+	(c.id IS NOT NULL AND c.submitted_at IS NULL AND c.review_status <> 'approved')
+	OR (c.id IS NULL AND EXISTS (
+		SELECT 1 FROM checklist_templates t
+		WHERE t.is_active AND (t.service_type = b.service_type OR t.service_type = '')
+		  AND EXISTS (SELECT 1 FROM checklist_template_items ti WHERE ti.template_id = t.id))))`
+
 func (r *Repository) List(ctx context.Context, f ListFilter) ([]Summary, int, error) {
 	conds := []string{}
 	args := []any{}
@@ -526,7 +568,14 @@ func (r *Repository) List(ctx context.Context, f ListFilter) ([]Summary, int, er
 		args = append(args, v)
 		conds = append(conds, strings.ReplaceAll(cond, "?", fmt.Sprintf("$%d", len(args))))
 	}
+	// Jobs come first so "missing" can list completed jobs that have no
+	// checklist at all; every other view only shows jobs that have one.
+	if f.State != StateMissing {
+		conds = append(conds, `c.id IS NOT NULL`)
+	}
 	switch f.State {
+	case StateMissing:
+		conds = append(conds, `b.status = 'completed' AND `+overdueSQL)
 	case "pending":
 		conds = append(conds, `c.submitted_at IS NULL AND c.review_status = '' AND c.status = 'pending'`)
 	case "in_progress":
@@ -557,7 +606,7 @@ func (r *Repository) List(ctx context.Context, f ListFilter) ([]Summary, int, er
 	if len(conds) > 0 {
 		where = "WHERE " + strings.Join(conds, " AND ")
 	}
-	from := `FROM booking_checklists c JOIN bookings b ON b.id = c.booking_id `
+	from := `FROM bookings b LEFT JOIN booking_checklists c ON c.booking_id = b.id `
 
 	var total int
 	if err := r.pool.QueryRow(ctx, `SELECT COUNT(*) `+from+where, args...).Scan(&total); err != nil {
@@ -565,12 +614,13 @@ func (r *Repository) List(ctx context.Context, f ListFilter) ([]Summary, int, er
 	}
 	args = append(args, f.Limit, f.Offset)
 	rows, err := r.pool.Query(ctx,
-		`SELECT c.id, b.id, b.booking_number, b.customer_name, b.service_type, b.scheduled_for,
+		`SELECT COALESCE(c.id, 0), b.id, b.booking_number, b.customer_name, b.service_type, b.scheduled_for,
 		        COALESCE((SELECT string_agg(trim(cl.first_name || ' ' || cl.last_name), ', ' ORDER BY bc.role DESC, cl.first_name)
 		                  FROM booking_cleaners bc JOIN cleaners cl ON cl.id = bc.cleaner_id WHERE bc.booking_id = b.id),
 		                 NULLIF(trim(b.assigned_cleaner), ''), ''),
-		        c.status, c.submitted_at, c.review_status,
-		        s.total, s.done, s.avg_score, s.fails, s.photos
+		        COALESCE(c.status, 'pending'), c.submitted_at, COALESCE(c.review_status, ''),
+		        s.total, s.done, s.avg_score, s.fails, s.photos,
+		        (b.status = 'completed' AND `+overdueSQL+`)
 		 `+from+`
 		 CROSS JOIN LATERAL (
 		   SELECT COUNT(*)::int AS total,
@@ -580,7 +630,7 @@ func (r *Repository) List(ctx context.Context, f ListFilter) ([]Summary, int, er
 		          (COUNT(i.before_photo_url) + COUNT(i.after_photo_url))::int AS photos
 		   FROM booking_checklist_items i WHERE i.checklist_id = c.id) s
 		 `+where+`
-		 ORDER BY b.scheduled_for DESC, c.id DESC`+
+		 ORDER BY b.scheduled_for DESC, c.id DESC NULLS LAST`+
 			fmt.Sprintf(` LIMIT $%d OFFSET $%d`, len(args)-1, len(args)), args...)
 	if err != nil {
 		return nil, 0, fmt.Errorf("list checklists: %w", err)
@@ -591,7 +641,7 @@ func (r *Repository) List(ctx context.Context, f ListFilter) ([]Summary, int, er
 		var s Summary
 		if err := rows.Scan(&s.ID, &s.BookingID, &s.BookingNumber, &s.CustomerName, &s.ServiceType, &s.ScheduledFor,
 			&s.Cleaners, &s.Status, &s.SubmittedAt, &s.ReviewStatus,
-			&s.ItemsTotal, &s.ItemsDone, &s.AvgScore, &s.FailCount, &s.PhotoCount); err != nil {
+			&s.ItemsTotal, &s.ItemsDone, &s.AvgScore, &s.FailCount, &s.PhotoCount, &s.Overdue); err != nil {
 			return nil, 0, fmt.Errorf("scan checklist summary: %w", err)
 		}
 		out = append(out, s)

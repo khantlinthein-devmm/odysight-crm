@@ -32,6 +32,7 @@ const counts = ref<Partial<Record<ChecklistState, number>>>({});
 
 // The state tiles double as the filter tabs.
 const tiles: { value: ChecklistState; label: string; icon: IconName; tone: string; ring: string }[] = [
+  { value: "missing", label: "Missing checklist", icon: "warning", tone: "bg-red-100 text-red-600", ring: "ring-red-300" },
   { value: "submitted", label: "Waiting review", icon: "inbox", tone: "bg-amber-100 text-amber-600", ring: "ring-amber-300" },
   { value: "rework", label: "Sent back", icon: "undo", tone: "bg-red-100 text-red-600", ring: "ring-red-300" },
   { value: "approved", label: "Approved", icon: "badge", tone: "bg-emerald-100 text-emerald-600", ring: "ring-emerald-300" },
@@ -114,7 +115,7 @@ onMounted(() => {
 <template>
   <div class="space-y-4">
     <!-- State tiles -->
-    <div class="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-5">
+    <div class="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-6">
       <button
         v-for="tile in tiles"
         :key="tile.value"
@@ -203,7 +204,8 @@ onMounted(() => {
           <div class="w-full sm:w-36">
             <div class="flex items-center justify-between text-[11px] font-semibold text-gray-500">
               <span>{{ r.itemsDone }}/{{ r.itemsTotal }}</span>
-              <span>{{ r.itemsTotal ? Math.round((r.itemsDone / r.itemsTotal) * 100) : 0 }}%</span>
+              <span v-if="!r.id" class="text-red-600">No checklist</span>
+              <span v-else>{{ r.itemsTotal ? Math.round((r.itemsDone / r.itemsTotal) * 100) : 0 }}%</span>
             </div>
             <div class="mt-1 h-1.5 overflow-hidden rounded-full bg-gray-100">
               <div class="h-full rounded-full bg-gradient-to-r from-navy-500 to-emerald-500" :style="{ width: `${r.itemsTotal ? (r.itemsDone / r.itemsTotal) * 100 : 0}%` }"></div>

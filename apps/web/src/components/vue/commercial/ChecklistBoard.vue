@@ -55,6 +55,8 @@ const bookingsLoading = ref(true);
 const checklist = ref<Checklist | null>(null);
 const loading = ref(false);
 const missing = ref(false);
+// The booking's service has no checklist template (and there is no general one).
+const noTemplate = ref(false);
 const signature = ref("");
 const confirming = ref(false);
 const submitting = ref(false);
@@ -145,14 +147,18 @@ async function handleLoad() {
   if (bookingId.value === "") return;
   loading.value = true;
   missing.value = false;
+  noTemplate.value = false;
   setUrl(Number(bookingId.value));
   try {
     checklist.value = await getChecklistByBooking(Number(bookingId.value));
     reviewNote.value = "";
   } catch (err) {
-    // 404 just means no checklist yet; the empty state says what to do.
+    // 404: no checklist and none could be created. Opening a booking creates
+    // its checklist from the template, so this means there is no template
+    // for the service (or this role may only read checklists).
     if (err instanceof ApiError && err.status === 404) {
       missing.value = true;
+      noTemplate.value = /template/i.test(err.message);
     } else {
       showToast(err instanceof Error ? err.message : "Failed to load checklist", "error");
     }
@@ -431,7 +437,7 @@ onMounted(async () => {
               <option v-if="bookingId !== '' && !selectedBooking" :value="bookingId">#{{ bookingId }}</option>
               <option v-for="b in bookings" :key="b.id" :value="b.id">{{ b.bookingNumber }} — {{ b.customerName }}</option>
             </select>
-          <template v-if="canManage && missing">
+          <template v-if="canManage && missing && !noTemplate">
             <select v-model="templateId" class="w-full text-sm sm:w-72" aria-label="Template">
               <option value="">Auto{{ autoTemplate ? ` — ${autoTemplate.name}` : "" }}</option>
               <option v-for="tp in templates.filter((x) => x.isActive)" :key="tp.id" :value="tp.id">{{ tp.name }} ({{ tp.items.length }})</option>
@@ -677,9 +683,21 @@ onMounted(async () => {
       <section v-else class="flex flex-col items-center rounded-3xl bg-white px-6 py-14 text-center shadow-sm ring-1 ring-gray-100">
         <span class="flex h-14 w-14 items-center justify-center rounded-2xl bg-navy-50 text-navy-500"><AppIcon name="clipboard" :size="28" /></span>
         <p class="mt-4 max-w-sm text-sm text-gray-500">
-          <template v-if="missing">{{ isCleaner ? L("cl.noChecklist", "") : "No checklist yet. It is created from the service's template when the cleaner opens the job, or create it now." }}</template>
+          <template v-if="missing && noTemplate">
+            <span class="block font-semibold text-gray-800">{{ L("cl.noTemplateTitle", "No checklist template for this service yet") }}</span>
+            <span class="mt-1 block">{{ isCleaner ? L("cl.noTemplateCleaner", "") : `Add a template for “${selectedBooking ? serviceLabel(selectedBooking.serviceType) : "this service"}” (or a general one for any service), then open the booking again.` }}</span>
+          </template>
+          <template v-else-if="missing">{{ isCleaner ? L("cl.noChecklist", "") : "No checklist for this booking yet." }}</template>
           <template v-else>{{ L("cl.empty", "Pick a booking to open its checklist.") }}</template>
         </p>
+        <button
+          v-if="missing && noTemplate && canManage"
+          type="button"
+          class="mt-5 inline-flex items-center gap-2 rounded-2xl bg-navy-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-navy-700"
+          @click="view = 'templates'"
+        >
+          <AppIcon name="stack" :size="17" /> Go to Templates
+        </button>
       </section>
     </template>
   </div>

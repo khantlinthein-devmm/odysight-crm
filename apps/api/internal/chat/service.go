@@ -367,6 +367,38 @@ func (s *Service) Unsubscribe(ctx context.Context, me auth.Identity, endpoint st
 	return s.repo.DeleteSubscription(ctx, me.UserID, endpoint)
 }
 
+// PushToUser sends one notification to every device of a user (best-effort,
+// detached from the request). Other modules use it for alerts that are not
+// chat messages, e.g. a checklist sent back for rework. url is the page the
+// notification opens; tag collapses repeats of the same alert.
+func (s *Service) PushToUser(userID int64, title, body, url, tag string) {
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		subs, err := s.repo.Subscriptions(ctx, userID)
+		if err != nil || len(subs) == 0 {
+			return
+		}
+		sender, err := s.pushSender(ctx)
+		if err != nil {
+			slog.Warn("push disabled", "error", err)
+			return
+		}
+		if r := []rune(body); len(r) > 160 {
+			body = string(r[:160]) + "…"
+		}
+		payload, _ := json.Marshal(map[string]string{"title": title, "body": strings.TrimSpace(body), "url": url, "tag": tag})
+		for _, sub := range subs {
+			err := sender.Send(ctx, webpush.Subscription{Endpoint: sub.Endpoint, P256dh: sub.P256dh, Auth: sub.Auth}, payload, 24*time.Hour)
+			if errors.Is(err, webpush.ErrGone) {
+				s.repo.DropSubscription(ctx, sub.ID)
+			} else if err != nil {
+				slog.Warn("push failed", "subscription", sub.ID, "error", err)
+			}
+		}
+	}()
+}
+
 // notify pushes a new-message alert to every device of the recipient. It
 // runs detached from the request, best-effort. title is the sender (or the
 // group); prefix goes before the preview ("Noi: " in a group).
